@@ -1,0 +1,119 @@
+---
+description: A shortest-path algorithm that copes with negative edge weights, and can tell you when a graph has a cycle that makes shortest paths meaningless.
+difficulty: advanced
+---
+
+[Dijkstra's algorithm](/algorithms/dijkstras-algorithm/) finds shortest paths quickly, on one condition: no edge may have a negative weight. Negative weights are not exotic. They appear whenever an edge can represent a gain as well as a cost: a refund, a downhill stretch that recharges a battery, a currency trade.
+
+The Bellman-Ford algorithm handles them. It is slower than Dijkstra's, and simpler.
+
+## Why Dijkstra's algorithm fails
+
+Dijkstra's algorithm declares a vertex finished as soon as it is the closest unfinished one, reasoning that any other route would have to go through something further away and could only cost more. A negative edge breaks that reasoning. A route through a more distant vertex can come back cheaper.
+
+<Graph
+  directed
+  nodes={{ S: [0, 0.5], A: [1.4, 0], B: [1.4, 1] }}
+  edges={[['S', 'A', 4], ['S', 'B', 5], ['B', 'A', -3]]}
+  path={[['S', 'B'], ['B', 'A']]}
+  caption="Dijkstra's algorithm settles A at 4, since it is the closest. But going through B costs 5 − 3 = 2."
+/>
+
+## The idea
+
+Bellman-Ford makes no clever choices at all. It relies on one operation, **relaxing** an edge: checking whether going through that edge gives a shorter route to its far end, and updating the distance if so.
+
+The algorithm is: **relax every edge. Repeat that V − 1 times**, where V is the number of vertices.
+
+## Watch it run
+
+<GraphDemo
+  algorithm="bellman-ford"
+  directed
+  nodes={{ S: [0, 1], A: [1.4, 0], B: [1.4, 2], C: [2.8, 0], D: [4, 1] }}
+  edges={[['A', 'C', 2], ['C', 'D', 1], ['S', 'A', 4], ['S', 'B', 5], ['B', 'A', -3], ['B', 'D', 6]]}
+/>
+
+The edges are tried in a fixed order that is deliberately unhelpful: A → C and C → D come first. Things to notice:
+
+- In round 1 those first two edges do nothing, because A and C have not been reached yet. The same edges become useful in round 2.
+- A is first set to 4, then improved to 2 by the negative edge from B.
+- D is first reached at 11 and later improved to 5.
+- Round 3 changes nothing, so the algorithm stops early.
+
+## Why V − 1 rounds is enough
+
+A shortest path never needs to visit a vertex twice, so it has at most V − 1 edges.
+
+After round 1, every shortest path that uses **one** edge is correct. After round 2, every shortest path of up to **two** edges is correct, because its first edge was settled in round 1 and its second is relaxed in round 2. In general, round k settles all shortest paths of up to k edges.
+
+So V − 1 rounds settle everything, whatever order the edges are tried in. A good order just finishes sooner.
+
+This is [dynamic programming](/algorithms/dynamic-programming/): the subproblem is "the shortest distance using at most k edges", built up from k − 1.
+
+## Negative cycles
+
+Suppose a cycle's weights add up to less than zero. Going round it once more always makes the path cheaper. There is no shortest path: the cost can be driven down for ever.
+
+Bellman-Ford detects this for free. After V − 1 rounds every distance should be final. Run **one more round**. If any edge can still be relaxed, the graph contains a negative cycle reachable from the start.
+
+```python
+def bellman_ford(vertices, edges, start):
+    dist = {v: float('inf') for v in vertices}
+    dist[start] = 0
+
+    for _ in range(len(vertices) - 1):
+        changed = False
+        for u, v, weight in edges:
+            if dist[u] + weight < dist[v]:
+                dist[v] = dist[u] + weight
+                changed = True
+        if not changed:
+            break                           # nothing improved: finished early
+
+    for u, v, weight in edges:              # one more pass
+        if dist[u] + weight < dist[v]:
+            raise ValueError('the graph has a negative cycle')
+    return dist
+```
+
+Note that the graph is given as a plain [edge list](/data-structures/graph-representations/#edge-list). The algorithm just loops over the edges and needs nothing else.
+
+### A use for negative cycles: arbitrage
+
+Make each currency a vertex and each exchange rate an edge. A sequence of trades that ends with more money than it started with is called arbitrage. Because exchange rates multiply and path lengths add, take the negative logarithm of each rate as the edge weight. A profitable loop of trades is then exactly a negative cycle, and Bellman-Ford finds it.
+
+## The cost
+
+<Ops
+  items={[
+    ['Time', 'O(V × E)'],
+    ['Memory', 'O(V)'],
+  ]}
+/>
+
+V − 1 rounds, each looking at all E edges.
+
+| | Dijkstra | Bellman-Ford |
+| --- | --- | --- |
+| Negative weights | no | yes |
+| Detects negative cycles | no | yes |
+| Time | O((V + E) log V) | O(V × E) |
+| Approach | greedy | dynamic programming |
+| Needs | a priority queue | just a list of edges |
+
+For a graph with 10,000 vertices and 50,000 edges, that is roughly a million operations for Dijkstra against 500 million for Bellman-Ford. Use Dijkstra's algorithm whenever the weights allow it.
+
+## Where it shows up
+
+- **Network routing.** *Distance-vector* protocols such as RIP are a distributed Bellman-Ford. Each router knows only its neighbours, repeatedly tells them its best known distances, and updates its own from theirs. No router needs a map of the whole network.
+- **Currency arbitrage** and other searches for profitable cycles.
+- **Systems of difference constraints**, such as scheduling rules of the form "task B must start at least 3 hours after task A", which reduce to shortest paths with negative weights.
+- **As a first step** in algorithms for shortest paths between all pairs of vertices, where it is used once to remove the negative weights so that Dijkstra's algorithm can do the rest.
+
+## Key takeaways
+
+- Bellman-Ford finds shortest paths from one vertex even when some edge weights are negative.
+- It relaxes every edge, V − 1 times. Round k fixes all shortest paths of up to k edges.
+- One extra round detects a negative cycle, in which case shortest paths do not exist.
+- It costs O(V × E), much more than Dijkstra's algorithm, so use it only when negative weights require it.
