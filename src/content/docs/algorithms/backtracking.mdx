@@ -1,0 +1,140 @@
+---
+description: Search for a solution by building it one choice at a time, and undoing a choice as soon as it cannot lead anywhere. A systematic way to try every possibility while skipping most of them.
+difficulty: intermediate
+---
+
+Some problems have no clever formula. The only way to solve a Sudoku, place queens on a chessboard or find a route through a maze is to try things. Backtracking is the disciplined way to do that.
+
+Build a solution one piece at a time. After each piece, check whether the partial solution could still work. If it cannot, **undo the last choice** and try the next option. If there are no options left, go back another step.
+
+## A worked example: the queens puzzle
+
+Place four queens on a 4 × 4 board so that no two attack each other. Queens attack along rows, columns and diagonals.
+
+Each row must hold exactly one queen, so work down the board a row at a time, choosing a column for each.
+
+<QueensPlayer n={4} />
+
+Notice what happens at each dead end. The search does not start again from scratch. It goes back exactly one row, moves that queen to its next possible column, and continues from there.
+
+There are 256 ways to put one queen in each row of a 4 × 4 board. Backtracking found a solution after placing a queen only eight times, because it abandoned whole families of arrangements as soon as their first two queens clashed.
+
+## The template
+
+Almost every backtracking algorithm has the same shape.
+
+```python
+def solve(state):
+    if is_complete(state):
+        return True
+    for choice in options(state):
+        if is_valid(state, choice):
+            apply(state, choice)         # choose
+            if solve(state):             # explore
+                return True
+            undo(state, choice)          # un-choose
+    return False
+```
+
+**Choose, explore, un-choose.** The `undo` line is what makes it backtracking, and forgetting it is the most common bug.
+
+For the queens:
+
+```python
+def solve_queens(n, queens=None):
+    queens = queens or []                # queens[row] = column
+    row = len(queens)
+    if row == n:
+        return queens
+    for col in range(n):
+        if all(c != col and abs(c - col) != row - r
+               for r, c in enumerate(queens)):
+            queens.append(col)
+            if solve_queens(n, queens):
+                return queens
+            queens.pop()
+    return None
+```
+
+The call stack remembers where the search is, so "going back" is just returning from a function. See [recursion](/algorithms/recursion/).
+
+## It is a depth-first search
+
+The possible partial solutions form a tree. The root is the empty board, each branch is a choice, and each leaf is a complete arrangement or a dead end. Backtracking is a [depth-first search](/algorithms/depth-first-search/) of that tree which never builds the tree: it generates each node only when it gets there.
+
+The power comes from **pruning**. When a partial solution breaks a rule, the entire subtree below it is skipped without being looked at.
+
+| Board size | Arrangements with one queen per row | Queens placed by backtracking to find a solution |
+| --- | --- | --- |
+| 4 × 4 | 256 | 8 |
+| 8 × 8 | 16,777,216 | 113 |
+
+The earlier a bad choice is detected, the bigger the subtree that is cut off. A good backtracking algorithm checks constraints as soon as possible.
+
+## Making it faster
+
+Backtracking is exponential in the worst case. In practice, how you prune and in what order you try things makes an enormous difference.
+
+- **Check early.** Reject a partial solution the moment it breaks a rule, not when it is complete.
+- **Most constrained first.** In Sudoku, fill the cell with the fewest possible digits next. If a cell has only one option, there is nothing to guess; if it has none, you learn about the dead end immediately.
+- **Look ahead.** After a choice, work out what it rules out for the remaining decisions. If something is left with no options, backtrack now.
+- **Keep fast records.** For the queens, remembering which columns and diagonals are taken, in sets or as [bits](/foundations/bitwise-operations/), makes each validity check O(1).
+
+A plain backtracking Sudoku solver can take seconds on a hard puzzle. With these three ideas it takes milliseconds.
+
+## Finding one, all, or the best
+
+The same skeleton answers three kinds of question.
+
+| Goal | Change |
+| --- | --- |
+| **Any** solution | stop at the first complete one |
+| **All** solutions | record each complete one and keep going |
+| The **best** solution | keep the best so far, and prune any branch that already cannot beat it |
+
+The last variant is called *branch and bound*.
+
+## Generating combinations
+
+Backtracking is also the standard way to list every permutation, subset or combination, by treating "which item next?" as the choice.
+
+```python
+def permutations(items, current=None, used=None):
+    current, used = current or [], used or set()
+    if len(current) == len(items):
+        yield list(current)
+        return
+    for i, item in enumerate(items):
+        if i not in used:
+            used.add(i)
+            current.append(item)
+            yield from permutations(items, current, used)
+            current.pop()
+            used.remove(i)
+```
+
+There are n! permutations and 2ⁿ subsets, so such listings are only practical for small n. See [combinatorics](/foundations/combinatorics/).
+
+## Backtracking or dynamic programming?
+
+Both explore a space of choices. The difference is whether the same situation is reached repeatedly.
+
+- If different sequences of choices lead to the **same subproblem**, remember the answers: that is [dynamic programming](/algorithms/dynamic-programming/).
+- If every partial solution is essentially unique, there is nothing to reuse, and backtracking with good pruning is the tool.
+
+## Where it shows up
+
+- **Puzzles**: Sudoku, crosswords, the queens, mazes.
+- **Constraint satisfaction**: timetabling, assigning staff to shifts, configuring products.
+- **Regular expression engines**, many of which match by backtracking. A badly written pattern can make them take exponential time, which has caused real outages.
+- **Parsers**, when a grammar rule turns out not to apply.
+- **SAT solvers**, which decide whether a logical formula can be satisfied, and which sit underneath hardware verification and package dependency resolution.
+- **Game playing**, exploring moves and counter-moves.
+
+## Key takeaways
+
+- Backtracking builds a solution step by step and undoes a step as soon as it cannot lead to a solution.
+- The pattern is choose, explore, un-choose.
+- It is a depth-first search of the tree of partial solutions, made practical by pruning.
+- Detect dead ends as early as possible, and make the most constrained choice first.
+- It is exponential in the worst case, and the right tool when no better structure is available.
