@@ -1,0 +1,107 @@
+---
+description: Every algorithm spends two resources, steps and memory. Complexity analysis measures how each grows with the input, and the two can often be traded for one another.
+difficulty: beginner
+---
+
+[Big-O notation](/foundations/big-o-notation/) describes how something grows as the input grows. That "something" is usually one of two resources.
+
+- **Time complexity**: how the number of steps grows.
+- **Space complexity**: how the amount of memory grows.
+
+Most discussion is about time, because a slow program is the more common complaint. But memory is finite too, and the most interesting design decisions are about spending one to save the other.
+
+## Counting space
+
+Space complexity usually means **auxiliary space**: the *extra* memory an algorithm needs, not counting the input itself.
+
+Two ways to reverse a list show the difference.
+
+```python
+def reversed_copy(items):          # O(n) extra space
+    result = []
+    for x in reversed(items):
+        result.append(x)
+    return result
+
+
+def reverse_in_place(items):       # O(1) extra space
+    i, j = 0, len(items) - 1
+    while i < j:
+        items[i], items[j] = items[j], items[i]
+        i += 1
+        j -= 1
+```
+
+Both take O(n) time. The first builds a second list as large as the input. The second uses two index variables however long the list is. An algorithm that needs only O(1) extra space is said to work **in place**.
+
+## The space you cannot see: the call stack
+
+A [recursive](/algorithms/recursion/) function uses memory even when it creates no data structures, because every call that has not yet returned occupies a frame on the call stack.
+
+```python
+def total(items, i=0):
+    if i == len(items):
+        return 0
+    return items[i] + total(items, i + 1)
+```
+
+This looks as though it uses no extra memory. In fact it stacks up n unfinished calls: O(n) space. A loop doing the same sum would use O(1).
+
+The rule: **recursive space is the maximum depth of the recursion**, not the total number of calls.
+
+| Algorithm | Time | Extra space | Where the space goes |
+| --- | --- | --- | --- |
+| [Binary search](/algorithms/binary-search/) (loop) | O(log n) | O(1) | two indices |
+| [Merge sort](/algorithms/merge-sort/) | O(n log n) | O(n) | the merge buffer |
+| [Quicksort](/algorithms/quicksort/) | O(n log n) | O(log n) | the recursion stack |
+| [Heapsort](/algorithms/heapsort/) | O(n log n) | O(1) | nothing |
+| [Breadth-first search](/algorithms/breadth-first-search/) | O(V + E) | O(V) | the queue and the "seen" set |
+
+## Trading space for time
+
+The most common optimisation in programming is to use more memory to do less work.
+
+**Remembering instead of searching.** To check a list for duplicates, comparing every pair is O(n²) time and O(1) space. Keeping a [set](/data-structures/sets/) of what has been seen is O(n) time and O(n) space.
+
+**Remembering instead of recomputing.** A cache stores answers so they are not worked out twice. [Dynamic programming](/algorithms/dynamic-programming/) is this idea made systematic, and can turn exponential time into linear time for the price of a table.
+
+**Precomputing.** A database index is extra storage, sometimes as large as the data itself, kept so that lookups are O(log n) instead of O(n).
+
+| Problem | Low memory | Low time |
+| --- | --- | --- |
+| Find duplicates | O(n²) time, O(1) space | O(n) time, O(n) space |
+| Fibonacci number | O(2ⁿ) time, O(n) space | O(n) time, O(n) space, with a cache |
+| Look up a record | O(n) time, no index | O(log n) time, with an index |
+
+The trade runs the other way as well. Compressing data saves space and costs time to decompress. Streaming through a huge file one line at a time, instead of loading it all, uses O(1) memory at the cost of only being able to read forwards.
+
+## Which matters more?
+
+It depends on which limit you hit first.
+
+- **Time is usually the constraint.** Memory is cheap and plentiful, and users notice waiting.
+- **Space wins when the data is large.** An algorithm that needs O(n) extra memory is not an option if n is larger than the machine's RAM. That is why [external sorting](/algorithms/merge-sort/) and streaming algorithms exist.
+- **Space wins on small devices**, where a microcontroller may have a few kilobytes.
+- **Space affects time.** Using less memory means more of the data fits in the processor's cache, and cache misses are slow. A compact algorithm can beat one with a better Big-O for this reason alone.
+
+<Aside title="Space is never more than time">
+
+An algorithm cannot use more memory than it has time to touch. Writing to n memory cells takes at least n steps, so space complexity is always less than or equal to time complexity. The reverse is not true: an algorithm can run for a very long time in a small amount of memory.
+
+</Aside>
+
+## Describing both
+
+When you state an algorithm's complexity, give both, and say what n is.
+
+> Merge sort runs in O(n log n) time and O(n) extra space, where n is the number of elements.
+
+Some inputs have more than one size. A graph has V vertices and E edges; a grid has rows and columns; a string search has the text length and the pattern length. Keep them as separate variables rather than collapsing them into one n.
+
+## Key takeaways
+
+- Time complexity counts steps; space complexity counts extra memory. Both are described with Big-O.
+- An in-place algorithm uses O(1) extra space.
+- Recursion costs stack space proportional to its maximum depth.
+- Extra memory can often buy speed, through sets, caches, tables and indexes.
+- State both complexities, and say what the variables measure.
