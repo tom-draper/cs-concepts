@@ -1,0 +1,114 @@
+---
+description: A fixed-size array used as a loop. It never grows and never shifts, which makes it the standard buffer between a fast producer and a slow consumer.
+difficulty: intermediate
+---
+
+A ring buffer (or circular buffer) is a fixed block of memory that is written to in a loop: when the writer reaches the end, it carries on from the start. The [queues](/data-structures/queues/) page uses one to build a FIFO queue. This page looks at the ring buffer in its own right, because its fixed size is not a limitation to work around. It is the feature.
+
+## Why fixed size is the point
+
+A ring buffer allocates its memory once and never again. That gives it properties a growable queue cannot offer:
+
+- **Bounded memory.** It can never grow until the machine runs out.
+- **Predictable timing.** Every operation is a couple of index calculations. There is no occasional slow resize.
+- **No allocation.** It can be used where allocating is forbidden or too slow: interrupt handlers, audio callbacks, embedded devices.
+
+The price is a decision you must make up front: **what happens when it is full?**
+
+## Policy one: overwrite the oldest
+
+Keep the most recent N items and silently drop older ones. This is how a "last 100 log lines" buffer, a flight recorder or a rolling average works.
+
+<Player>
+<Frame caption="A buffer of four slots. <code>next</code> is where the next write goes.">
+<ArrayViz values={[null, null, null, null]} pointers={{ next: 0 }} />
+</Frame>
+<Frame caption="Write A, B and C. Nothing unusual yet.">
+<ArrayViz values={['A', 'B', 'C', null]} highlight={[0, 1, 2]} pointers={{ oldest: 0, next: 3 }} />
+</Frame>
+<Frame caption="Write D. The buffer is full, and <code>next</code> wraps round to index 0, where the oldest item is.">
+<ArrayViz values={['A', 'B', 'C', 'D']} highlight={[3]} pointers={{ oldest: 0, next: 0 }} />
+</Frame>
+<Frame caption="Write E. It overwrites A, the oldest item. B is now the oldest.">
+<ArrayViz values={['E', 'B', 'C', 'D']} alt={[0]} pointers={{ oldest: 1, next: 1 }} />
+</Frame>
+<Frame caption="Write F. It overwrites B. The buffer always holds the latest four items: C, D, E, F.">
+<ArrayViz values={['E', 'F', 'C', 'D']} alt={[1]} pointers={{ oldest: 2, next: 2 }} />
+</Frame>
+</Player>
+
+Once full, the oldest item is always the one about to be overwritten, so a single index is enough.
+
+```python
+class RecentItems:
+    def __init__(self, capacity):
+        self.slots = [None] * capacity
+        self.next = 0
+        self.count = 0
+
+    def write(self, value):
+        self.slots[self.next] = value
+        self.next = (self.next + 1) % len(self.slots)
+        self.count = min(self.count + 1, len(self.slots))
+
+    def items(self):                       # oldest first
+        start = (self.next - self.count) % len(self.slots)
+        return [self.slots[(start + i) % len(self.slots)]
+                for i in range(self.count)]
+```
+
+## Policy two: refuse when full
+
+When every item matters, the buffer keeps separate **read** and **write** positions and rejects a write when there is no room. The producer must then wait, drop the item, or signal an error. This is the bounded queue from the [queues](/data-structures/queues/) page, and the refusal is how *backpressure* reaches the producer.
+
+<ArrayViz
+  values={['G', null, null, 'D', 'E', 'F']}
+  pointers={{ read: 3, write: 1 }}
+  caption="The reader consumes from read; the writer fills at write. The buffer is full when write catches up with read."
+/>
+
+## The power-of-two trick
+
+The wrap-around uses the remainder operator, and division is one of the slower things a processor does. If the capacity is a power of two, the remainder can be replaced by a bitwise AND, which is nearly free:
+
+```text
+index % capacity   ==   index & (capacity - 1)      when capacity is a power of two
+```
+
+With a capacity of 8, `capacity - 1` is `0111` in binary, so the AND keeps the low three bits and discards the rest. Index 9 (`1001`) becomes 1 (`001`).
+
+This allows a neat design: let the read and write counters simply increase forever, and mask them only when touching the array.
+
+```text
+slot      = counter & (capacity - 1)
+items     = write - read
+is empty  = write == read
+is full   = write - read == capacity
+```
+
+Full and empty are now easy to tell apart, which is a classic stumbling block when the two indices are wrapped instead. See [bitwise operations](/foundations/bitwise-operations/).
+
+## Sharing between two threads without locks
+
+Ring buffers are the standard way to pass data between two threads, and with exactly one producer and one consumer they need **no lock at all**.
+
+The reason is ownership: only the producer ever changes `write`, and only the consumer ever changes `read`. Each side reads the other's counter but never modifies it, so they cannot corrupt one another. The counters just need to be [atomic](/concurrency/atomics-and-compare-and-swap/) so that a half-written value is never seen.
+
+This single-producer, single-consumer ring is how audio software moves samples between the sound card's real-time thread and the rest of the program, where taking a lock could cause an audible glitch. With more than one producer or consumer the design gets harder, and belongs with [lock-free data structures](/concurrency/lock-free-data-structures/).
+
+## Where ring buffers show up
+
+- **Audio and video.** Samples and frames queue in a ring between capture, processing and playback.
+- **Network cards and drivers.** Incoming packets land in a ring shared between the hardware and the operating system.
+- **Logging and tracing.** Keep the last N events in memory at almost no cost; dump them when something goes wrong.
+- **Keyboards and serial ports.** Input waits in a small ring until the program reads it.
+- **Linux `io_uring`.** The name is literal: two rings shared between a program and the kernel, one for requests and one for results.
+- **Rolling statistics.** A moving average over the last N readings.
+
+## Key takeaways
+
+- A ring buffer is a fixed array written in a loop, with indices that wrap round.
+- Its fixed size gives bounded memory, predictable speed and no allocation.
+- You must choose what happens when it is full: overwrite the oldest, or refuse the write.
+- With a power-of-two capacity, wrapping is a single bitwise AND.
+- With one producer and one consumer, it can be shared between threads without a lock.
