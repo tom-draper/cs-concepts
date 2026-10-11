@@ -1,0 +1,45 @@
+---
+// Intervals on a timeline, one per row, with some of them marked as chosen.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+interface Props {
+  /** `[label, start, end]`. */
+  items: [string, number, number][];
+  /** Labels of the chosen intervals. */
+  chosen?: string[];
+  caption?: string;
+}
+
+const { items, chosen = [], caption } = Astro.props;
+
+const UNIT = 30;
+const ROW = 26;
+const PAD = 12;
+const LEFT = 26;
+const max = Math.max(...items.map(([, , end]) => end));
+const width = LEFT + PAD + max * UNIT + PAD;
+const height = PAD + items.length * ROW + 24;
+const x = (t: number) => LEFT + PAD + t * UNIT;
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`Intervals: ${items.map(([l, s, e]) => `${l} from ${s} to ${e}${chosen.includes(l) ? ' (chosen)' : ''}`).join('; ')}`}>
+    {
+      Array.from({ length: max + 1 }, (_, t) => (
+        <>
+          <line class="c-grid" x1={x(t)} y1={PAD - 4} x2={x(t)} y2={PAD + items.length * ROW} />
+          {t % 2 === 0 && <text class="v-small" x={x(t)} y={height - 10}>{t}</text>}
+        </>
+      ))
+    }
+    {
+      items.map(([name, start, end], i) => (
+        <g class={`v-node ${chosen.includes(name) ? 'hl' : ''}`}>
+          <text class="v-small" x={LEFT} y={PAD + i * ROW + ROW / 2 - 2}>{name}</text>
+          <rect x={x(start)} y={PAD + i * ROW + 2} width={(end - start) * UNIT} height={ROW - 8} rx="5" />
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
