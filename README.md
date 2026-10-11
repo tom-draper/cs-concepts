@@ -75,6 +75,10 @@ The existing pages follow roughly this order, which is worth keeping:
 
 <Tree btree root={{ k: [10, 20], c: [[3, 7], [12, 15, 18], [25, 30]] }} />
 
+<Tree root={{ k: 10, c: [5, 15] }} red={[5, 15]} black={[10]} notes={{ 10: '+1' }} />
+
+<Tree btree linkLeaves leafOnly root={{ k: [10], c: [[3, 7], [10, 12]] }} alt={[12]} />
+
 <HashTable buckets={[['cat', 'act'], [], ['dog']]} highlight={0} alt={['act']}
   input={{ key: 'act', note: '312 % 8 = 0' }} />
 
