@@ -1,0 +1,115 @@
+---
+description: Explore a graph by following one path as far as it goes, then backing up to try the next. The basis of cycle detection, topological sorting and backtracking.
+difficulty: intermediate
+---
+
+Depth-first search (DFS) explores a graph the way you would explore a maze with a piece of chalk. Walk down a corridor, marking where you have been. At a junction, pick any unmarked way and keep going. At a dead end, walk back to the last junction with an unexplored exit and take it.
+
+Where [breadth-first search](/algorithms/breadth-first-search/) spreads outward evenly, DFS plunges as deep as it can and only backs up when it has to.
+
+## Watch it run
+
+export const nodes = { A: [0, 1], B: [1, 0], C: [1, 2], D: [2, 0], E: [2, 2], F: [3, 1], G: [4, 1] };
+export const edges = [['A', 'B'], ['A', 'C'], ['B', 'C'], ['B', 'D'], ['C', 'E'], ['D', 'F'], ['E', 'F'], ['F', 'G']];
+
+<GraphDemo algorithm="dfs" nodes={nodes} edges={edges} />
+
+This is the same graph as on the BFS page. Things to notice:
+
+- The numbers show the order in which vertices are first visited. From A it goes B, C, E, F, D: a long winding path, not the nearest vertices first.
+- C is a direct neighbour of A, but DFS reaches it *through* B. And D, one step from B, is visited sixth. DFS says nothing about distance.
+- The **path** is the route from the start to the current vertex. It grows when the search goes deeper and shrinks when it backs up.
+- A vertex is **finished** only when every route out of it has been explored.
+
+## The code
+
+DFS is naturally [recursive](/algorithms/recursion/): to explore a vertex, mark it, then explore each unvisited neighbour.
+
+```python
+def dfs(graph, node, seen=None):
+    if seen is None:
+        seen = []
+    seen.append(node)
+    for neighbour in graph[node]:
+        if neighbour not in seen:
+            dfs(graph, neighbour, seen)
+    return seen
+```
+
+(A real implementation would keep a [set](/data-structures/sets/) alongside the list, so that the "seen" check is O(1).)
+
+The path shown in the demo is the **call stack**: each recursive call is one vertex on it. That is also DFS's practical weakness. On a graph with a very long path, such as a chain of a hundred thousand vertices, the recursion can overflow the stack. The fix is to manage the [stack](/data-structures/stacks/) yourself:
+
+```python
+def dfs_iterative(graph, start):
+    seen = set()
+    stack = [start]
+    order = []
+    while stack:
+        node = stack.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        order.append(node)
+        for neighbour in reversed(graph[node]):
+            if neighbour not in seen:
+                stack.append(neighbour)
+    return order
+```
+
+Compare this with the BFS code. The structure is identical, with a stack in place of the queue. **Last in, first out** makes the search go deep; **first in, first out** makes it go wide.
+
+## The cost
+
+<Ops
+  items={[
+    ['Time', 'O(V + E)'],
+    ['Memory', 'O(V)', 'worst case; the longest path'],
+  ]}
+/>
+
+The time is the same as BFS: every vertex and edge is handled once. The memory is where they differ. DFS only remembers the current path, so on a wide but shallow graph it uses far less than BFS, which has to hold a whole ring at once.
+
+## What DFS is good for
+
+DFS does not find shortest paths. Its strength is that the order in which vertices are *entered* and *finished* reveals the structure of the graph.
+
+### Detecting cycles
+
+While exploring, if DFS meets a vertex that is **still on the current path**, it has found a way back to somewhere it has not finished: a cycle. In the demo, when the search is at D it sees B, which is on the path. So A, B, C, E, F, D contains a loop.
+
+This is how a build tool notices circular dependencies, and how a spreadsheet detects a circular reference.
+
+### Ordering dependencies
+
+In a directed graph with no cycles, the order in which DFS *finishes* vertices, reversed, is a valid order to do the tasks in. That is one of the two standard algorithms for [topological sorting](/algorithms/topological-sort/).
+
+### Finding connected pieces
+
+Run DFS from any unvisited vertex, and it marks everything reachable from there: one **connected component**. Repeat from the next unvisited vertex to find the next. For directed graphs, a refinement finds [strongly connected components](/algorithms/strongly-connected-components/).
+
+### Exhaustive search
+
+Solving a maze, a Sudoku or the eight queens puzzle means trying a choice, following its consequences as far as they go, and undoing it if it fails. That is DFS over a graph of partial solutions, and it is called [backtracking](/algorithms/backtracking/).
+
+## Trees are a special case
+
+The pre-order, in-order and post-order [tree traversals](/data-structures/binary-trees/#depth-first) are all depth-first search. A tree has no cycles, so the "seen" set is unnecessary, but the pattern of going deep and backing up is the same.
+
+## DFS or BFS?
+
+| Question | Use |
+| --- | --- |
+| What is the shortest route? | BFS |
+| What is the nearest vertex with some property? | BFS |
+| Is there a cycle? | DFS |
+| In what order can these dependent tasks be done? | DFS |
+| Is there any route at all? | either |
+| Explore every possibility in a deep search space | DFS, for its low memory |
+
+## Key takeaways
+
+- DFS follows one path as deep as it can, then backs up to the most recent unexplored branch.
+- It uses a stack, either the call stack through recursion or an explicit one.
+- It runs in O(V + E) time and remembers only the current path.
+- It does not find shortest paths; it is the tool for cycles, dependency ordering, components and backtracking.
