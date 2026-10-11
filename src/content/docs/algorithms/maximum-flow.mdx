@@ -1,0 +1,145 @@
+---
+description: How much can be pushed from a source to a destination through a network of limited-capacity links. The answer is always equal to the capacity of the tightest bottleneck.
+difficulty: advanced
+---
+
+Picture a network of pipes. Each pipe has a **capacity**, the most water it can carry. Water enters at one point, the **source**, and leaves at another, the **sink**. What is the greatest rate at which water can flow from one to the other?
+
+That is the maximum flow problem. Pipes can be roads, network links, or anything else with a limit, and a surprising number of problems that have nothing to do with flow turn out to be this problem in disguise.
+
+## The rules
+
+A **flow** assigns an amount to each edge, subject to two rules.
+
+- **Capacity.** The flow on an edge cannot exceed its capacity.
+- **Conservation.** At every vertex except the source and sink, what flows in equals what flows out. Nothing is created or lost along the way.
+
+## Finding a flow by pushing along paths
+
+The natural approach: find any path from source to sink that has spare capacity on every edge. Push as much as the path's tightest edge allows. Repeat until no such path is left. Such a path is called an **augmenting path**.
+
+Each edge below is labelled *flow / capacity*.
+
+<Player>
+<Frame caption="The network, with nothing flowing yet. S is the source and T is the sink.">
+<Graph directed nodes={{ S: [0, 0.6], A: [1.6, 0], B: [1.6, 1.2], T: [3.2, 0.6] }} edges={[['S', 'A', '0/3'], ['S', 'B', '0/2'], ['A', 'B', '0/1'], ['A', 'T', '0/2'], ['B', 'T', '0/3']]} highlight={['S', 'T']} />
+</Frame>
+<Frame caption="Path S, A, T. Its tightest edge is A to T with capacity 2, so push 2. Total flow: 2.">
+<Graph directed nodes={{ S: [0, 0.6], A: [1.6, 0], B: [1.6, 1.2], T: [3.2, 0.6] }} edges={[['S', 'A', '2/3'], ['S', 'B', '0/2'], ['A', 'B', '0/1'], ['A', 'T', '2/2'], ['B', 'T', '0/3']]} path={[['S', 'A'], ['A', 'T']]} highlight={['S', 'T']} />
+</Frame>
+<Frame caption="Path S, B, T. Its tightest edge is S to B with capacity 2, so push 2. Total flow: 4.">
+<Graph directed nodes={{ S: [0, 0.6], A: [1.6, 0], B: [1.6, 1.2], T: [3.2, 0.6] }} edges={[['S', 'A', '2/3'], ['S', 'B', '2/2'], ['A', 'B', '0/1'], ['A', 'T', '2/2'], ['B', 'T', '2/3']]} path={[['S', 'B'], ['B', 'T']]} highlight={['S', 'T']} />
+</Frame>
+<Frame caption="Path S, A, B, T. Each of its edges has 1 unit spare, so push 1. Total flow: 5.">
+<Graph directed nodes={{ S: [0, 0.6], A: [1.6, 0], B: [1.6, 1.2], T: [3.2, 0.6] }} edges={[['S', 'A', '3/3'], ['S', 'B', '2/2'], ['A', 'B', '1/1'], ['A', 'T', '2/2'], ['B', 'T', '3/3']]} path={[['S', 'A'], ['A', 'B'], ['B', 'T']]} highlight={['S', 'T']} />
+</Frame>
+<Frame caption="Both edges out of S are full, so no more can leave the source. The maximum flow is 5.">
+<Graph directed nodes={{ S: [0, 0.6], A: [1.6, 0], B: [1.6, 1.2], T: [3.2, 0.6] }} edges={[['S', 'A', '3/3'], ['S', 'B', '2/2'], ['A', 'B', '1/1'], ['A', 'T', '2/2'], ['B', 'T', '3/3']]} highlight={['S', 'T']} />
+</Frame>
+</Player>
+
+## The catch: sometimes you must undo
+
+Pushing greedily along paths can go wrong. An early choice may use an edge in a way that blocks a better arrangement, leaving no path with spare capacity even though the flow is not yet maximal.
+
+The fix is the central idea of the subject. Whenever flow is pushed along an edge, the algorithm also records the option to **push it back**. If 2 units flow from A to B, then a later path is allowed to travel "backwards" from B to A for up to 2 units, which means *cancelling* that much of the earlier flow and rerouting it.
+
+The graph of remaining possibilities, with spare forward capacity and these cancelling backward edges, is called the **residual graph**. Augmenting paths are searched for in the residual graph, not the original.
+
+With that addition, the method is correct: **when the residual graph has no path from source to sink, the flow is maximum.** This is the Ford-Fulkerson method.
+
+## Max flow equals min cut
+
+A **cut** is a way of splitting the vertices into two sides, with the source on one and the sink on the other. Its capacity is the total capacity of the edges crossing from the source's side to the sink's side.
+
+Any flow has to cross every cut, so no flow can exceed the capacity of any cut. The remarkable fact is that the limit is always reached:
+
+> The maximum flow equals the capacity of the minimum cut.
+
+In the example, the cut that separates S from everything else has capacity 3 + 2 = 5, which matches the flow found. The bottleneck is the source's own outgoing edges.
+
+This **max-flow min-cut theorem** means the algorithm solves two problems at once. Besides the flow, it identifies the cheapest set of edges whose removal disconnects the source from the sink: the weakest point in the network.
+
+## The algorithm in code
+
+Ford-Fulkerson does not say how to choose paths. Always choosing a **shortest** augmenting path, found by [breadth-first search](/algorithms/breadth-first-search/), gives the Edmonds-Karp algorithm, which has a guaranteed running time.
+
+```python
+from collections import deque
+
+def max_flow(capacity, source, sink):
+    """capacity[u][v] is the capacity of the edge u -> v (0 if there is none)."""
+    n = len(capacity)
+    residual = [row[:] for row in capacity]
+    total = 0
+    while True:
+        parent = [-1] * n                   # breadth-first search for a path
+        parent[source] = source
+        queue = deque([source])
+        while queue and parent[sink] == -1:
+            u = queue.popleft()
+            for v in range(n):
+                if parent[v] == -1 and residual[u][v] > 0:
+                    parent[v] = u
+                    queue.append(v)
+        if parent[sink] == -1:
+            return total                    # no path left: the flow is maximum
+
+        push = float('inf')                 # the tightest edge on the path
+        v = sink
+        while v != source:
+            push = min(push, residual[parent[v]][v])
+            v = parent[v]
+
+        v = sink
+        while v != source:
+            u = parent[v]
+            residual[u][v] -= push          # use up forward capacity
+            residual[v][u] += push          # allow it to be undone later
+            v = u
+        total += push
+```
+
+The line `residual[v][u] += push` is the "undo" option.
+
+<Ops
+  items={[
+    ['Edmonds-Karp', 'O(V × E²)'],
+    ['Dinic', 'O(V² × E)'],
+  ]}
+/>
+
+Dinic's algorithm, which pushes along many shortest paths at once, is the usual choice in practice.
+
+## Problems that are secretly flow
+
+The real value of maximum flow is how many other problems reduce to it.
+
+### Matching
+
+Given applicants and jobs, with a list of which applicants are suited to which jobs, fill as many jobs as possible with each applicant taking at most one.
+
+<Graph
+  directed
+  nodes={{ S: [0, 1], Ana: [1.4, 0], Ben: [1.4, 1], Cy: [1.4, 2], Dev: [3.2, 0.5], Ops: [3.2, 1.5], T: [4.6, 1] }}
+  edges={[['S', 'Ana'], ['S', 'Ben'], ['S', 'Cy'], ['Ana', 'Dev'], ['Ben', 'Dev'], ['Ben', 'Ops'], ['Cy', 'Ops'], ['Dev', 'T'], ['Ops', 'T']]}
+  highlight={['S', 'T']}
+  caption="Add a source feeding every applicant and a sink fed by every job. Give every edge capacity 1. The maximum flow is the largest possible matching."
+/>
+
+Each unit of flow is one applicant placed in one job. The capacities of 1 ensure nobody takes two jobs and no job is filled twice. This is *bipartite matching*, and it covers assigning students to projects, drivers to riders, and tasks to machines.
+
+### Others
+
+- **Network reliability.** By the min-cut theorem, the number of links that must fail to cut two points apart equals the number of separate routes between them.
+- **Image segmentation.** Separating the foreground of a picture from the background is a minimum cut on a graph of pixels.
+- **Scheduling and assignment** with capacity limits: flights to gates, shifts to staff.
+- **Sports elimination.** Deciding whether a team can still mathematically win a league is a flow problem.
+
+## Key takeaways
+
+- Maximum flow asks how much can travel from a source to a sink through edges with limited capacity.
+- The Ford-Fulkerson method repeatedly finds a path with spare capacity and pushes flow along it.
+- Backward edges in the residual graph let later paths undo earlier choices, which is what makes the method correct.
+- The maximum flow always equals the capacity of the minimum cut.
+- Matching and many assignment problems are solved by turning them into flow networks.
