@@ -1,0 +1,39 @@
+---
+// Drag the number of people and see the chance that two share a birthday.
+import { sharedChance } from '../lib/discrete';
+
+const people = 23;
+const chance = sharedChance(people);
+---
+
+<birthday-demo class="playground birthday-demo">
+  <label class="wide">
+    <span><b data-out="people">{people}</b> people in the room</span>
+    <input type="range" min="1" max="100" value={people} />
+  </label>
+  <div class="meter" aria-hidden="true"><i style={`width:${chance * 100}%`}></i></div>
+  <p class="mod-result" aria-live="polite">
+    Chance that at least two share a birthday: <b data-out="chance">{(chance * 100).toFixed(1)}%</b>
+  </p>
+</birthday-demo>
+
+<script>
+  import { sharedChance } from '../lib/discrete';
+
+  class BirthdayDemo extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const bar = this.querySelector<HTMLElement>('.meter i')!;
+      input.addEventListener('input', () => {
+        const people = Number(input.value);
+        const chance = sharedChance(people);
+        this.querySelector('[data-out="people"]')!.textContent = String(people);
+        this.querySelector('[data-out="chance"]')!.textContent =
+          chance > 0.99995 ? 'over 99.99%' : `${(chance * 100).toFixed(1)}%`;
+        bar.style.width = `${chance * 100}%`;
+      });
+    }
+  }
+
+  customElements.define('birthday-demo', BirthdayDemo);
+</script>

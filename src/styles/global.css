@@ -1573,3 +1573,129 @@ main {
 .utf8-demo td:not(:first-child) {
   font-family: var(--mono);
 }
+
+/* ---------- Discrete maths widgets ---------- */
+
+.playground table {
+  width: 100%;
+  margin: 0.8rem 0 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.playground td {
+  padding: 0.35rem 0.75rem 0.35rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.playground td:nth-child(2) {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+}
+
+.playground td.result {
+  font-family: var(--mono);
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.logic-demo tr[data-on] .result {
+  color: var(--accent);
+}
+
+.logic-demo tr:not([data-on]) .result {
+  color: var(--text-3);
+}
+
+.logic-demo .tries b {
+  margin-left: 0.3rem;
+  font-family: var(--mono);
+}
+
+.mod-clock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem 2rem;
+}
+
+.mod-clock .ring {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 1.5;
+}
+
+.mod-side p {
+  margin: 0 0 0.6rem !important;
+}
+
+.mod-result {
+  font-size: 1.05rem;
+}
+
+.mod-result b {
+  color: var(--alt);
+  font-family: var(--mono);
+  font-size: 1.2rem;
+}
+
+.mod-why {
+  color: var(--text-2);
+  font: 0.85rem var(--mono);
+}
+
+.playground .sliders {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.playground .sliders label,
+.playground label.wide {
+  display: grid;
+  gap: 0.3rem;
+  font-weight: 400;
+}
+
+.playground input[type='range'] {
+  width: 100%;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  accent-color: var(--accent);
+}
+
+.meter {
+  height: 0.6rem;
+  margin: 0.9rem 0 0.7rem;
+  border-radius: 0.3rem;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.meter i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.birthday-demo .mod-result {
+  margin: 0 !important;
+  font-size: 0.95rem;
+}
+
+.venn .fill {
+  fill: var(--accent-soft);
+}
+
+.venn .blank {
+  fill: var(--bg-soft);
+}
+
+.venn .outline {
+  fill: none;
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}

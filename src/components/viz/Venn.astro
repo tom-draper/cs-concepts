@@ -1,0 +1,54 @@
+---
+// Small Venn diagrams, one per set operation, with the result shaded.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+type Op = 'union' | 'intersection' | 'difference' | 'symmetric';
+
+interface Props {
+  ops?: Op[];
+  caption?: string;
+}
+
+const { ops = ['union', 'intersection', 'difference', 'symmetric'], caption } = Astro.props;
+
+const titles: Record<Op, [symbol: string, words: string]> = {
+  union: ['A ∪ B', 'in either'],
+  intersection: ['A ∩ B', 'in both'],
+  difference: ['A − B', 'in A, not in B'],
+  symmetric: ['A △ B', 'in exactly one'],
+};
+const CELL = 170;
+const R = 46;
+const ax = 62;
+const bx = 108;
+const cy = 58;
+const width = ops.length * CELL;
+const height = 150;
+// The lens where the circles overlap, as a single path.
+const dy = Math.sqrt(R * R - ((bx - ax) / 2) ** 2);
+const mid = (ax + bx) / 2;
+const lens = `M${mid},${cy - dy} A${R},${R} 0 0 1 ${mid},${cy + dy} A${R},${R} 0 0 1 ${mid},${cy - dy} Z`;
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg venn" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`Venn diagrams: ${ops.map((op) => titles[op].join(', ')).join('; ')}`}>
+    {
+      ops.map((op, i) => (
+        <g transform={`translate(${i * CELL} 0)`}>
+          {(op === 'union' || op === 'difference' || op === 'symmetric') && <circle class="fill" cx={ax} cy={cy} r={R} />}
+          {(op === 'union' || op === 'symmetric') && <circle class="fill" cx={bx} cy={cy} r={R} />}
+          {op === 'difference' && <circle class="blank" cx={bx} cy={cy} r={R} />}
+          {op === 'symmetric' && <path class="blank" d={lens} />}
+          {op === 'intersection' && <path class="fill" d={lens} />}
+          <circle class="outline" cx={ax} cy={cy} r={R} />
+          <circle class="outline" cx={bx} cy={cy} r={R} />
+          <text class="v-small" x={ax - 22} y={cy}>A</text>
+          <text class="v-small" x={bx + 22} y={cy}>B</text>
+          <text class="v-text" x={(ax + bx) / 2} y={122}>{titles[op][0]}</text>
+          <text class="v-small" x={(ax + bx) / 2} y={140}>{titles[op][1]}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
