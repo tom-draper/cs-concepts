@@ -1,0 +1,144 @@
+---
+description: A storage design that makes writes fast by never updating data in place. It buffers changes in memory, writes them out as sorted files, and merges those files in the background.
+difficulty: advanced
+---
+
+A [B-tree](/data-structures/b-trees/) keeps data sorted on disk and updates it in place. Every insert finds the right page and modifies it. That gives fast reads, but each write lands on a different, effectively random, part of the disk.
+
+A **log-structured merge-tree** (LSM tree) is built for the opposite priority. It makes **writes** as cheap as possible by only ever writing sequentially, and accepts more work on reads. It is the storage engine inside RocksDB, LevelDB, Cassandra, HBase and many other databases.
+
+## The core idea
+
+Random writes are slow. Appending to the end of a file is fast, on spinning disks and SSDs alike. So an LSM tree turns every change, wherever it belongs in the key order, into sequential writes.
+
+It never modifies data on disk. Instead it does three things.
+
+1. Collect incoming writes in **memory**, kept sorted.
+2. When memory fills up, write the whole batch to disk as one **sorted, immutable file**.
+3. In the background, **merge** these files together to keep their number down.
+
+## The parts
+
+**The memtable.** A sorted structure in memory, usually a [skip list](/data-structures/skip-lists/) or a balanced tree. Every write goes here first.
+
+**The write-ahead log.** Memory is lost in a crash, so each write is also appended to a log file on disk before it is acknowledged. After a crash, the memtable is rebuilt by replaying the log. See [write-ahead logging](/databases/write-ahead-logging/).
+
+**SSTables** ("sorted string tables"). When the memtable reaches a size limit, it is written out as a file of key-value pairs in sorted order. An SSTable is never modified after it is written.
+
+## A write, step by step
+
+<Steps>
+<Step title="Writes land in the memtable, which keeps them sorted">
+
+Appending to the log and inserting into memory is all a write has to do. There is no disk seek.
+
+<ArrayViz values={['ant:5', 'cat:2', 'dog:7', null]} highlight={[0, 1, 2]} indices={false} caption="Memtable (in memory)" />
+
+</Step>
+<Step title="When the memtable is full, it is flushed to disk as a sorted file">
+
+The file is written start to finish in one sequential pass. A fresh, empty memtable takes over.
+
+<ArrayViz values={['ant:5', 'cat:2', 'dog:7', 'emu:1']} indices={false} caption="SSTable 1 (on disk, never changed again)" />
+
+</Step>
+<Step title="More writes arrive, including a new value for an existing key">
+
+`cat` is not updated in SSTable 1. The new value simply goes into the memtable, and later into a newer file.
+
+<ArrayViz values={['bee:4', 'cat:9', 'fox:3', 'owl:6']} alt={[1]} indices={false} caption="SSTable 2 (newer). It also contains cat, with a different value." />
+
+</Step>
+</Steps>
+
+There are now two versions of `cat` on disk. The newer file wins.
+
+## Reads
+
+A read has to work harder, because the key could be in several places. It checks them from **newest to oldest** and stops at the first hit.
+
+1. The memtable.
+2. The most recent SSTable.
+3. The next most recent, and so on.
+
+Within an SSTable the keys are sorted, so a small index and a [binary search](/algorithms/binary-search/) find a key quickly. The cost is the number of files that have to be checked.
+
+Two things keep that in check.
+
+**[Bloom filters](/data-structures/bloom-filters/).** Each SSTable has a small filter in memory that can say "this key is definitely not in this file". Most files are skipped without touching the disk. This matters most for keys that do not exist at all, which would otherwise mean checking every file.
+
+**Compaction**, which keeps the number of files small.
+
+## Compaction
+
+Left alone, the files would pile up, reads would slow down, and stale versions of overwritten keys would waste space.
+
+**Compaction** takes several SSTables and merges them into one. Because every input is already sorted, this is the merge step of [merge sort](/algorithms/merge-sort/#the-merge-step): a single sequential pass over each file. Where a key appears more than once, only the newest version is kept.
+
+<Steps>
+<Step title="Two sorted files, with one key in common">
+
+<ArrayViz values={['ant:5', 'cat:2', 'dog:7', 'emu:1']} dim={[1]} indices={false} caption="SSTable 1 (older)" />
+
+<ArrayViz values={['bee:4', 'cat:9', 'fox:3', 'owl:6']} alt={[1]} indices={false} caption="SSTable 2 (newer)" />
+
+</Step>
+<Step title="Merged into one sorted file, keeping the newer cat">
+
+The two old files are then deleted.
+
+<ArrayViz values={['ant:5', 'bee:4', 'cat:9', 'dog:7', 'emu:1', 'fox:3', 'owl:6']} alt={[2]} indices={false} caption="The compacted SSTable" />
+
+</Step>
+</Steps>
+
+This is where the name comes from: data is written as a log, and the pieces are repeatedly merged.
+
+Most engines arrange the files in **levels**. New files arrive at level 0. Each level holds roughly ten times as much data as the one above, and files are merged downward as levels fill. Old, settled data ends up in a few large files at the bottom.
+
+## Deleting
+
+You cannot remove a key from an immutable file. A delete is therefore a write: it records a special marker called a **tombstone** for that key. Reads that find a tombstone report the key as absent. The tombstone, and the data it hides, are only physically removed when compaction reaches them.
+
+One consequence surprises people. Deleting a lot of data from an LSM-based database can make it temporarily **larger**, and can slow reads, until compaction catches up.
+
+## The trade-off
+
+Every storage engine balances three costs.
+
+| | Meaning | LSM tree | B-tree |
+| --- | --- | --- | --- |
+| **Write amplification** | bytes written to disk per byte of data | each item is rewritten at every level it passes through | a whole page is rewritten for a small change |
+| **Read amplification** | places checked per read | several files, mitigated by Bloom filters | one path down the tree |
+| **Space amplification** | disk used per byte of live data | stale versions wait for compaction | pages are left partly empty |
+
+In practice:
+
+| | LSM tree | B-tree |
+| --- | --- | --- |
+| Writes | very fast, all sequential | slower, random |
+| Point reads | slower, may check several files | fast, predictable |
+| Range scans | must merge across files | fast, along linked leaves |
+| Compression | excellent: large sorted immutable files | moderate |
+| Background work | compaction, which competes with live traffic | little |
+
+**Choose an LSM tree** for write-heavy workloads: logging, metrics, event streams, time series, message queues. **Choose a B-tree** for read-heavy workloads and predictable latency, which is why it remains the default in PostgreSQL, MySQL and SQLite.
+
+Compaction is the operational catch. It runs in the background and uses disk and CPU. If writes arrive faster than compaction can keep up, files accumulate and reads degrade, so real systems must throttle writes when it falls behind.
+
+## Where it shows up
+
+- **Embedded storage engines**: LevelDB, RocksDB. RocksDB in turn sits underneath many databases.
+- **Wide-column and distributed databases**: Cassandra, HBase, ScyllaDB, Bigtable.
+- **Time-series and metrics stores**, where data arrives constantly and is rarely updated.
+- **Search indexes**: Lucene builds immutable segments and merges them, on the same principle.
+
+The design was described by Patrick O'Neil and colleagues in 1996, and popularised by Google's Bigtable a decade later.
+
+## Key takeaways
+
+- An LSM tree never updates data in place. Writes go to memory and a log, then to immutable sorted files.
+- All disk writes are sequential, which makes writing very fast.
+- Reads check the memtable and then the files from newest to oldest, using Bloom filters to skip most of them.
+- Compaction merges files in the background, discarding overwritten and deleted data.
+- It trades slower reads and background work for much faster writes, the opposite of a B-tree.
