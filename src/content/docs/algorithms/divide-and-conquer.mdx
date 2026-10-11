@@ -1,0 +1,123 @@
+---
+description: Split a problem into smaller independent pieces, solve each one, and combine the answers. The strategy behind merge sort, quicksort and binary search.
+difficulty: intermediate
+---
+
+Divide and conquer is a way of designing algorithms, not a single algorithm. It has three steps.
+
+1. **Divide** the problem into smaller problems of the same kind.
+2. **Conquer** each one, by applying the same method [recursively](/algorithms/recursion/). Problems that are small enough are solved directly.
+3. **Combine** the answers into an answer for the original problem.
+
+It works when a big problem genuinely decomposes into smaller, **independent** ones, and it is behind many of the fastest algorithms known.
+
+## The pattern in merge sort
+
+[Merge sort](/algorithms/merge-sort/) is the clearest example. To sort an array: split it in half, sort each half, merge the two sorted halves.
+
+<Tree
+  root={{ k: '5 2 8 1', c: [{ k: '5 2', c: ['5', '2'] }, { k: '8 1', c: ['8', '1'] }] }}
+  caption="Dividing. Each level splits the pieces in half, until every piece has one element and is trivially sorted."
+/>
+
+<Tree
+  root={{ k: '1 2 5 8', c: [{ k: '2 5', c: ['5', '2'] }, { k: '1 8', c: ['8', '1'] }] }}
+  highlight={['1 2 5 8', '2 5', '1 8']}
+  caption="Combining, read from the bottom up. Each pair of sorted pieces is merged into one larger sorted piece."
+/>
+
+Dividing is trivial here. All the real work is in combining.
+
+## Where the work happens
+
+Different algorithms put the effort in different steps.
+
+| Algorithm | Divide | Combine |
+| --- | --- | --- |
+| [Merge sort](/algorithms/merge-sort/) | trivial: cut in half | the work: merge two sorted halves |
+| [Quicksort](/algorithms/quicksort/) | the work: partition around a pivot | nothing: the pieces are already in place |
+| [Binary search](/algorithms/binary-search/) | compare with the middle element | nothing: only one half is ever searched |
+
+Binary search is the degenerate case. It divides in two and then throws one half away, so there is only one subproblem. That variant is sometimes called *decrease and conquer*.
+
+## Why it is fast
+
+Consider a problem of size n that splits into two halves, with a linear amount of work to combine. Lay the recursion out in levels.
+
+| Level | Subproblems | Size of each | Work at this level |
+| --- | --- | --- | --- |
+| 0 | 1 | n | n |
+| 1 | 2 | n / 2 | n |
+| 2 | 4 | n / 4 | n |
+| … | … | … | n |
+| log₂ n | n | 1 | n |
+
+Each level does n work in total. The number of levels is how many times n can be halved, which is log₂ n. So the total is **n log n**.
+
+That is the source of the speed-up. A direct approach to sorting compares every element with every other: n². Divide and conquer replaces one factor of n with log n, because halving reaches the bottom so quickly. For a million elements, that is a factor of 50,000.
+
+### Reading the cost from the recurrence
+
+The running time of a divide-and-conquer algorithm is naturally described by a formula that refers to itself, called a **recurrence**. A few come up constantly.
+
+| Recurrence | Meaning | Result | Example |
+| --- | --- | --- | --- |
+| T(n) = T(n/2) + O(1) | one half, constant work | O(log n) | binary search |
+| T(n) = T(n/2) + O(n) | one half, linear work | O(n) | finding the median (quickselect, on average) |
+| T(n) = 2T(n/2) + O(1) | two halves, constant work | O(n) | summing a tree |
+| T(n) = 2T(n/2) + O(n) | two halves, linear work | O(n log n) | merge sort |
+
+A result called the *master theorem* solves most recurrences of this shape mechanically. The intuition is enough for everyday use: count the levels, and count the work per level.
+
+## A small example: fast exponentiation
+
+Computing x¹⁰⁰⁰ by multiplying x a thousand times is O(n). Divide and conquer does it in about ten steps, using the fact that x¹⁰⁰⁰ = x⁵⁰⁰ × x⁵⁰⁰, and those two halves are the same number.
+
+```python
+def power(x, n):
+    if n == 0:
+        return 1
+    half = power(x, n // 2)
+    if n % 2 == 0:
+        return half * half
+    return half * half * x
+```
+
+Each call halves the exponent: **O(log n)** multiplications. This is not a toy. It is how the enormous exponentiations in [public-key cryptography](/security/public-key-cryptography/) are made practical.
+
+Notice that `half` is computed once and used twice. Writing `power(x, n // 2) * power(x, n // 2)` would make two recursive calls and put the algorithm straight back to O(n).
+
+## Other famous examples
+
+- **Karatsuba multiplication** multiplies two n-digit numbers faster than the schoolbook n² method, by cleverly using three half-size multiplications instead of four.
+- **Strassen's algorithm** does the same for matrices, with seven sub-multiplications instead of eight.
+- **The fast Fourier transform** (FFT) turns an O(n²) calculation into O(n log n), and underlies audio processing, image compression and telecommunications.
+- **Closest pair of points** finds the two nearest of n points in the plane in O(n log n) instead of checking all n² pairs.
+
+In each case the gain comes from the same place: a clever divide or combine step that does less work than the obvious one.
+
+## The condition: independent subproblems
+
+Divide and conquer assumes the pieces do not overlap. Sorting the left half of an array has nothing to do with sorting the right half.
+
+When subproblems *do* overlap, the same piece gets solved again and again. The naive recursive Fibonacci function is the classic case: it recomputes the same values exponentially many times.
+
+| | Divide and conquer | Dynamic programming |
+| --- | --- | --- |
+| Subproblems | independent | overlapping |
+| Each is solved | once, naturally | once, by remembering the answers |
+| Examples | merge sort, quicksort, FFT | shortest paths, edit distance |
+
+If you notice a recursive solution solving the same subproblem repeatedly, the right tool is [dynamic programming](/algorithms/dynamic-programming/).
+
+## A bonus: parallelism
+
+Independent subproblems can be solved at the same time on different processor cores. Divide and conquer algorithms are therefore naturally parallel: hand the left half to one core and the right half to another. Frameworks for parallel computing, from fork/join thread pools to MapReduce, are built around this shape.
+
+## Key takeaways
+
+- Divide and conquer splits a problem into smaller independent ones, solves them recursively, and combines the results.
+- Halving gives log n levels of recursion; with linear work per level, that is O(n log n).
+- The effort can sit in the divide step (quicksort) or the combine step (merge sort).
+- It requires independent subproblems. When they overlap, use dynamic programming.
+- Independence also makes these algorithms easy to run in parallel.
