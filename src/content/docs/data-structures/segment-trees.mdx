@@ -1,0 +1,169 @@
+---
+description: A tree built over an array that answers questions about any range (its sum, minimum or maximum) in O(log n), and still allows fast updates.
+difficulty: advanced
+---
+
+Suppose you have an array of numbers and two kinds of request arrive, mixed together and in large numbers:
+
+- **Query**: what is the sum of the elements from index *l* to index *r*?
+- **Update**: change the element at index *i*.
+
+The two obvious approaches each make one of these slow.
+
+| Approach | Query | Update |
+| --- | --- | --- |
+| Add up the range each time | O(n) | O(1) |
+| Precompute running totals (prefix sums) | O(1) | O(n) |
+| **Segment tree** | O(log n) | O(log n) |
+
+A segment tree is the balanced option: both operations are fast, and neither is instant.
+
+## The structure
+
+Build a [binary tree](/data-structures/binary-trees/) on top of the array. Each leaf is one array element. Each internal node stores the sum of its two children, which is the sum of a whole **segment** of the array.
+
+For the array `[4, 9, 6, 8, 7, 5, 2, 1]`:
+
+<Tree
+  root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }}
+  caption="The leaves are the array, indices 0 to 7. The root, 42, is the sum of everything. The node 27 is the sum of indices 0 to 3, and 14 is the sum of indices 2 to 3."
+/>
+
+<ArrayViz values={[4, 9, 6, 8, 7, 5, 2, 1]} caption="The underlying array." />
+
+The tree has precomputed the sum of the whole array, of each half, of each quarter, and so on down. There are about 2n nodes in total, so this costs O(n) extra memory and O(n) time to build.
+
+## Querying a range
+
+The key fact: **any range can be assembled from at most about 2 log₂ n of these precomputed segments.**
+
+To query, start at the root and compare each node's segment with the range you want.
+
+- Entirely **inside** the range: take the node's stored value and stop. Do not look at its children.
+- Entirely **outside**: ignore it.
+- **Partly** overlapping: ask both children.
+
+Here is the sum of indices 2 to 6, the elements `6, 8, 7, 5, 2`.
+
+<Player>
+<Frame caption="The root covers indices 0–7, which is only partly inside 2–6. Ask both children.">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} alt={[42]} />
+</Frame>
+<Frame caption="27 covers 0–3: partly inside. Its left child, 13, covers 0–1, entirely outside the range. Ignore that whole subtree.">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} alt={[27]} dim={[13, 4, 9]} />
+</Frame>
+<Frame caption="14 covers 2–3, entirely inside. Take 14 whole, without visiting its children.">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} highlight={[14]} dim={[13, 4, 9]} />
+</Frame>
+<Frame caption="On the right, 15 covers 4–7: partly inside. Its left child, 12, covers 4–5, entirely inside. Take it.">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} alt={[15]} highlight={[14, 12]} dim={[13, 4, 9]} />
+</Frame>
+<Frame caption="3 covers 6–7: partly inside. Take the leaf 2 (index 6) and ignore the leaf 1 (index 7).">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} alt={[3]} highlight={[14, 12, 2]} dim={[13, 4, 9, 1]} />
+</Frame>
+<Frame caption="The answer is 14 + 12 + 2 = 28: three stored values instead of five array elements.">
+<Tree root={{ k: 42, c: [{ k: 27, c: [{ k: 13, c: [4, 9] }, { k: 14, c: [6, 8] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }} highlight={[14, 12, 2]} dim={[13, 4, 9, 1]} />
+</Frame>
+</Player>
+
+Saving two additions is not impressive at this size. But the number of segments needed grows with the *height* of the tree, not the length of the range. Summing a range of 900,000 elements in an array of a million takes a few dozen node visits.
+
+## Updating an element
+
+Changing one element changes the sum of every segment that contains it. Those are exactly the nodes on the path from that leaf up to the root: one per level.
+
+Setting index 3 from `8` to `10`:
+
+<Tree
+  root={{ k: 44, c: [{ k: 29, c: [{ k: 13, c: [4, 9] }, { k: 16, c: [6, 10] }] }, { k: 15, c: [{ k: 12, c: [7, 5] }, { k: 3, c: [2, 1] }] }] }}
+  alt={[10]}
+  highlight={[16, 29, 44]}
+  caption="Only four nodes change, each recomputed from its two children. Everything else is untouched."
+/>
+
+<Ops
+  items={[
+    ['Build', 'O(n)'],
+    ['Range query', 'O(log n)'],
+    ['Point update', 'O(log n)'],
+    ['Memory', 'O(n)'],
+  ]}
+/>
+
+## The code
+
+Because the tree is a complete binary tree, it is stored in a flat array rather than as linked nodes, like a [heap](/data-structures/heaps/). This compact version puts the leaves in the second half of the array, at positions `n` to `2n − 1`, and the parent of position `i` at `i // 2`.
+
+```python
+class SegmentTree:
+    def __init__(self, values):
+        self.n = len(values)
+        self.tree = [0] * self.n + list(values)
+        for i in range(self.n - 1, 0, -1):
+            self.tree[i] = self.tree[2 * i] + self.tree[2 * i + 1]
+
+    def update(self, index, value):
+        i = index + self.n
+        self.tree[i] = value
+        while i > 1:
+            i //= 2
+            self.tree[i] = self.tree[2 * i] + self.tree[2 * i + 1]
+
+    def query(self, left, right):
+        """Sum of values[left:right]. The right end is excluded."""
+        total = 0
+        lo, hi = left + self.n, right + self.n
+        while lo < hi:
+            if lo % 2 == 1:        # lo is a right child: take it, step past it
+                total += self.tree[lo]
+                lo += 1
+            if hi % 2 == 1:        # hi is a right child: step back, take that
+                hi -= 1
+                total += self.tree[hi]
+            lo //= 2
+            hi //= 2
+        return total
+```
+
+This version works from the leaves upward, which is shorter than the top-down walk shown in the pictures and gives the same answer.
+
+## Not just sums
+
+Nothing above depends on addition specifically. A segment tree works for any operation that can combine the answers for two adjacent segments into the answer for the joined segment.
+
+| Each node stores | Combine with | Answers |
+| --- | --- | --- |
+| Sum | `a + b` | Range sum |
+| Minimum | `min(a, b)` | Smallest value in a range |
+| Maximum | `max(a, b)` | Largest value in a range |
+| Greatest common divisor | `gcd(a, b)` | GCD of a range |
+| Count of matching elements | `a + b` | How many in this range satisfy a condition |
+
+This flexibility is the segment tree's advantage over the simpler [Fenwick tree](/data-structures/fenwick-trees/), which handles sums well but cannot do minimum or maximum in general.
+
+<Aside title="Updating a whole range at once">
+
+Adding 5 to *every* element in a range would be many separate point updates. **Lazy propagation** avoids this: record a pending "add 5" note on the handful of nodes that cover the range, and only push it down to their children when a later operation actually needs to look there. Range updates then cost O(log n) too.
+
+</Aside>
+
+## When to use one
+
+**Good fit**
+
+- Many range queries and many updates, interleaved.
+- The operation is something other than a sum, such as minimum or maximum.
+
+**Simpler alternatives**
+
+- The array never changes: use prefix sums for O(1) queries.
+- You only need sums with point updates: a [Fenwick tree](/data-structures/fenwick-trees/) is smaller and simpler.
+
+Segment trees are a staple of competitive programming, and appear in practice in time-series analytics, computational geometry and anything that tracks an aggregate over a sliding or arbitrary range.
+
+## Key takeaways
+
+- A segment tree stores an aggregate (such as a sum) for the whole array, each half, each quarter, and so on.
+- Any range is covered by O(log n) of those precomputed segments, so queries are O(log n).
+- An update changes one node per level, on the path from a leaf to the root: also O(log n).
+- It works for any operation that combines adjacent segments, including min, max and gcd.
