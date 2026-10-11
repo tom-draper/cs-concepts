@@ -1,0 +1,123 @@
+---
+description: The cheapest set of edges that keeps every vertex of a weighted graph connected. Two simple greedy algorithms, Kruskal's and Prim's, both find it.
+difficulty: intermediate
+---
+
+You need to lay cable to connect a group of buildings. Each possible link has a cost. Which links should you build so that every building is connected, for the least total cost?
+
+The answer never contains a loop. If it did, you could remove the most expensive link in the loop and everything would still be connected. So the answer is a [tree](/foundations/graph-theory/#trees): it touches every vertex, so it is a **spanning** tree, and of all the spanning trees it has the smallest total weight. That is a **minimum spanning tree**, or MST.
+
+A spanning tree of a graph with V vertices always has exactly **V − 1 edges**.
+
+## The rule that makes greedy work
+
+Both standard algorithms are [greedy](/algorithms/greedy-algorithms/), and both rest on the same fact, called the **cut property**.
+
+> Split the vertices into any two groups. The cheapest edge that crosses between the groups belongs to a minimum spanning tree.
+
+The reasoning is an exchange. Any spanning tree must cross between the two groups somewhere. If it uses a more expensive crossing edge, swap that for the cheapest one. The result is still a spanning tree, and it is no heavier.
+
+So it is always safe to take the cheapest edge across a split. The two algorithms differ only in which splits they consider.
+
+## Kruskal's algorithm: cheapest edge first
+
+Sort all the edges by weight. Go through them from cheapest to most expensive, and take each one **unless it would create a cycle**.
+
+<GraphDemo
+  algorithm="kruskal"
+  nodes={{ A: [0, 1], B: [1.2, 0], C: [1.2, 2], D: [2.6, 0], E: [2.6, 2], F: [3.8, 1] }}
+  edges={[['A', 'B', 4], ['A', 'C', 2], ['B', 'C', 1], ['B', 'D', 5], ['C', 'E', 10], ['D', 'E', 2], ['D', 'F', 6], ['E', 'F', 3]]}
+/>
+
+Notice that Kruskal's algorithm does not grow one tree. It builds several separate fragments, which gradually merge. The edge A–B is skipped because A and B are already joined through C.
+
+"Would this edge create a cycle?" is the same question as "are its two ends already connected?" That is precisely what a [union-find](/data-structures/union-find/) structure answers in almost constant time.
+
+```python
+def kruskal(vertex_count, edges):
+    groups = UnionFind(vertex_count)
+    tree = []
+    for weight, u, v in sorted(edges):
+        if groups.union(u, v):          # False if u and v were already connected
+            tree.append((u, v, weight))
+    return tree
+```
+
+The sort dominates the cost: **O(E log E)**.
+
+## Prim's algorithm: grow one tree
+
+Start from any vertex. Repeatedly add the **cheapest edge that leaves the tree**, connecting one new vertex each time.
+
+<GraphDemo
+  algorithm="prim"
+  nodes={{ A: [0, 1], B: [1.2, 0], C: [1.2, 2], D: [2.6, 0], E: [2.6, 2], F: [3.8, 1] }}
+  edges={[['A', 'B', 4], ['A', 'C', 2], ['B', 'C', 1], ['B', 'D', 5], ['C', 'E', 10], ['D', 'E', 2], ['D', 'F', 6], ['E', 'F', 3]]}
+/>
+
+Prim's algorithm always has a single connected tree, which spreads outward. Try a different starting vertex: the edges are added in a different order, and the final tree is the same, with a total weight of 13.
+
+The structure is almost identical to [Dijkstra's algorithm](/algorithms/dijkstras-algorithm/). Both grow outward from a start, using a [priority queue](/data-structures/heaps/) to pick the next vertex. The only difference is the priority.
+
+| | Priority of a vertex |
+| --- | --- |
+| Prim | the weight of the cheapest **single edge** joining it to the tree |
+| Dijkstra | the total **distance from the start** |
+
+```python
+import heapq
+
+def prim(graph, start):
+    in_tree = {start}
+    heap = [(weight, start, v) for v, weight in graph[start]]
+    heapq.heapify(heap)
+    tree = []
+    while heap and len(in_tree) < len(graph):
+        weight, u, v = heapq.heappop(heap)
+        if v in in_tree:
+            continue                    # both ends already inside: skip
+        in_tree.add(v)
+        tree.append((u, v, weight))
+        for nxt, w in graph[v]:
+            if nxt not in in_tree:
+                heapq.heappush(heap, (w, v, nxt))
+    return tree
+```
+
+With a binary heap this is **O(E log V)**.
+
+## Which to use
+
+| | Kruskal | Prim |
+| --- | --- | --- |
+| Works on | a sorted list of edges | an adjacency list, from a start vertex |
+| Grows | many fragments that merge | one tree |
+| Needs | union-find | a priority queue |
+| Time | O(E log E) | O(E log V) |
+| Better when | the graph is sparse, or edges arrive already sorted | the graph is dense |
+
+For most purposes either is fine. They have the same asymptotic cost, since log E is at most 2 log V.
+
+## Things worth knowing
+
+**The tree may not be unique.** If several edges have the same weight, there can be more than one minimum spanning tree. They all have the same total weight. If every weight is different, the tree is unique.
+
+**It is not a shortest-path tree.** An MST minimises the *total* weight of the network. It says nothing about the distance between any particular pair, and the route between two vertices inside the tree can be much longer than the shortest route in the full graph. Picture towns arranged in a ring: the MST drops one link, and the two towns either side of the gap are now connected only the long way round. A shortest-path tree, as [Dijkstra's algorithm](/algorithms/dijkstras-algorithm/) builds, answers a different question.
+
+**Negative weights are fine.** Unlike shortest paths, nothing about the argument depends on the weights being positive.
+
+## Where it shows up
+
+- **Network design.** Laying cable, pipes, roads or circuit traces to connect a set of points cheaply. This was the original motivation, for electrical grids in the 1920s.
+- **Clustering.** Build the MST and delete its most expensive edges. The pieces left are natural clusters of nearby points.
+- **Approximating hard problems.** An MST gives a route for the travelling salesman problem that is guaranteed to be at most twice the best possible length.
+- **Image segmentation.** Treating pixels as vertices and colour differences as weights groups an image into regions.
+- **Maze generation.** A random spanning tree of a grid is a maze with exactly one route between any two cells.
+
+## Key takeaways
+
+- A minimum spanning tree connects every vertex with the least total edge weight, using V − 1 edges and no cycles.
+- The cut property makes greedy correct: the cheapest edge across any split of the vertices is always safe to take.
+- Kruskal's algorithm takes edges in order of weight, using union-find to skip those that would form a cycle.
+- Prim's algorithm grows a single tree, using a priority queue to find the cheapest edge leaving it.
+- An MST minimises total weight, which is not the same as giving shortest paths.
