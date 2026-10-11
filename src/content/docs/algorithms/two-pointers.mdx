@@ -1,0 +1,143 @@
+---
+description: Walk two positions through a sequence in a coordinated way, instead of checking every pair. It turns many quadratic loops into a single linear pass.
+difficulty: beginner
+---
+
+Many problems on arrays and strings seem to need a loop inside a loop: for each element, look at every other element. That is O(n²). The two pointers technique replaces the nested loops with **two indices that move through the data together**, each only ever going one way. The whole thing takes O(n).
+
+It is not one algorithm but a pattern. It comes in two main forms.
+
+## Form one: from both ends
+
+**Problem.** Given a *sorted* array, find two numbers that add up to a target.
+
+Checking every pair is O(n²). Instead, put one pointer at each end and look at their sum.
+
+- If the sum is **too big**, the only way to make it smaller is to move the right pointer left.
+- If the sum is **too small**, the only way to make it bigger is to move the left pointer right.
+
+Here is a search for two numbers that add to **12**.
+
+export const data = [1, 3, 4, 6, 8, 10, 13];
+export const moves = [[0, 6], [0, 5], [1, 5], [1, 4], [2, 4]];
+
+<Player>
+  {moves.map(([l, r]) => {
+    const sum = data[l] + data[r];
+    return (
+      <Frame
+        caption={`${data[l]} + ${data[r]} = ${sum}. ` + (sum === 12 ? 'Found it.' : sum > 12 ? 'Too big, so move the right pointer left.' : 'Too small, so move the left pointer right.')}
+      >
+        <ArrayViz
+          values={data}
+          highlight={sum === 12 ? [] : [l, r]}
+          alt={sum === 12 ? [l, r] : []}
+          dim={data.map((_, i) => i).filter((i) => i < l || i > r)}
+          pointers={{ left: l, right: r }}
+        />
+      </Frame>
+    );
+  })}
+</Player>
+
+Five steps, where checking every pair could have taken twenty-one.
+
+```python
+def pair_with_sum(sorted_items, target):
+    left, right = 0, len(sorted_items) - 1
+    while left < right:
+        total = sorted_items[left] + sorted_items[right]
+        if total == target:
+            return left, right
+        if total < target:
+            left += 1
+        else:
+            right -= 1
+    return None
+```
+
+### Why nothing is missed
+
+It can look as though moving a pointer might skip the answer. It cannot.
+
+Suppose the sum is too big. The right-hand value, paired with the *smallest* value still in play, is already over the target. Paired with anything else it would be even larger. So that right-hand value cannot be part of any answer, and discarding it is safe. The same argument, mirrored, covers the other case.
+
+Each step rules out one element for good. That is the same style of reasoning as [binary search](/algorithms/binary-search/), and it depends on the same thing: **the data must be sorted**.
+
+## Form two: fast and slow
+
+Both pointers start at the same end and move in the same direction at different speeds. One reads; the other marks where to write, or lags behind for some other purpose.
+
+**Problem.** Remove the duplicates from a sorted array, in place.
+
+`slow` marks the end of the cleaned-up section. `fast` scans ahead. Whenever `fast` finds a value that differs from the last one kept, it is copied forward.
+
+```python
+def remove_duplicates(sorted_items):
+    if not sorted_items:
+        return 0
+    slow = 0
+    for fast in range(1, len(sorted_items)):
+        if sorted_items[fast] != sorted_items[slow]:
+            slow += 1
+            sorted_items[slow] = sorted_items[fast]
+    return slow + 1            # the length of the de-duplicated part
+```
+
+One pass, no extra memory. The same shape handles "remove every zero", "move all the negatives to the front" and the partition step of [quicksort](/algorithms/quicksort/#partitioning), where `boundary` is the slow pointer.
+
+### Detecting a cycle
+
+The fast-and-slow idea also solves a problem that looks unrelated. Does a [linked list](/data-structures/linked-lists/) loop back on itself?
+
+Move one pointer a step at a time and another two steps at a time. If the list ends, the fast one reaches the end. If there is a loop, the fast one laps the slow one and they meet, like two runners on a circular track.
+
+```python
+def has_cycle(head):
+    slow = fast = head
+    while fast and fast.next:
+        slow = slow.next
+        fast = fast.next.next
+        if slow is fast:
+            return True
+    return False
+```
+
+It uses O(1) memory, where remembering every visited node would use O(n). This is known as Floyd's cycle detection, or the tortoise and hare. Stopping the fast pointer when it reaches the end also leaves the slow pointer at the **middle** of the list, which is a handy trick on its own.
+
+## Other uses
+
+- **Is this a palindrome?** Compare the first and last characters, then move both inward.
+- **Reverse in place.** Swap the two ends and move inward.
+- **Merge two sorted arrays.** One pointer in each, always taking the smaller. This is the merge step of [merge sort](/algorithms/merge-sort/#the-merge-step).
+- **Three numbers that sum to a target.** Sort, fix one number, and run the two-ended search on the rest: O(n²) instead of O(n³).
+- **[Sliding window](/algorithms/sliding-window/)** problems, where the two pointers mark the ends of a range. That is common enough to have its own page.
+
+## Recognising when it applies
+
+Look for these signs.
+
+- The input is **sorted**, or can be sorted first without spoiling the problem.
+- You are looking for a **pair**, or a contiguous **range**, satisfying some condition.
+- Moving a pointer changes the quantity you care about in a **predictable direction**.
+- You are asked to do something **in place**, with O(1) extra memory.
+
+The third point is the heart of it. The technique works when you can always tell which pointer to move.
+
+<Ops
+  items={[
+    ['Time', 'O(n)', 'each pointer moves at most n times'],
+    ['Extra memory', 'O(1)'],
+    ['The nested-loop alternative', 'O(n²)'],
+  ]}
+/>
+
+If the data has to be sorted first, that costs O(n log n), which then dominates.
+
+## Key takeaways
+
+- Two pointers replaces a nested loop with two indices that each move in one direction only.
+- From both ends: for pairs in sorted data, moving whichever pointer brings the result closer to the target.
+- Fast and slow: for filtering in place, finding the middle of a list, and detecting cycles.
+- It works when you can always tell which pointer to move, which usually means the data is sorted.
+- The result is O(n) time and O(1) extra memory.
