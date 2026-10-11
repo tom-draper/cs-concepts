@@ -1,0 +1,107 @@
+---
+// A 32-bit Bloom filter you can add words to and query.
+import { bloomPositions } from '../lib/sketches';
+
+const SIZE = 32;
+const K = 3;
+const initial = ['cat', 'dog', 'bird', 'fish', 'owl'];
+const set = new Set(initial.flatMap((word) => bloomPositions(word, SIZE, K)));
+---
+
+<bloom-demo class="playground bloom-demo" data-size={SIZE} data-k={K} data-initial={JSON.stringify(initial)}>
+  <label>
+    <span>Word</span>
+    <input type="text" value="rat" maxlength="16" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries">
+    <button type="button" data-act="check">Check</button>
+    <button type="button" data-act="add">Add</button>
+    <button type="button" data-act="reset">Empty the filter</button>
+    <span>Try: {['rat', 'lion', 'emu', 'cat'].map((word) => <button type="button" data-key={word}>{word}</button>)}</span>
+  </p>
+  <div class="bit-row small" aria-hidden="true">
+    {Array.from({ length: SIZE }, (_, i) => <span class="bit" data-on={set.has(i) ? '' : undefined}><b>{set.has(i) ? 1 : 0}</b></span>)}
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Really added</dt><dd data-out="added">{initial.join(', ')}</dd></div>
+    <div><dt>Bits set</dt><dd data-out="filled">{set.size} of {SIZE}</dd></div>
+    <div><dt>Result</dt><dd data-out="result">Type a word and press Check.</dd></div>
+  </dl>
+</bloom-demo>
+
+<script>
+  import { bloomPositions } from '../lib/sketches';
+
+  class BloomDemo extends HTMLElement {
+    connectedCallback() {
+      const size = Number(this.dataset.size);
+      const k = Number(this.dataset.k);
+      const initial: string[] = JSON.parse(this.dataset.initial!);
+      const input = this.querySelector('input')!;
+      const cells = [...this.querySelectorAll<HTMLElement>('.bit')];
+      const out = (name: string, text: string) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = text);
+      let added = [...initial];
+      let bits = new Set<number>();
+      const rebuild = () => {
+        bits = new Set(added.flatMap((word) => bloomPositions(word, size, k)));
+      };
+      const render = (probe: number[] = []) => {
+        cells.forEach((cell, i) => {
+          cell.toggleAttribute('data-on', bits.has(i));
+          cell.toggleAttribute('data-probe', probe.includes(i));
+          cell.querySelector('b')!.textContent = bits.has(i) ? '1' : '0';
+        });
+        out('added', added.join(', ') || 'nothing');
+        out('filled', `${bits.size} of ${size}`);
+      };
+      const word = () => input.value.trim().toLowerCase();
+
+      const check = () => {
+        const w = word();
+        if (!w) return;
+        const positions = bloomPositions(w, size, k);
+        const missing = positions.filter((p) => !bits.has(p));
+        render(positions);
+        out(
+          'result',
+          missing.length
+            ? `"${w}" maps to bits ${positions.join(', ')}. Bit ${missing[0]} is 0, so it was definitely never added.`
+            : added.includes(w)
+              ? `"${w}" maps to bits ${positions.join(', ')}, all set. Probably present, and it really was added.`
+              : `"${w}" maps to bits ${positions.join(', ')}, all set. The filter says probably present, but it was never added. A false positive.`,
+        );
+      };
+
+      rebuild();
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.key) input.value = button.dataset.key;
+        if (button.dataset.act === 'reset') {
+          added = [];
+          rebuild();
+          render();
+          out('result', 'The filter is empty. Every check will say "definitely not".');
+          return;
+        }
+        if (button.dataset.act === 'add') {
+          const w = word();
+          if (!w) return;
+          if (!added.includes(w)) added.push(w);
+          rebuild();
+          const positions = bloomPositions(w, size, k);
+          render(positions);
+          out('result', `Added "${w}": set bits ${positions.join(', ')}.`);
+          return;
+        }
+        check();
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') check();
+      });
+    }
+  }
+
+  customElements.define('bloom-demo', BloomDemo);
+</script>

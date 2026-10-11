@@ -1,0 +1,59 @@
+---
+// A skip list drawn as towers of varying height joined by forward pointers.
+import Figure from './Figure.astro';
+import { arrowHead, fit } from './geom';
+
+interface Props {
+  /** `[key, height]` in key order. */
+  nodes: [number, number][];
+  /** Cells on a search path, as `[key, level]`; use key -1 for the head. */
+  path?: [number, number][];
+  /** The key being looked for or just reached. */
+  target?: number;
+  caption?: string;
+}
+
+const { nodes, path = [], target, caption } = Astro.props;
+
+const W = 40;
+const H = 30;
+const GAP = 28;
+const PAD = 10;
+const levels = Math.max(...nodes.map(([, h]) => h));
+const columns: [number | string, number][] = [['head', levels], ...nodes, ['end', levels]];
+const x = (i: number) => PAD + i * (W + GAP);
+const y = (level: number) => PAD + (levels - 1 - level) * (H + 8);
+const width = x(columns.length - 1) + W + PAD;
+const height = y(0) + H + PAD;
+const onPath = (key: number | string, level: number) =>
+  path.some(([k, l]) => l === level && (k === key || (k === -1 && key === 'head')));
+const links = columns.flatMap(([key, h], i) =>
+  Array.from({ length: h }, (_, level) => {
+    const next = columns.findIndex(([, nh], j) => j > i && nh > level);
+    return next < 0 ? [] : [{ from: i, to: next, level, on: onPath(key, level) && onPath(columns[next][0], level) }];
+  }).flat(),
+);
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`Skip list holding ${nodes.map(([k]) => k).join(', ')}`}>
+    {
+      links.map((l) => (
+        <g class={`v-gedge ${l.on ? 'on' : ''}`}>
+          <line x1={x(l.from) + W} y1={y(l.level) + H / 2} x2={x(l.to) - 7} y2={y(l.level) + H / 2} />
+          <polygon points={arrowHead(x(l.from), y(l.level) + H / 2, x(l.to) - 1, y(l.level) + H / 2, 7)} />
+        </g>
+      ))
+    }
+    {
+      columns.map(([key, h], i) =>
+        Array.from({ length: h }, (_, level) => (
+          <g class={`v-node ${key === target ? 'alt' : onPath(key, level) ? 'hl' : typeof key === 'string' ? 'dim' : ''}`}>
+            <rect x={x(i)} y={y(level)} width={W} height={H} rx="3" />
+            <text class={typeof key === 'string' ? 'v-small' : 'v-text'} x={x(i) + W / 2} y={y(level) + H / 2}>{key}</text>
+          </g>
+        )),
+      )
+    }
+  </svg>
+</Figure>
