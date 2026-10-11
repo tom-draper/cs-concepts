@@ -131,6 +131,12 @@ Frames can be generated: `export const order = [1, 2, 3]` and then
 Use `<Steps>` when each step needs a paragraph of explanation, and `<Player>` when
 the motion is the point and a one-line caption is enough.
 
+`<SortDemo algorithm="quick" />` animates a sorting algorithm as bars, with
+comparison and write counters and buttons to re-run it on shuffled, sorted or
+reversed input. Algorithms: `bubble`, `insertion`, `selection`, `merge`, `quick`,
+`heap`. The traces live in `src/lib/sort-traces.ts`; add a function there to
+support another algorithm.
+
 `<HashPlayground />` is a live widget for the Hash Functions page. Widgets like
 it are custom elements with a script that only ships on pages that use them.
 
