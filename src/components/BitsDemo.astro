@@ -32,7 +32,7 @@ const printable = value >= 32 && value <= 126;
     <div><dt>{signed ? 'Unsigned' : 'Decimal'}</dt><dd data-out="unsigned">{value}</dd></div>
     {signed && <div><dt>Signed</dt><dd data-out="signed">{toSigned(value, bits)}</dd></div>}
     <div><dt>Hex</dt><dd data-out="hex">0x{value.toString(16).toUpperCase().padStart(bits / 4, '0')}</dd></div>
-    {!signed && bits === 8 && <div><dt>As text</dt><dd data-out="char">{printable ? String.fromCharCode(value) : '—'}</dd></div>}
+    {!signed && bits === 8 && <div><dt>As text</dt><dd data-out="char">{printable ? String.fromCharCode(value) : 'not printable'}</dd></div>}
   </dl>
   {
     step && (
@@ -67,7 +67,7 @@ const printable = value >= 32 && value <= 126;
         out('unsigned', String(value));
         out('signed', String(toSigned(value, bits)));
         out('hex', '0x' + value.toString(16).toUpperCase().padStart(bits / 4, '0'));
-        out('char', value >= 32 && value <= 126 ? String.fromCharCode(value) : '—');
+        out('char', value >= 32 && value <= 126 ? String.fromCharCode(value) : 'not printable');
       };
       this.addEventListener('click', (event) => {
         const button = (event.target as HTMLElement).closest('button');
