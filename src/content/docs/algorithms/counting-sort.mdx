@@ -1,0 +1,100 @@
+---
+description: Sort small integers by counting how many of each there are, without comparing any two of them. Linear time, when the range of values is small.
+difficulty: intermediate
+---
+
+Every sort so far works by comparing pairs of elements. Counting sort does not compare anything. If you know the values are small integers, say exam scores from 0 to 100, you can simply **count how many of each value there are** and write the output from the counts.
+
+That takes it below a limit that no comparison sort can beat.
+
+## The limit it sidesteps
+
+Any algorithm that sorts by comparing elements needs at least about n log₂ n comparisons in the worst case. The argument is short. There are n! possible orderings of n items, and each yes/no comparison can at best halve the possibilities still in play, so you need at least log₂(n!) of them, which is roughly n log₂ n.
+
+[Merge sort](/algorithms/merge-sort/) and [heapsort](/algorithms/heapsort/) already meet that bound, so among comparison sorts they cannot be improved on. Counting sort is faster because it plays a different game: it uses the values as array indices, which gives it far more than one bit of information per step.
+
+## How it works
+
+Sorting `[2, 5, 3, 0, 2, 3, 0, 3]`, where every value is between 0 and 5:
+
+<Player>
+<Frame caption="The input. Every value is in the range 0 to 5.">
+<ArrayViz values={[2, 5, 3, 0, 2, 3, 0, 3]} />
+</Frame>
+<Frame caption="Count each value. Index 3 holds 3, because the value 3 appears three times. This array is indexed by <em>value</em>.">
+<ArrayViz values={[2, 0, 2, 3, 0, 1]} highlight={[3]} />
+</Frame>
+<Frame caption="Turn the counts into running totals. Index 3 now holds 7: seven elements are less than or equal to 3, so the last 3 belongs at position 6.">
+<ArrayViz values={[2, 2, 4, 7, 7, 8]} highlight={[3]} />
+</Frame>
+<Frame caption="Walk the input from right to left, placing each element at the position its running total gives, then reducing that total by one.">
+<ArrayViz values={[0, 0, 2, 2, 3, 3, 3, 5]} alt={[4, 5, 6]} />
+</Frame>
+</Player>
+
+```python
+def counting_sort(items, k):
+    """Sort integers in the range 0 to k - 1."""
+    counts = [0] * k
+    for x in items:
+        counts[x] += 1
+
+    for value in range(1, k):            # running totals
+        counts[value] += counts[value - 1]
+
+    output = [None] * len(items)
+    for x in reversed(items):            # right to left keeps it stable
+        counts[x] -= 1
+        output[counts[x]] = x
+    return output
+```
+
+If you are sorting bare numbers, the running totals are unnecessary: just write out each value as many times as it was counted. The longer version is the one that matters, because it works when the numbers are *keys* attached to larger records, and it keeps records with equal keys in their original order. That [stability](/algorithms/sorting-stability/) is what [radix sort](/algorithms/radix-sort/) is built on.
+
+## The cost
+
+With n elements and k possible values:
+
+<Ops
+  items={[
+    ['Time', 'O(n + k)'],
+    ['Extra memory', 'O(n + k)'],
+  ]}
+/>
+
+One pass over the input to count, one over the counts for the totals, one more over the input to place. There are no nested loops and no comparisons.
+
+When k is small compared with n, this is linear. Sorting a million exam scores from 0 to 100 takes about two million steps, against about twenty million for an O(n log n) sort.
+
+## The catch
+
+Everything depends on **k**, the size of the range.
+
+| Sorting | n | k | Verdict |
+| --- | --- | --- | --- |
+| A million exam scores, 0–100 | 1,000,000 | 101 | ideal |
+| A million ages, 0–120 | 1,000,000 | 121 | ideal |
+| A thousand 32-bit integers | 1,000 | about 4 billion | absurd: a 4-billion-entry array to sort a thousand numbers |
+| Names, floating-point numbers | | | not possible directly |
+
+The counts array has one slot per *possible* value, whether or not that value occurs. A wide range makes it enormous. And the keys must be usable as array indices, which rules out strings and arbitrary real numbers.
+
+| Property | |
+| --- | --- |
+| Stable | yes, in the form above |
+| In place | no |
+| Comparison-based | no |
+
+## Where it shows up
+
+- **Small, known key ranges**: ages, grades, bytes, characters, enum values.
+- **Histograms.** The counting step alone is how you build one.
+- **As the inner step of [radix sort](/algorithms/radix-sort/)**, which uses it one digit at a time to sort large numbers without a large k.
+- **Bucketing**, such as grouping records by day of the week.
+
+## Key takeaways
+
+- Counting sort tallies how many times each value occurs, then computes each element's final position directly.
+- It runs in O(n + k), beating the n log n limit that applies to comparison sorts.
+- It only suits integer keys in a small range; the memory grows with the range, not the data.
+- Done with running totals and a right-to-left pass, it is stable, which makes it the building block for radix sort.
