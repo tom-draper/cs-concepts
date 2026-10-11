@@ -79,6 +79,15 @@ The existing pages follow roughly this order, which is worth keeping:
 
 <Tree btree linkLeaves leafOnly root={{ k: [10], c: [[3, 7], [10, 12]] }} alt={[12]} />
 
+<Tree roots={[{ k: 0, c: [1, 2] }, 3]} />                      {/* a forest */}
+
+<Tree show="last" terminal={['do']} root={{ k: '', c: [{ k: 'd', c: ['do'] }] }} />   {/* a trie */}
+
+<Graph directed nodes={{ A: [0, 0], B: [1, 0], C: [1, 1] }}
+  edges={[['A', 'B', 4], ['A', 'C']]} highlight={['A']} path={[['A', 'B']]} />
+
+<FenwickViz values={[4, 9, 6, 8]} highlight={[4]} alt={[3]} />
+
 <HashTable buckets={[['cat', 'act'], [], ['dog']]} highlight={0} alt={['act']}
   input={{ key: 'act', note: '312 % 8 = 0' }} />
 
@@ -98,6 +107,32 @@ Also `note` (the default) and `warning`.
 
 </Aside>
 ```
+
+### Interactive diagrams
+
+`<Player>` turns a sequence of frames into a step-through with play, previous/next
+and a scrubber. Each frame is ordinary static markup, so without JavaScript the
+frames simply appear one after another.
+
+```mdx
+<Player>
+<Frame caption="Start with an empty array.">
+<ArrayViz values={[null, null]} />
+</Frame>
+<Frame caption="Write <code>A</code>.">
+<ArrayViz values={['A', null]} highlight={[0]} />
+</Frame>
+</Player>
+```
+
+Frames can be generated: `export const order = [1, 2, 3]` and then
+`{order.map((key) => <Frame>...</Frame>)}` inside the `<Player>`.
+
+Use `<Steps>` when each step needs a paragraph of explanation, and `<Player>` when
+the motion is the point and a one-line caption is enough.
+
+`<HashPlayground />` is a live widget for the Hash Functions page. Widgets like
+it are custom elements with a script that only ships on pages that use them.
 
 `highlight` is the blue emphasis and `alt` the orange one. In a tree node, a
 number is a leaf, an array is one multi-key node, `null` is an empty child slot
