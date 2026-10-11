@@ -1,0 +1,114 @@
+---
+// An animated run of a sorting algorithm. The first step is drawn at build
+// time; the script replays the rest and can re-run it on different input.
+import Controls from './Controls.astro';
+import { trace, type Algorithm } from '../lib/sort-traces';
+
+interface Props {
+  algorithm: Algorithm;
+  values?: number[];
+}
+
+const { algorithm, values = [5, 2, 8, 1, 9, 3, 7, 4] } = Astro.props;
+const steps = trace(algorithm, values);
+const first = steps[0];
+const max = Math.max(...values);
+const marks = { quick: 'pivot', selection: 'smallest so far' } as Record<string, string>;
+---
+
+<sort-demo
+  class="sort-demo"
+  tabindex="0"
+  role="group"
+  aria-label={`${algorithm} sort, step by step`}
+  data-algorithm={algorithm}
+  data-values={JSON.stringify(values)}
+>
+  <div class="bars" aria-hidden="true">
+    {
+      first.values.map((value) => (
+        <div class="bar" style={`--h:${(value / max) * 100}%`}>
+          <i />
+          <span>{value}</span>
+        </div>
+      ))
+    }
+  </div>
+  <p class="sort-note" aria-live="polite">{first.note}</p>
+  <Controls>
+    <span class="inputs">
+      <button type="button" data-input="shuffle">Shuffle</button>
+      <button type="button" data-input="sorted">Sorted</button>
+      <button type="button" data-input="reversed">Reversed</button>
+    </span>
+  </Controls>
+  <p class="sort-meta">
+    <span class="stats">
+      <span><b data-stat="comparisons">0</b> comparisons</span>
+      <span><b data-stat="writes">0</b> writes</span>
+    </span>
+    <span class="legend">
+      <span class="k-compare">comparing</span>
+      <span class="k-moved">moved</span>
+      <span class="k-sorted">in final place</span>
+      {marks[algorithm] && <span class="k-pivot">{marks[algorithm]}</span>}
+    </span>
+  </p>
+</sort-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { trace, type Algorithm, type SortStep } from '../lib/sort-traces';
+
+  class SortDemo extends HTMLElement {
+    connectedCallback() {
+      const algorithm = this.dataset.algorithm as Algorithm;
+      const bars = [...this.querySelectorAll<HTMLElement>('.bar')];
+      const note = this.querySelector('.sort-note')!;
+      const stat = (name: string) => this.querySelector(`[data-stat="${name}"]`)!;
+      let values: number[] = JSON.parse(this.dataset.values!);
+      let steps: SortStep[] = trace(algorithm, values);
+
+      const stepper = attachStepper(this, {
+        interval: 550,
+        count: () => steps.length,
+        render: (index) => {
+          const step = steps[index];
+          const max = Math.max(...step.values);
+          bars.forEach((bar, i) => {
+            bar.style.setProperty('--h', `${(step.values[i] / max) * 100}%`);
+            bar.querySelector('span')!.textContent = String(step.values[i]);
+            bar.className = 'bar';
+            if (step.sorted.includes(i)) bar.classList.add('sorted');
+            if (step.range && (i < step.range[0] || i > step.range[1])) bar.classList.add('out');
+            if (step.pivot === i) bar.classList.add('pivot');
+            if (step.compare.includes(i)) bar.classList.add('compare');
+            if (step.moved.includes(i)) bar.classList.add('moved');
+          });
+          note.textContent = step.note;
+          stat('comparisons').textContent = String(step.comparisons);
+          stat('writes').textContent = String(step.writes);
+        },
+      });
+
+      this.querySelector('.inputs')!.addEventListener('click', (event) => {
+        const kind = (event.target as HTMLElement).closest('button')?.dataset.input;
+        if (!kind) return;
+        const ordered = [...values].sort((a, b) => a - b);
+        if (kind === 'sorted') values = ordered;
+        if (kind === 'reversed') values = ordered.reverse();
+        if (kind === 'shuffle') {
+          values = ordered;
+          for (let i = values.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [values[i], values[j]] = [values[j], values[i]];
+          }
+        }
+        steps = trace(algorithm, values);
+        stepper.go(0);
+      });
+    }
+  }
+
+  customElements.define('sort-demo', SortDemo);
+</script>

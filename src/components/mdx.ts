@@ -5,6 +5,7 @@ import HashPlayground from './HashPlayground.astro';
 import Link from './Link.astro';
 import Ops from './Ops.astro';
 import Player from './Player.astro';
+import SortDemo from './SortDemo.astro';
 import Step from './Step.astro';
 import Steps from './Steps.astro';
 import ArrayViz from './viz/ArrayViz.astro';
@@ -21,6 +22,7 @@ export const components = {
   Frame,
   HashPlayground,
   Player,
+  SortDemo,
   Ops,
   Step,
   Steps,
