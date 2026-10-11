@@ -1,0 +1,104 @@
+---
+description: The order in which the bytes of a multi-byte number are stored. Machines do not all agree, which matters whenever binary data moves between them.
+difficulty: intermediate
+---
+
+A 32-bit number takes up four [bytes](/foundations/bits-and-bytes/). Memory is a sequence of byte-sized cells, each with its own address. So the four bytes have to be laid out in *some* order, and there are two obvious choices. Which one a system uses is its **endianness**.
+
+## The two orders
+
+Take the number `0x12345678`. Its four bytes are `12`, `34`, `56` and `78`. The `12` is the **most significant** byte, the "big end" worth the most, and `78` is the **least significant**.
+
+**Big-endian** stores the big end first, at the lowest address. It matches the way numbers are written.
+
+<ArrayViz
+  values={['12', '34', '56', '78']}
+  addr={{ base: 0x1000, size: 1 }}
+  highlight={[0]}
+  indices={false}
+  caption="Big-endian: the most significant byte is at the lowest address."
+/>
+
+**Little-endian** stores the little end first.
+
+<ArrayViz
+  values={['78', '56', '34', '12']}
+  addr={{ base: 0x1000, size: 1 }}
+  highlight={[3]}
+  indices={false}
+  caption="Little-endian: the least significant byte is at the lowest address. The bytes are in reverse order."
+/>
+
+Only the order of whole **bytes** changes. The bits inside each byte are not reversed.
+
+## Who uses which
+
+| | Byte order |
+| --- | --- |
+| x86 and x86-64 (Intel, AMD) | little-endian |
+| ARM (phones, Apple silicon) | little-endian, in practice |
+| RISC-V | little-endian |
+| Network protocols (IP, TCP) | big-endian, called "network byte order" |
+| Many file formats (PNG, JPEG, Java class files) | big-endian |
+| Other file formats (BMP, ZIP, WAV) | little-endian |
+
+Almost every processor you are likely to use is little-endian. The internet's protocols are big-endian. So the two meet constantly.
+
+## Why it usually does not matter
+
+Inside a single program, on a single machine, endianness is invisible. You store a number and read it back, and the same convention applies both ways. Arithmetic, comparisons, [bitwise operations](/foundations/bitwise-operations/) and shifts all work on the number's *value* and behave identically on every machine. `x >> 24` gives the most significant byte regardless of how the bytes are arranged in memory.
+
+## When it does matter
+
+It matters at the moment bytes leave one system and enter another.
+
+- **Sending numbers over a network.** A little-endian machine that writes the port number 80 (`0x0050`) straight to the wire sends the bytes `50 00`, which the other end reads as 20,480.
+- **Reading and writing binary files.** A file format specifies a byte order, and a reader on a machine with the other order must swap.
+- **Reinterpreting memory.** Casting a pointer to a 32-bit integer into a pointer to bytes exposes the layout directly.
+
+The fix is always the same: **decide the byte order of the data format, and convert explicitly at the boundary.** Never write a raw in-memory number to a file or socket and hope.
+
+```python
+import struct
+
+struct.pack('>I', 0x12345678)    # big-endian:    the bytes 12 34 56 78
+struct.pack('<I', 0x12345678)    # little-endian: the bytes 78 56 34 12
+
+(0x12345678).to_bytes(4, 'big')
+int.from_bytes(b'\x12\x34\x56\x78', 'big')
+```
+
+In C, the functions `htonl` and `ntohl` ("host to network long" and back) do the conversion for network code. On a big-endian machine they do nothing.
+
+## Text has the problem too
+
+Any encoding that uses units larger than a byte inherits the question. UTF-16 stores each unit as two bytes, so `A` (U+0041) is either `00 41` or `41 00`.
+
+To say which, a UTF-16 file can begin with a **byte order mark** (BOM): the code point U+FEFF. If the first two bytes are `FE FF` the file is big-endian; if they are `FF FE` it is little-endian.
+
+UTF-8 is defined as a sequence of single bytes, so it has no byte order at all. That is one of the reasons it became the standard. See [character encodings](/foundations/character-encodings/).
+
+## Is one better?
+
+Neither is, in any way that matters now. Each has small conveniences.
+
+| | Convenient for |
+| --- | --- |
+| Big-endian | reading a memory dump by eye; comparing numbers as if they were strings of bytes |
+| Little-endian | reading the same address as an 8, 16 or 32-bit value gives the low part each time; arithmetic that works from the low byte upward |
+
+Little-endian won among processors largely through the success of the x86 family. Big-endian was fixed as the network order early in the internet's history.
+
+<Aside title="Where the name comes from">
+
+The terms are from *Gulliver's Travels*, in which two kingdoms go to war over whether a boiled egg should be opened at the big end or the little end. Danny Cohen borrowed them in a 1980 note about byte order, making the point that the choice hardly mattered, as long as everyone agreed on one.
+
+</Aside>
+
+## Key takeaways
+
+- Endianness is the order in which a multi-byte value's bytes are stored.
+- Big-endian puts the most significant byte first; little-endian puts the least significant first.
+- Most processors are little-endian; network protocols are big-endian.
+- It is invisible within one machine and matters whenever binary data crosses between systems.
+- Pick the format's byte order and convert explicitly when reading and writing.
