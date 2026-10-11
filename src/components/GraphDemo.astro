@@ -20,12 +20,15 @@ const start = Astro.props.start ?? names[0];
 const spec: GraphSpec = { nodes: names, edges, directed };
 const first = traceGraph(algorithm, spec, start)[0];
 const { points, lines, width, height } = layoutGraph(nodes, edges, directed, 16);
-const pickStart = algorithm !== 'topo';
+const pickStart = algorithm !== 'topo' && algorithm !== 'kruskal';
 const legend = {
   bfs: ['current', 'in the queue', 'visited'],
   dfs: ['current', 'on the path', 'finished'],
   dijkstra: ['current', 'reached', 'settled'],
   topo: ['current', 'ready', 'output'],
+  'bellman-ford': ['just updated', 'reached', 'reached'],
+  kruskal: ['edge being considered', 'not used', 'in the tree'],
+  prim: ['just added', 'next to the tree', 'in the tree'],
 }[algorithm];
 ---
 
@@ -135,7 +138,14 @@ const legend = {
             const key = edge.dataset.edge!;
             edge.setAttribute(
               'class',
-              'v-gedge ' + (includes(step.tree, key) ? 'on' : includes(step.gone, key) ? 'gone' : ''),
+              'v-gedge ' +
+                (step.active && includes([step.active], key)
+                  ? 'active'
+                  : includes(step.tree, key)
+                    ? 'on'
+                    : includes(step.gone, key)
+                      ? 'gone'
+                      : ''),
             );
           }
           note.textContent = step.note;
