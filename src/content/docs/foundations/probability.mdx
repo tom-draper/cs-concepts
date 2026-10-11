@@ -1,0 +1,125 @@
+---
+description: The mathematics of uncertainty. It explains why hash tables and randomised algorithms work, and why intuition about chance is so often wrong.
+difficulty: intermediate
+---
+
+Probability measures how likely something is, on a scale from 0 (impossible) to 1 (certain). Computer science needs it more than you might expect: to analyse algorithms that make random choices, to understand hashing, to reason about failures in large systems, and as the foundation of machine learning.
+
+## The basics
+
+An **experiment** has a set of possible **outcomes**. An **event** is some collection of those outcomes. When every outcome is equally likely:
+
+```text
+P(event)  =  outcomes in the event  /  total outcomes
+```
+
+Roll one die. There are 6 outcomes. The event "an even number" contains 3 of them, so its probability is 3/6 = 0.5.
+
+That makes most basic probability a matter of [counting](/foundations/combinatorics/).
+
+## Three rules
+
+**Complement.** The chance that something does *not* happen is 1 minus the chance that it does.
+
+```text
+P(not A)  =  1 − P(A)
+```
+
+This is the most useful trick in the subject. "At least one" is usually hard to calculate directly and easy as 1 − P(none).
+
+**Addition.** For events that cannot both happen, add. If they can overlap, subtract the overlap so it is not counted twice.
+
+```text
+P(A or B)  =  P(A) + P(B) − P(A and B)
+```
+
+**Multiplication.** For **independent** events, where one has no effect on the other, multiply.
+
+```text
+P(A and B)  =  P(A) × P(B)
+```
+
+The chance of three heads in a row is 1/2 × 1/2 × 1/2 = 1/8.
+
+**Example.** A disk has a 1% chance of failing this year. With 100 disks, what is the chance that at least one fails? Use the complement: the chance that none fail is 0.99¹⁰⁰ ≈ 0.366. So the chance of at least one failure is about **63%**. At scale, rare events become routine. This is why large systems are designed on the assumption that something is always broken.
+
+## The birthday paradox
+
+How many people must be in a room before two of them probably share a birthday? Most people guess around 180, half of 365.
+
+<BirthdayDemo />
+
+The answer is **23**. At 50 people it is 97%, and at 70 it is 99.9%.
+
+The intuition fails because we think about one particular person matching someone else. What matters is the number of **pairs**. With 23 people there are 253 pairs, and each pair is a chance for a match.
+
+The calculation uses the complement. The chance that everyone is different is
+
+```text
+365/365 × 364/365 × 363/365 × …
+```
+
+and one minus that is the chance of a match.
+
+This is not a party trick. It is the mathematics of **[hash collisions](/data-structures/hash-functions/#collisions-are-guaranteed)**. Replace "365 days" with "the number of possible hash values": collisions become likely once the number of items reaches about the *square root* of the number of possible values. A 32-bit hash has four billion values and starts colliding after tens of thousands of items.
+
+## Conditional probability
+
+The probability of A **given that** B has happened is written P(A | B). Learning that B occurred narrows down the possibilities, and the chance of A is recalculated within them.
+
+```text
+P(A | B)  =  P(A and B)  /  P(B)
+```
+
+### Bayes' theorem, and a famous surprise
+
+A test for a disease is 99% accurate when you have the disease, and gives a false positive 5% of the time when you do not. One person in a hundred has the disease. You test positive. How likely is it that you have it?
+
+Most people say about 99%. Work it through with 10,000 people.
+
+| | Number | Test positive |
+| --- | --- | --- |
+| Have the disease | 100 | 99 |
+| Do not | 9,900 | 495 |
+| **Total positive** | | **594** |
+
+Of 594 positive results, only 99 are real. The chance you have the disease is 99 / 594, about **17%**.
+
+The false positives from the large healthy group swamp the true positives from the small sick group. Ignoring how rare the condition is in the first place is called the *base rate fallacy*.
+
+The same reasoning explains why a spam filter, a fraud detector or an alerting system with "95% accuracy" can still produce mostly false alarms when the thing it looks for is rare.
+
+## Expected value
+
+The **expected value** of a random quantity is its long-run average: each possible value multiplied by its probability, added up.
+
+For one die: (1 + 2 + 3 + 4 + 5 + 6) / 6 = **3.5**. No single roll gives 3.5, but the average of many rolls approaches it.
+
+Expected values have a very convenient property, **linearity**: the expected value of a sum is the sum of the expected values, *even when the quantities are not independent*. The expected total of two dice is 3.5 + 3.5 = 7, with no need to consider all 36 combinations.
+
+In algorithm analysis, "expected running time" means exactly this: the average over the algorithm's own random choices.
+
+## Probability in algorithms
+
+**Average-case analysis.** A [hash table](/data-structures/hash-tables/) lookup is O(1) *on average*, assuming keys are spread evenly. See [best, average and worst case](/foundations/best-average-and-worst-case/).
+
+**Randomised algorithms.** Some algorithms flip coins on purpose. [Quicksort](/algorithms/quicksort/) with a random pivot runs in expected O(n log n) on *every* input. No input is bad, because the algorithm's behaviour does not depend on the input alone. Randomness defeats an adversary who would otherwise feed it the worst case.
+
+**Probabilistic data structures.** A [Bloom filter](/data-structures/bloom-filters/) answers "have I seen this?" using a fraction of the memory of an exact set, at the price of a small, known false-positive rate. [HyperLogLog](/data-structures/hyperloglog/) counts millions of distinct items in a few kilobytes, to within a couple of percent.
+
+**Load balancing.** Sending each request to a random server spreads the load surprisingly evenly, with no coordination.
+
+## Where intuition goes wrong
+
+- **The gambler's fallacy.** After five heads in a row, tails is not "due". The coin has no memory. Independent events stay independent.
+- **Confusing P(A | B) with P(B | A).** "Most accidents happen near home" does not mean being near home is dangerous. It is where people spend most of their time.
+- **Assuming independence.** Multiplying probabilities is only valid for independent events. Servers in the same rack, on the same power supply, running the same software, do not fail independently.
+- **Small samples.** Three successes out of three tells you very little. Averages only settle down over many trials, a fact known as the law of large numbers.
+
+## Key takeaways
+
+- Probability runs from 0 to 1. With equally likely outcomes, it is a matter of counting.
+- "At least one" is easiest as 1 minus the chance of none.
+- Collisions become likely at about the square root of the number of possibilities. That is the birthday paradox, and it governs hashing.
+- When a condition is rare, most positive test results are false positives.
+- Expected value is the long-run average, and it adds up even for dependent quantities.
