@@ -1,0 +1,128 @@
+---
+description: Arithmetic that wraps around after reaching a fixed value, like the hours on a clock. It is behind hash tables, circular buffers, integer overflow and modern cryptography.
+difficulty: intermediate
+---
+
+Four hours after 10 o'clock is 2 o'clock, not 14 o'clock. The hours on a clock count up to 12 and start again. Arithmetic that wraps round like this is called **modular arithmetic**, and the value at which it wraps is the **modulus**.
+
+Programmers use it constantly, usually through the remainder operator `%`.
+
+## The mod operation
+
+`a mod n` is the **remainder** when a is divided by n. It is always one of the n values from 0 to n − 1.
+
+<ModClock value={17} modulus={12} />
+
+Things to try:
+
+- Press **+ 1** repeatedly. The marker moves round the ring and wraps from 11 back to 0.
+- Press **+ 5** twelve times. You are back where you started: adding a multiple of the modulus changes nothing.
+- Change the **modulus**. The same value lands in a different place on a different-sized ring.
+- Step the value below zero and see where negative numbers land.
+
+A number line has been wrapped into a circle. Numbers that differ by a multiple of the modulus sit on the same spot.
+
+## Congruence
+
+Two numbers are **congruent modulo n** if they have the same remainder, or equivalently if their difference is a multiple of n. It is written:
+
+```text
+17 ≡ 5  (mod 12)
+```
+
+17 and 5 are different numbers, but on a 12-hour clock they are the same position. Congruence is an [equivalence relation](/foundations/sets-and-relations/#equivalence-relations): it sorts all the integers into n groups, one for each remainder.
+
+## Arithmetic that respects the wrap
+
+The property that makes modular arithmetic so useful is that you can reduce **at any point** in a calculation without changing the final answer.
+
+```text
+(a + b) mod n  =  ((a mod n) + (b mod n)) mod n
+(a × b) mod n  =  ((a mod n) × (b mod n)) mod n
+```
+
+So the remainder of an enormous product can be found without ever computing the enormous product. Reduce after every step and the numbers stay small.
+
+**Example.** What day of the week is it 100 days after a Wednesday? Only the remainder matters: 100 mod 7 = 2, so it is two days on, a Friday.
+
+The same works for subtraction. Division is the exception: it is not always possible, and when it is, it means multiplying by a *modular inverse* instead.
+
+## A trap: negative numbers
+
+What is −7 mod 3? Mathematically the answer is **2**, because −7 = −3 × 3 + 2, and a remainder should lie between 0 and n − 1.
+
+Programming languages do not agree.
+
+| Language | `-7 % 3` | The sign follows |
+| --- | --- | --- |
+| Python, Ruby | 2 | the divisor |
+| C, C++, Java, JavaScript, Go, Rust | −1 | the dividend |
+
+In the second group, `%` can return a negative number, and using that as an array index is a bug. The standard fix, when the left side may be negative:
+
+```text
+((a % n) + n) % n
+```
+
+This is why moving backwards round a [circular buffer](/data-structures/deques/#how-it-works) is written `(index - 1 + capacity) % capacity`.
+
+## Where it shows up
+
+### Anything that cycles
+
+```python
+next_player  = (current + 1) % number_of_players
+day_of_week  = days_since_start % 7
+is_even      = n % 2 == 0
+every_tenth  = i % 10 == 0
+```
+
+### Mapping a big range onto a small one
+
+A [hash table](/data-structures/hash-tables/) turns a huge hash value into a bucket number with `hash % number_of_buckets`. A [ring buffer](/data-structures/ring-buffers/) wraps its index with `% capacity`. Spreading users across servers is `user_id % number_of_servers`.
+
+When n is a power of two, `a % n` equals `a & (n − 1)`, which is a single [bitwise operation](/foundations/bitwise-operations/) and much cheaper than a division.
+
+### Integer overflow
+
+Fixed-width integers *are* modular arithmetic. An unsigned 8-bit number does all its arithmetic modulo 256: 255 + 1 wraps to 0, exactly as on the ring above. [Two's complement](/foundations/twos-complement/) is the same ring with half the positions relabelled as negative.
+
+### Check digits
+
+The last digit of a credit card number, an ISBN or a barcode is computed from the others using modular arithmetic. A single mistyped digit changes the remainder, so the error is caught immediately.
+
+### Cryptography
+
+Modular arithmetic is the foundation of [public-key cryptography](/security/public-key-cryptography/). The key operation is **modular exponentiation**: computing aᵇ mod n where the numbers are hundreds of digits long.
+
+Two facts make it work.
+
+- It is **easy to compute**. Using the reduce-as-you-go property together with [repeated squaring](/algorithms/divide-and-conquer/#a-small-example-fast-exponentiation), it takes a few thousand multiplications, and the intermediate values never grow beyond the size of n.
+- It is **hard to reverse**. Given the result, recovering the exponent b has no known efficient method.
+
+```python
+pow(7, 128, 13)      # 7 to the power 128, mod 13, computed efficiently
+```
+
+A function that is easy one way and infeasible the other is exactly what encryption and [key exchange](/security/key-exchange/) need.
+
+## Greatest common divisors
+
+The **greatest common divisor** (GCD) of two numbers is the largest number that divides both. Euclid's algorithm finds it using nothing but remainders, and is one of the oldest algorithms still in everyday use.
+
+```python
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+```
+
+It rests on one observation: any number that divides both a and b also divides `a % b`. The numbers shrink quickly, so it takes O(log n) steps. Two numbers whose GCD is 1 are called **coprime**, and that property decides whether a modular inverse exists.
+
+## Key takeaways
+
+- `a mod n` is the remainder of a divided by n: the position of a on a ring of n values.
+- You can reduce modulo n at any point in a sum or product without changing the result.
+- The `%` operator gives negative results for negative inputs in many languages. Use `((a % n) + n) % n` when that matters.
+- It is how values are wrapped, cycled and mapped into a fixed range, and fixed-width integer arithmetic is an instance of it.
+- Modular exponentiation is easy to compute and hard to reverse, which makes it the basis of public-key cryptography.
