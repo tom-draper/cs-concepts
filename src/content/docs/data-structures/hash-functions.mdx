@@ -1,0 +1,111 @@
+---
+description: A function that turns any piece of data into a fixed-size number. Good ones scatter similar inputs far apart, which is what makes hash tables work.
+difficulty: intermediate
+---
+
+A hash function takes input of any size (a word, a file, a whole database row) and produces a number of a fixed size, called a **hash**. The same input always gives the same hash. That simple contract underpins [hash tables](/data-structures/hash-tables/), [sets](/data-structures/sets/), caches, checksums, version control and most of cryptography.
+
+## What it has to do
+
+For use in a hash table, a hash function needs three properties.
+
+- **Deterministic.** Same input, same output, every time.
+- **Fast.** It runs on every lookup and every insert.
+- **Uniform.** Outputs should be spread evenly over the whole range, with no pattern connecting similar inputs to similar outputs.
+
+The third is the hard one, and the difference between a good hash function and a bad one.
+
+## Try it
+
+Here are two hash functions placing a key into one of eight buckets, using `hash % 8`.
+
+- **Sum of bytes** just adds up the character codes. It is the toy function from the [hash tables](/data-structures/hash-tables/) page.
+- **FNV-1a** is a real, if simple, hash function. For each byte it XORs the byte into the running hash, then multiplies by a large prime.
+
+<HashPlayground />
+
+Things to try:
+
+- `stop`, `post` and `opts` are anagrams. Addition does not care about order, so the sum sends all three to the same bucket. FNV-1a separates them, because each step depends on everything that came before it.
+- `stoq` differs from `stop` by one letter. Its sum is one higher, so it lands in the next bucket along. That predictability is exactly what you do not want: similar keys cluster together.
+- Type your own name, then rearrange its letters. The sum never notices.
+
+## Mixing, and the avalanche effect
+
+What separates the two functions is **mixing**: how thoroughly each input bit influences the output bits.
+
+The ideal is the **avalanche effect**: flipping any single input bit should flip about half of the output bits, unpredictably. Then inputs that look almost identical produce hashes that look unrelated.
+
+FNV-1a mixes far better than a sum, but it is not perfect. Compare the hex values for `stop` and `stoq` above: the buckets differ, yet some of the leading digits are the same, because the last byte has only had one multiplication to spread through the number. Modern functions such as xxHash and MurmurHash add a final scrambling step to fix this.
+
+```python
+def fnv1a(data: bytes) -> int:
+    h = 0x811C9DC5                       # a fixed starting value
+    for byte in data:
+        h ^= byte                        # fold the byte in
+        h = (h * 0x01000193) % 2**32     # multiply by a prime, keep 32 bits
+    return h
+```
+
+## Collisions are guaranteed
+
+A 32-bit hash has about 4.3 billion possible values. The number of possible inputs is unlimited. Many inputs must therefore share each hash value. This is the **pigeonhole principle**, and no cleverness avoids it.
+
+Collisions also arrive much sooner than intuition suggests. With a 32-bit hash you might expect to need billions of keys before two collide. In fact there is a 50% chance of at least one collision after only about **77,000** keys. This is the *birthday paradox*: what matters is the number of *pairs* of keys, and that grows with the square of the number of keys.
+
+| Hash size | Keys for a 50% chance of a collision |
+| --- | --- |
+| 16 bits | about 300 |
+| 32 bits | about 77,000 |
+| 64 bits | about 5 billion |
+| 128 bits | about 22 billion billion |
+| 256 bits | about 4 × 10³⁸ |
+
+A hash table expects collisions and handles them. Anything that treats a hash as a unique identifier, such as deduplicating files by hash, needs enough bits that a collision is not a practical concern.
+
+## From hash to bucket
+
+A hash table needs an index, not a 32-bit or 64-bit number, so it reduces the hash to the table size.
+
+```text
+index = hash % number_of_buckets
+```
+
+If the bucket count is a power of two, this is the same as keeping only the lowest few bits, which is faster than a division. It also means those low bits had better be well mixed. A weak hash function whose low bits follow a pattern will fill some buckets and leave others empty, however good its high bits are.
+
+## Three families
+
+"Hash function" covers tools with very different goals. Picking from the wrong family is a common mistake.
+
+| Family | Goal | Examples | Used for |
+| --- | --- | --- | --- |
+| Fast, non-cryptographic | Speed and uniformity | xxHash, MurmurHash, FNV | Hash tables, checksums, sharding |
+| Keyed | The above, plus unpredictability to outsiders | SipHash | Hash tables that take untrusted input |
+| Cryptographic | Infeasible to reverse or to find collisions | SHA-256, BLAKE3 | Signatures, integrity, content addressing |
+
+A fast hash makes no promises against an adversary. Someone who knows the function can craft thousands of keys that all land in one bucket, turning a server's O(1) lookups into O(n) and overloading it. **Keyed** hashes prevent this by mixing in a secret chosen at startup, and they are why Python, Rust and others randomise their hash tables per process.
+
+[Cryptographic hash functions](/security/cryptographic-hash-functions/) go much further and are far slower. Use one when someone might deliberately try to create a collision, never merely to index a table. And for storing passwords none of these is right: that needs a deliberately slow [password hashing](/security/password-hashing/) function.
+
+## Beyond hash tables
+
+- **Checksums.** Compare a file's hash before and after transfer to detect corruption.
+- **Deduplication and content addressing.** Git names every file and commit by the hash of its contents; identical content is stored once.
+- **Caching.** Hash a request to get a compact cache key.
+- **Partitioning.** `hash(user_id) % shards` spreads data evenly across machines. [Consistent hashing](/distributed-systems/consistent-hashing/) refines this so adding a machine does not reshuffle everything.
+- **Probabilistic structures.** [Bloom filters](/data-structures/bloom-filters/) and [HyperLogLog](/data-structures/hyperloglog/) rely on hashes behaving like random numbers.
+
+## Rules for hashing your own types
+
+When you make your own type usable as a hash table key, two rules matter.
+
+**Equal values must have equal hashes.** If two objects compare as equal but hash differently, a lookup with one will search the wrong bucket and miss the other. Whatever fields define equality must be exactly the fields that feed the hash.
+
+**Do not change a key while it is in a table.** If a key's hash changes after insertion, the entry is stranded in a bucket that no lookup will ever check. This is why Python only allows immutable types such as strings and tuples as dictionary keys.
+
+## Key takeaways
+
+- A hash function maps data of any size to a fixed-size number, deterministically.
+- Quality means uniformity: similar inputs should give unrelated outputs (the avalanche effect).
+- Collisions are unavoidable, and by the birthday paradox they appear after roughly the square root of the number of possible hashes.
+- Use a fast hash for tables, a keyed hash when input is untrusted, and a cryptographic hash when collisions must be infeasible.
