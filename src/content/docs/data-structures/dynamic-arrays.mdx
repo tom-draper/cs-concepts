@@ -1,0 +1,132 @@
+---
+description: An array that grows when it fills up, by moving to a bigger block. The trick is growing by a multiple, which keeps appending cheap on average.
+difficulty: beginner
+---
+
+An [array](/data-structures/arrays/) has a fixed size, decided when it is created. Most programs do not know in advance how many items they will hold. The dynamic array solves this, and it is the list type you already use every day: `list` in Python, `Vec` in Rust, `ArrayList` in Java, `std::vector` in C++, `Array` in JavaScript and slices in Go.
+
+## Length and capacity
+
+A dynamic array is a fixed array plus two numbers:
+
+- **capacity**: how many slots have been allocated.
+- **length**: how many of them are in use.
+
+<ArrayViz
+  values={[3, 8, 1, null, null, null, null, null]}
+  pointers={{ length: 3 }}
+  caption="Capacity 8, length 3. The dashed slots are allocated but unused."
+/>
+
+While length is below capacity, appending is trivial: write into the next free slot and add one to the length. That is O(1), exactly like a plain array.
+
+## What happens when it is full
+
+The array cannot simply extend itself, because the memory just past its end may belong to something else. So it moves.
+
+<Steps>
+<Step title="The array is full, and we append 5">
+
+<ArrayViz values={[3, 8, 1, 6]} alt={[0, 1, 2, 3]} />
+
+</Step>
+<Step title="Allocate a new block with double the capacity">
+
+<ArrayViz values={[null, null, null, null, null, null, null, null]} />
+
+</Step>
+<Step title="Copy every element across, then free the old block">
+
+<ArrayViz values={[3, 8, 1, 6, null, null, null, null]} alt={[0, 1, 2, 3]} />
+
+</Step>
+<Step title="Now there is room: write the new element">
+
+<ArrayViz values={[3, 8, 1, 6, 5, null, null, null]} highlight={[4]} />
+
+</Step>
+</Steps>
+
+That one append cost O(n), because every existing element was copied. The next three will be O(1) again.
+
+## Why doubling makes it cheap
+
+An occasional O(n) append sounds bad. The saving grace is how rarely it happens. Each time the array doubles, it buys as many cheap appends as it just paid for in copies.
+
+Starting from capacity 1, the copies triggered by a growing array are 1, then 2, then 4, then 8, and so on. That series always sums to less than twice the final size. Appending a million items causes about a million element copies in total, roughly **one extra copy per append**.
+
+This is why append is described as **O(1) amortized**: any single call might be slow, but the cost averaged over a long run is constant. [Amortized analysis](/foundations/amortized-analysis/) covers the idea in general.
+
+### Why not grow by a fixed amount?
+
+Growing by, say, 10 slots each time feels less wasteful. It is dramatically worse.
+
+| Strategy | Resizes for 1,000,000 appends | Total elements copied |
+| --- | --- | --- |
+| Double the capacity | 20 | about 1 million |
+| Add 10 slots | 100,000 | about 50 billion |
+
+With fixed growth, the resizes never get further apart, so the copying adds up to O(n²) overall. Growing by a *multiple* is the essential idea. The exact multiple is a tuning choice: a larger one means fewer copies but more unused memory.
+
+| Language | Type | Growth factor |
+| --- | --- | --- |
+| Rust | `Vec` | 2 |
+| Java | `ArrayList` | 1.5 |
+| Python | `list` | about 1.125 |
+| C++ | `std::vector` | 2 or 1.5, depending on the library |
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Read or write by index', 'O(1)'],
+    ['Append', 'O(1)', 'amortized'],
+    ['Append, worst case', 'O(n)', 'when it resizes'],
+    ['Remove from the end', 'O(1)'],
+    ['Insert or delete elsewhere', 'O(n)'],
+  ]}
+/>
+
+Everything else behaves like a plain array, including the cost of inserting in the middle and the cache-friendly layout.
+
+## A minimal implementation
+
+```python
+class DynamicArray:
+    def __init__(self):
+        self.capacity = 1
+        self.length = 0
+        self.slots = [None] * self.capacity
+
+    def append(self, value):
+        if self.length == self.capacity:
+            self._grow()
+        self.slots[self.length] = value
+        self.length += 1
+
+    def _grow(self):
+        self.capacity *= 2
+        bigger = [None] * self.capacity
+        for i in range(self.length):
+            bigger[i] = self.slots[i]
+        self.slots = bigger
+```
+
+## Things worth knowing in practice
+
+**Reserve when you know the size.** If you are about to add 100,000 items, ask for that capacity up front (`Vec::with_capacity` in Rust, `reserve` in C++, `ensureCapacity` in Java). It skips every intermediate resize.
+
+**A resize moves everything.** Any pointer, reference or iterator into the old block is now pointing at freed memory. In C++ this is a classic source of crashes; Rust's borrow checker refuses to compile it. If other code needs stable addresses, a [linked list](/data-structures/linked-lists/) or an array of pointers is a better fit.
+
+**Up to half the memory may be unused.** Just after doubling, the array is only half full. That is the price of cheap appends.
+
+**Shrinking needs care.** An array that halves its capacity the moment it is half empty can thrash: one append triggers a grow, one removal triggers a shrink, forever. Implementations that shrink at all wait until the array is only a quarter full.
+
+**Latency spikes.** Amortized O(1) is an average. In a system with hard response-time limits, such as audio processing or a game's frame loop, the one slow append can matter. Pre-allocating avoids it.
+
+## Key takeaways
+
+- A dynamic array is a fixed array with spare capacity, plus a rule for moving to a bigger one.
+- Growing by a constant factor makes append O(1) amortized; growing by a constant amount does not.
+- Resizing invalidates references into the old storage and causes an occasional slow append.
+- If you know how much you need, reserve it.
