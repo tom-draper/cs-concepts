@@ -149,6 +149,10 @@ demos: `<GridSearch />` (draw walls, compare Dijkstra with A*),
 `<Intervals items={[['A', 1, 4]]} chosen={['A']} />`. Their logic is in
 `src/lib/grid-search.ts` and `src/lib/string-traces.ts`.
 
+The probabilistic structures have `<BloomDemo />`, `<CountMinDemo />` and
+`<HllDemo />`, sharing the hashing in `src/lib/sketches.ts`, and skip lists have
+the static `<SkipList nodes={[[3, 1], [9, 3]]} path={[[-1, 2], [9, 2]]} target={9} />`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
