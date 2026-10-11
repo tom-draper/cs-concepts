@@ -1,0 +1,99 @@
+---
+description: Build a solution one step at a time, always taking the option that looks best right now and never reconsidering. Fast and simple, and correct only for the right kind of problem.
+difficulty: intermediate
+---
+
+A greedy algorithm makes a series of choices. At each step it takes whichever option looks best at that moment, commits to it, and moves on. It never goes back.
+
+That makes greedy algorithms short, fast and easy to write. The catch is that the locally best choice does not always lead to the best overall result. The skill is in knowing when it does.
+
+## When greedy works: scheduling
+
+You have one meeting room and a list of requested meetings, each with a start and end time. What is the largest number of meetings you can fit in without any overlapping?
+
+There are several plausible greedy rules. Take the shortest meeting first? The one that starts earliest? The one with the fewest clashes? Only one of them is always right:
+
+**Always take the meeting that finishes earliest**, among those that do not clash with what you have already chosen.
+
+<Intervals
+  items={[['A', 1, 4], ['B', 3, 5], ['C', 0, 6], ['D', 5, 7], ['E', 3, 9], ['F', 6, 10], ['G', 8, 11], ['H', 12, 16]]}
+  chosen={['A', 'D', 'G', 'H']}
+  caption="Eight requests, listed in order of finishing time. Taking the earliest finisher each time picks A, D, G and H: four meetings, the most possible."
+/>
+
+```python
+def max_meetings(meetings):
+    chosen = []
+    last_end = float('-inf')
+    for start, end in sorted(meetings, key=lambda m: m[1]):   # by finishing time
+        if start >= last_end:
+            chosen.append((start, end))
+            last_end = end
+    return chosen
+```
+
+One sort and one pass: O(n log n).
+
+### Why that rule is right
+
+The meeting that finishes first leaves the most room for everything after it. More precisely: take any best possible schedule. Its first meeting can be swapped for the earliest-finishing meeting without causing a clash, because that one ends no later. So there is always a best schedule that starts with the greedy choice, and the same argument applies to what remains.
+
+This is called an **exchange argument**, and it is the standard way to prove a greedy algorithm correct. See [proof techniques](/foundations/proof-techniques/).
+
+The other rules fail. "Shortest first" can pick a short meeting that straddles two longer ones and blocks both.
+
+## When greedy fails: coins
+
+To give change using the fewest coins, the obvious rule is to take the largest coin that fits, repeatedly.
+
+With coins of 1, 5, 10 and 25, that is always optimal. With coins of **1, 3 and 4**, making **6**:
+
+| Method | Coins | Count |
+| --- | --- | --- |
+| Greedy | 4 + 1 + 1 | 3 |
+| Best | 3 + 3 | 2 |
+
+Taking the 4 looked best and ruled out the real answer. A greedy algorithm cannot recover from that, because it never revisits a choice. This problem needs [dynamic programming](/algorithms/dynamic-programming/#a-real-example-fewest-coins), which considers every option at every step.
+
+The same algorithm is right for one set of coins and wrong for another. Nothing in the code tells you which. **A greedy algorithm needs a proof, or at least a serious attempt to find a counterexample.**
+
+## What makes a problem greedy
+
+Two properties must hold.
+
+- **The greedy choice property.** Some best solution includes the locally best first choice. This is what the exchange argument establishes.
+- **Optimal substructure.** After making that choice, what remains is a smaller problem of the same kind, and solving it optimally completes an optimal solution.
+
+Dynamic programming needs only the second. That is the difference between them.
+
+| | Greedy | Dynamic programming |
+| --- | --- | --- |
+| At each step | commits to one choice | considers all choices |
+| Revisits decisions | never | effectively, by trying every option |
+| Speed | usually O(n log n) or O(n) | usually slower, with a table |
+| Always correct | only with the greedy choice property | whenever there is optimal substructure |
+
+When both work, use greedy. It is faster and simpler.
+
+## Famous greedy algorithms
+
+- **[Dijkstra's algorithm](/algorithms/dijkstras-algorithm/)** always settles the closest unsettled vertex. It is correct only when no edge weight is negative, which is exactly where its greedy choice property breaks.
+- **[Kruskal's and Prim's algorithms](/algorithms/minimum-spanning-trees/)** build a minimum spanning tree by always adding the cheapest edge that is allowed.
+- **[Huffman coding](/information/huffman-coding/)** builds an optimal compression code by repeatedly merging the two least frequent symbols.
+- **Fractional knapsack.** If items can be divided, take them in order of value per kilogram. If items must be taken whole, greedy fails, and the problem needs dynamic programming.
+
+That last pair is typical. A small change to a problem can move it from one side of the line to the other.
+
+## Greedy as an approximation
+
+Some problems have no known efficient exact algorithm at all. For those, a greedy method is often used anyway, as a fast way to get a good answer rather than the best one.
+
+For the travelling salesman problem, "always go to the nearest unvisited city" gives a route that is usually reasonable and occasionally poor. For many scheduling and packing problems, simple greedy rules come with a proven guarantee, such as never being worse than twice the optimum.
+
+## Key takeaways
+
+- A greedy algorithm takes the best-looking option at each step and never reconsiders.
+- It is correct only if a locally best choice is always part of some globally best solution.
+- Earliest-finish-time scheduling is the standard example where it works; making change with arbitrary coins is the standard example where it does not.
+- Prove a greedy rule with an exchange argument, or hunt for a counterexample before trusting it.
+- Dijkstra's, Kruskal's, Prim's and Huffman's algorithms are all greedy.
