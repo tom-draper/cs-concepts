@@ -1,0 +1,130 @@
+---
+description: A collection of distinct items with no order, built to answer one question quickly. Is this item in here?
+difficulty: beginner
+---
+
+A set stores items with two guarantees: **no duplicates**, and a fast answer to "is this item present?" It gives up order and position to get them. There is no "third element" of a set.
+
+## The membership question
+
+Checking whether a list contains a value means scanning it: O(n). A set answers the same question in O(1) on average. That single difference is the reason sets exist.
+
+| Items | List: worst-case comparisons | Set: average lookups |
+| --- | --- | --- |
+| 1,000 | 1,000 | about 1 |
+| 1,000,000 | 1,000,000 | about 1 |
+
+```python
+allowed = ['alice', 'bob', 'carol']    # list: scans every name
+allowed = {'alice', 'bob', 'carol'}    # set: goes straight to it
+
+if user in allowed:
+    ...
+```
+
+The syntax for checking is identical. The cost is not.
+
+## How it works
+
+The usual implementation is a [hash table](/data-structures/hash-tables/) that stores only keys, with no values attached. A [hash function](/data-structures/hash-functions/) turns each item into a bucket index, so the set knows where an item would be without looking anywhere else.
+
+<HashTable
+  buckets={[['cat'], ['bird'], ['dog', 'fish'], ['ant'], ['bee'], [], [], ['emu']]}
+  highlight={2}
+  alt={['fish']}
+  input={{ key: 'fish', note: 'bucket 2' }}
+  caption="Is “fish” in the set? Hash it, look in one bucket, done."
+/>
+
+Adding an item that is already present does nothing, which is how duplicates are prevented: the insert finds the existing entry and stops.
+
+<Ops
+  items={[
+    ['Contains', 'O(1)', 'average'],
+    ['Add', 'O(1)', 'average'],
+    ['Remove', 'O(1)', 'average'],
+    ['Iterate', 'O(n)'],
+  ]}
+/>
+
+## Everyday patterns
+
+### Remove duplicates
+
+```python
+unique = set(items)
+```
+
+### Remember what you have seen
+
+The single most common use. Walk through data once, keeping a set of what has gone by.
+
+```python
+def has_duplicate(items):
+    seen = set()
+    for x in items:
+        if x in seen:
+            return True
+        seen.add(x)
+    return False
+```
+
+The [Big-O](/foundations/big-o-notation/) page has a version of this function with two nested loops, which is O(n²). The set brings it down to O(n). For a million items that is the difference between a fraction of a second and many minutes. Graph searches use the same pattern to avoid visiting a node twice.
+
+### Combine collections
+
+Sets support the operations you may remember from Venn diagrams.
+
+| Operation | Meaning | Python | Typical cost |
+| --- | --- | --- | --- |
+| Union | in either | `a \| b` | O(len(a) + len(b)) |
+| Intersection | in both | `a & b` | O(min(len(a), len(b))) |
+| Difference | in a but not b | `a - b` | O(len(a)) |
+| Subset | is all of a in b? | `a <= b` | O(len(a)) |
+
+Each one works by looping over one set and doing O(1) lookups in the other.
+
+```python
+followers = {'ana', 'ben', 'cy'}
+following = {'ben', 'cy', 'dee'}
+
+followers & following    # mutuals: {'ben', 'cy'}
+followers - following    # you don't follow back: {'ana'}
+```
+
+## Hash sets and tree sets
+
+Most languages offer two kinds.
+
+| | Hash set | Tree set |
+| --- | --- | --- |
+| Built on | hash table | balanced search tree |
+| Contains, add, remove | O(1) average | O(log n) |
+| Iteration order | arbitrary | sorted |
+| Smallest, largest, range queries | no | yes |
+| Examples | `set` in Python, `HashSet` in Java and Rust | `TreeSet` in Java, `BTreeSet` in Rust, `std::set` in C++ |
+
+Use a hash set by default. Reach for a tree set when you need the items in order, or need questions like "what is the smallest item greater than 50?" Tree sets are built on structures such as [red-black trees](/data-structures/red-black-trees/) and [B-trees](/data-structures/b-trees/).
+
+<Aside type="warning" title="Do not rely on a hash set's order">
+
+Iterating over a hash set gives the items in whatever order they happen to sit in the buckets. That order can change when the set grows, between runs of the program, or between language versions. If order matters, sort the result or use a tree set.
+
+</Aside>
+
+## Special-purpose relatives
+
+- **Bitsets.** If the items are small integers, say 0 to 999, a set can be a row of bits, one per possible value. Membership is a single bit test, and a thousand-item universe fits in 125 bytes. Unions and intersections become bitwise OR and AND over whole machine words. See [bitwise operations](/foundations/bitwise-operations/).
+- **[Bloom filters](/data-structures/bloom-filters/).** When even a hash set is too big, a Bloom filter answers "definitely not present" or "probably present" using a small fraction of the memory.
+- **Multisets** (or bags) allow duplicates and count them: a map from item to count.
+
+## What can go in a set
+
+Items must be hashable, which in practice means their value must not change while they are in the set. That is why Python lets you put strings, numbers and tuples in a set, but not lists. See [hash functions](/data-structures/hash-functions/#rules-for-hashing-your-own-types).
+
+## Key takeaways
+
+- A set holds distinct items and answers "is it in here?" in O(1) on average.
+- It is a hash table with keys and no values.
+- The "seen" set is one of the most useful patterns in programming, often removing a nested loop.
+- Hash sets are unordered; use a tree set when you need sorted order or range queries.
