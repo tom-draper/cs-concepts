@@ -1,0 +1,126 @@
+---
+// A grid you can draw walls on, comparing how much Dijkstra and A* explore.
+import { gridSearch } from '../lib/grid-search';
+
+const COLS = 14;
+const ROWS = 9;
+const start = 4 * COLS + 2;
+const goal = 4 * COLS + 11;
+const walls = Array.from({ length: 7 }, (_, i) => (i + 1) * COLS + 7);
+const wallSet = new Set(walls);
+const results = {
+  dijkstra: gridSearch(COLS, ROWS, wallSet, start, goal, false),
+  astar: gridSearch(COLS, ROWS, wallSet, start, goal, true),
+};
+const shown = results.astar;
+const kind = (cell: number) =>
+  cell === start
+    ? 'start'
+    : cell === goal
+      ? 'goal'
+      : wallSet.has(cell)
+        ? 'wall'
+        : shown.path.includes(cell)
+          ? 'path'
+          : shown.explored.includes(cell)
+            ? 'explored'
+            : '';
+---
+
+<grid-search
+  class="playground grid-search"
+  data-cols={COLS}
+  data-rows={ROWS}
+  data-start={start}
+  data-goal={goal}
+  data-walls={JSON.stringify(walls)}
+>
+  <p class="tries" role="group" aria-label="Algorithm">
+    <button type="button" data-algorithm="dijkstra" aria-pressed="false">Dijkstra</button>
+    <button type="button" data-algorithm="astar" aria-pressed="true">A*</button>
+    <button type="button" data-clear>Clear walls</button>
+  </p>
+  <div class="grid" style={`--cols:${COLS}`} role="group" aria-label="Grid. Press a cell to add or remove a wall.">
+    {
+      Array.from({ length: COLS * ROWS }, (_, cell) => (
+        <button
+          type="button"
+          class={`cell ${kind(cell)}`}
+          data-cell={cell}
+          aria-label={`Row ${Math.floor(cell / COLS) + 1}, column ${(cell % COLS) + 1}`}
+        >
+          {cell === start ? 'S' : cell === goal ? 'G' : ''}
+        </button>
+      ))
+    }
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Dijkstra explored</dt><dd data-out="dijkstra">{results.dijkstra.explored.length} cells</dd></div>
+    <div><dt>A* explored</dt><dd data-out="astar">{results.astar.explored.length} cells</dd></div>
+    <div><dt>Path length</dt><dd data-out="length">{shown.path.length - 1} steps</dd></div>
+  </dl>
+</grid-search>
+
+<script>
+  import { gridSearch } from '../lib/grid-search';
+
+  class GridSearch extends HTMLElement {
+    connectedCallback() {
+      const cols = Number(this.dataset.cols);
+      const rows = Number(this.dataset.rows);
+      const start = Number(this.dataset.start);
+      const goal = Number(this.dataset.goal);
+      const walls = new Set<number>(JSON.parse(this.dataset.walls!));
+      const cells = [...this.querySelectorAll<HTMLElement>('.cell')];
+      let algorithm = 'astar';
+      const out = (name: string, text: string) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = text);
+
+      const render = () => {
+        const results: Record<string, ReturnType<typeof gridSearch>> = {
+          dijkstra: gridSearch(cols, rows, walls, start, goal, false),
+          astar: gridSearch(cols, rows, walls, start, goal, true),
+        };
+        const shown = results[algorithm];
+        const explored = new Set(shown.explored);
+        const path = new Set(shown.path);
+        cells.forEach((cell, i) => {
+          cell.className =
+            'cell ' +
+            (i === start
+              ? 'start'
+              : i === goal
+                ? 'goal'
+                : walls.has(i)
+                  ? 'wall'
+                  : path.has(i)
+                    ? 'path'
+                    : explored.has(i)
+                      ? 'explored'
+                      : '');
+        });
+        out('dijkstra', `${results.dijkstra.explored.length} cells`);
+        out('astar', `${results.astar.explored.length} cells`);
+        out('length', shown.path.length ? `${shown.path.length - 1} steps` : 'no route');
+        for (const button of this.querySelectorAll<HTMLElement>('[data-algorithm]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.algorithm === algorithm));
+        }
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.algorithm) algorithm = button.dataset.algorithm;
+        else if ('clear' in button.dataset) walls.clear();
+        else if (button.dataset.cell) {
+          const cell = Number(button.dataset.cell);
+          if (cell === start || cell === goal) return;
+          if (!walls.delete(cell)) walls.add(cell);
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('grid-search', GridSearch);
+</script>
