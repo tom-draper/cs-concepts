@@ -1,0 +1,123 @@
+---
+description: A way to measure operations that are usually cheap and occasionally expensive, by spreading the cost of the rare slow ones over the many fast ones.
+difficulty: intermediate
+---
+
+Appending to a [dynamic array](/data-structures/dynamic-arrays/) is nearly always instant. Once in a while the array is full, and the append has to copy every element to a bigger block. That one append costs O(n).
+
+So what is the cost of an append? "O(n) in the worst case" is true and badly misleading. It suggests that n appends could cost O(n²), when in fact they cost O(n) in total.
+
+Amortized analysis gives the honest answer. It asks: **over any long sequence of operations, what is the cost per operation?**
+
+## Counting the real cost
+
+Start with an empty dynamic array of capacity 1 that doubles when full. Count one unit of work for each element written or copied.
+
+| Append number | Capacity before | Copies | Cost | Running total |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | 0 | 1 | 1 |
+| 2 | 1, full | 1 | 2 | 3 |
+| 3 | 2, full | 2 | 3 | 6 |
+| 4 | 4 | 0 | 1 | 7 |
+| 5 | 4, full | 4 | 5 | 12 |
+| 6 | 8 | 0 | 1 | 13 |
+| 7 | 8 | 0 | 1 | 14 |
+| 8 | 8 | 0 | 1 | 15 |
+| 9 | 8, full | 8 | 9 | 24 |
+
+The individual costs jump around: 1, 2, 3, 1, 5, 1, 1, 1, 9. But look at the running total. After 9 appends it is 24. It never exceeds three times the number of appends.
+
+The expensive appends get more expensive, but they also get **rarer at exactly the same rate**. A resize that copies 8 elements only happens after 4 cheap appends since the last one; a resize that copies 1,024 only after 512.
+
+So the total for n appends is less than 3n, and the **amortized cost per append is O(1)**.
+
+## The savings account view
+
+A helpful way to see why this works is to imagine paying for operations in advance.
+
+Charge every append **3 coins**, whatever it really costs.
+
+- 1 coin pays for writing the new element.
+- 2 coins are saved, stored alongside that element.
+
+When the array is full and must double, half of its elements were added since the last resize, and each of them has 2 coins saved. That is exactly enough to pay for copying *every* element, one coin each.
+
+The account never goes negative, so 3 coins per append is always enough. This is the **accounting method**, and the "coins" are purely a way of reasoning. No real program stores them.
+
+## What amortized does and does not promise
+
+<Ops
+  items={[
+    ['Append, amortized', 'O(1)'],
+    ['Append, worst case', 'O(n)', 'a single call'],
+    ['n appends, total', 'O(n)', 'guaranteed'],
+  ]}
+/>
+
+**It is a guarantee about totals.** Any sequence of n appends costs O(n). No probability or luck is involved.
+
+**It is not a guarantee about any single operation.** An individual append can still take O(n). If your program must respond within a fixed time *every* time, such as in audio processing or a game's frame loop, amortized O(1) is not good enough, and you should reserve the capacity up front.
+
+### Not the same as average case
+
+The two are easy to mix up, and they are different.
+
+| | Average case | Amortized |
+| --- | --- | --- |
+| Averages over | possible inputs | a sequence of operations |
+| Depends on | an assumption about the input | nothing |
+| Can be beaten by bad luck or an adversary | yes | no |
+| Example | [quicksort](/algorithms/quicksort/) is O(n log n) on average | dynamic array append is O(1) amortized |
+
+A [hash table](/data-structures/hash-tables/) insert is "O(1) average, amortized", and both words are doing work. *Average* covers the assumption that the hash function spreads keys evenly. *Amortized* covers the occasional resize.
+
+## Why the growth factor matters
+
+Amortized O(1) depends on growing by a **multiple**. Suppose the array grew by a fixed 10 slots each time instead.
+
+| Strategy | Resizes for n appends | Total copies | Amortized cost |
+| --- | --- | --- | --- |
+| Double the capacity | about log₂ n | less than 2n | O(1) |
+| Add 10 slots | n / 10 | about n² / 20 | O(n) |
+
+With fixed growth, resizes stay just as frequent while getting more expensive, and there is never enough "saved" to pay for them.
+
+## Another example: a queue from two stacks
+
+A [queue](/data-structures/queues/) can be built from two [stacks](/data-structures/stacks/). Push new items onto the `inbox`. To remove one, pop from the `outbox`; if the outbox is empty, first pour the entire inbox into it, which reverses the order.
+
+```python
+class Queue:
+    def __init__(self):
+        self.inbox = []
+        self.outbox = []
+
+    def enqueue(self, value):
+        self.inbox.append(value)
+
+    def dequeue(self):
+        if not self.outbox:
+            while self.inbox:                      # occasionally O(n)
+                self.outbox.append(self.inbox.pop())
+        return self.outbox.pop()
+```
+
+A single `dequeue` can be O(n) when it has to pour. But follow one item through its life: it is pushed onto the inbox once, moved to the outbox once, and popped once. Three steps, ever. So n operations cost O(n) in total, and each is O(1) amortized.
+
+That way of arguing, "each item can only be moved a bounded number of times", is the most common form of amortized reasoning in practice.
+
+## Where it shows up
+
+- **[Dynamic arrays](/data-structures/dynamic-arrays/)** and everything built on them: stacks, strings, buffers.
+- **[Hash tables](/data-structures/hash-tables/)**, which rehash everything when they grow.
+- **[Union-find](/data-structures/union-find/)**, whose path compression makes later operations cheap by doing extra work on earlier ones.
+- **Garbage collectors**, where most allocations are instant and an occasional one triggers a collection.
+- **Sliding window algorithms**, where an inner loop looks quadratic but each element enters and leaves the window only once.
+
+## Key takeaways
+
+- Amortized cost is the total cost of a sequence of operations divided by the number of operations.
+- It lets rare expensive operations be paid for by the many cheap ones around them.
+- It is a guarantee on totals, with no probability involved, but says nothing about any single operation.
+- It is different from average case, which depends on assumptions about the input.
+- Doubling gives amortized O(1) appends; growing by a fixed amount does not.
