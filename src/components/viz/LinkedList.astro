@@ -1,0 +1,96 @@
+---
+import Figure from './Figure.astro';
+import { arrowHead, fit } from './geom';
+
+interface Props {
+  values: (string | number)[];
+  highlight?: number[];
+  alt?: number[];
+  /** Give every node a `prev` pointer as well. */
+  doubly?: boolean;
+  /** Named markers above nodes, e.g. `{ head: 0 }`. */
+  labels?: Record<string, number>;
+  caption?: string;
+  label?: string;
+}
+
+const { values, highlight = [], alt = [], doubly = false, labels = {}, caption, label } = Astro.props;
+
+const VW = 46;
+const PW = 24;
+const NH = 40;
+const GAP = 38;
+const PAD = 10;
+const NW = VW + PW * (doubly ? 2 : 1);
+const top = Object.keys(labels).length ? 34 : 8;
+const cy = top + NH / 2;
+const nodeX = (i: number) => PAD + i * (NW + GAP);
+const valueX = (i: number) => nodeX(i) + (doubly ? PW : 0);
+const width = nodeX(values.length) + (doubly ? -GAP + PAD : 44);
+const height = top + NH + 10;
+const state = (i: number) => (highlight.includes(i) ? 'hl' : alt.includes(i) ? 'alt' : '');
+const last = values.length - 1;
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `${doubly ? 'Doubly linked' : 'Linked'} list: ${values.join(' → ')}`}
+  >
+    {
+      values.map((value, i) => {
+        const next = valueX(i) + VW + PW / 2;
+        const fy = doubly ? cy - 7 : cy;
+        return (
+          <>
+            <g class={`v-node ${state(i)}`}>
+              <rect x={nodeX(i)} y={top} width={NW} height={NH} rx="4" />
+              <line x1={valueX(i) + VW} y1={top} x2={valueX(i) + VW} y2={top + NH} />
+              {doubly && <line x1={valueX(i)} y1={top} x2={valueX(i)} y2={top + NH} />}
+              <text class="v-text" x={valueX(i) + VW / 2} y={cy}>
+                {value}
+              </text>
+            </g>
+            <g class="v-pointer">
+              {i < last || !doubly ? (
+                <>
+                  <circle cx={next} cy={fy} r="3" />
+                  <line x1={next} y1={fy} x2={nodeX(i + 1) - 7} y2={fy} />
+                  <polygon points={arrowHead(next, fy, nodeX(i + 1) - 1, fy)} />
+                </>
+              ) : (
+                <text class="v-small" x={next} y={cy}>∅</text>
+              )}
+              {doubly &&
+                (i > 0 ? (
+                  <>
+                    <circle cx={nodeX(i) + PW / 2} cy={cy + 7} r="3" />
+                    <line x1={nodeX(i) + PW / 2} y1={cy + 7} x2={nodeX(i) - GAP + 7} y2={cy + 7} />
+                    <polygon points={arrowHead(nodeX(i), cy + 7, nodeX(i) - GAP + 1, cy + 7)} />
+                  </>
+                ) : (
+                  <text class="v-small" x={nodeX(i) + PW / 2} y={cy}>∅</text>
+                ))}
+            </g>
+          </>
+        );
+      })
+    }
+    {!doubly && <text class="v-small" x={nodeX(values.length) + 16} y={cy}>null</text>}
+    {
+      Object.entries(labels).map(([name, i]) => {
+        const x = nodeX(i) + NW / 2;
+        return (
+          <g class="v-pointer">
+            <text class="v-label" x={x} y={10}>{name}</text>
+            <line x1={x} y1={19} x2={x} y2={top - 8} />
+            <polygon points={arrowHead(x, 19, x, top - 2)} />
+          </g>
+        );
+      })
+    }
+  </svg>
+</Figure>

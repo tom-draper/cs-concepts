@@ -1,0 +1,41 @@
+---
+// A row of tiles summarising what each operation costs.
+interface Props {
+  items: [label: string, cost: string, note?: string][];
+}
+
+const { items } = Astro.props;
+
+function classify(cost: string): { name: string; rating: string } | undefined {
+  const c = cost.replace(/\s/g, '');
+  if (/2ⁿ|2\^n/.test(c)) return { name: 'exponential', rating: 'bad' };
+  if (/n²|n\^2/.test(c)) return { name: 'quadratic', rating: 'bad' };
+  if (/nlog/.test(c)) return { name: 'linearithmic', rating: 'ok' };
+  if (/log/.test(c)) return { name: 'logarithmic', rating: 'good' };
+  if (/O\(1\)/.test(c)) return { name: 'constant', rating: 'good' };
+  if (/O\(n\)/.test(c)) return { name: 'linear', rating: 'ok' };
+}
+---
+
+<dl class="ops">
+  {
+    items.map(([label, cost, note]) => {
+      const kind = classify(cost);
+      return (
+        <div class="op">
+          <dt>{label}</dt>
+          <dd>
+            <span class="cost">{cost}</span>
+            {kind && (
+              <span class="kind">
+                <i class={kind.rating} />
+                {kind.name}
+              </span>
+            )}
+            {note && <span class="op-note">{note}</span>}
+          </dd>
+        </div>
+      );
+    })
+  }
+</dl>

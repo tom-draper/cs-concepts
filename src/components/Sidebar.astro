@@ -1,0 +1,56 @@
+---
+import { getCollection } from 'astro:content';
+import { parts, pagesById } from '../outline';
+import { url } from '../lib/url';
+
+interface Props {
+  currentId?: string;
+}
+
+const { currentId } = Astro.props;
+const written = new Set((await getCollection('docs')).map((entry) => entry.id));
+const currentPart = currentId ? pagesById.get(currentId)?.part : undefined;
+---
+
+{
+  parts.map((part) => {
+    const total = part.chapters.reduce((n, c) => n + c.pages.length, 0);
+    const done = part.chapters.reduce(
+      (n, c) => n + c.pages.filter((p) => written.has(p.id)).length,
+      0,
+    );
+    return (
+      <details open={part.title === currentPart || (!currentPart && done > 0)}>
+        <summary>
+          <span>{part.title}</span>
+          <span class="count" title={`${done} of ${total} pages written`}>
+            {done}/{total}
+          </span>
+        </summary>
+        {part.chapters.map((chapter) => (
+          <>
+            <h2>{chapter.title}</h2>
+            <ul>
+              {chapter.pages.map((page) => (
+                <li>
+                  {written.has(page.id) ? (
+                    <a
+                      href={url(page.id)}
+                      aria-current={page.id === currentId ? 'page' : undefined}
+                    >
+                      {page.title}
+                    </a>
+                  ) : (
+                    <span class="planned" title="Not written yet">
+                      {page.title}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </>
+        ))}
+      </details>
+    );
+  })
+}

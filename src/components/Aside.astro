@@ -1,0 +1,14 @@
+---
+interface Props {
+  type?: 'note' | 'tip' | 'warning';
+  title?: string;
+}
+
+const { type = 'note', title } = Astro.props;
+const defaults = { note: 'Note', tip: 'Tip', warning: 'Watch out' };
+---
+
+<aside class={`aside ${type}`}>
+  <p class="aside-title">{title ?? defaults[type]}</p>
+  <slot />
+</aside>
