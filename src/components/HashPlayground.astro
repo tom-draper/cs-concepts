@@ -1,0 +1,77 @@
+---
+// Type a key and watch two hash functions place it in one of eight buckets.
+const BUCKETS = 8;
+const initial = 'stop';
+const bytes = [...new TextEncoder().encode(initial)];
+const sum = bytes.reduce((a, b) => a + b, 0);
+let fnv = 0x811c9dc5;
+for (const byte of bytes) fnv = Math.imul(fnv ^ byte, 0x01000193) >>> 0;
+const rows = [
+  { id: 'sum', name: 'Sum of bytes', value: String(sum), bucket: sum % BUCKETS },
+  { id: 'fnv', name: 'FNV-1a', value: fnv.toString(16).padStart(8, '0'), bucket: fnv % BUCKETS },
+];
+---
+
+<hash-playground class="playground">
+  <label>
+    <span>Key</span>
+    <input type="text" value={initial} maxlength="40" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries">
+    Try:
+    {['stop', 'post', 'opts', 'stoq'].map((word) => <button type="button" data-key={word}>{word}</button>)}
+  </p>
+  {
+    rows.map((row) => (
+      <div class="hash-row" data-fn={row.id}>
+        <div class="hash-meta">
+          <span class="hash-name">{row.name}</span>
+          <code class="hash-value">{row.value}</code>
+        </div>
+        <ol class="hash-buckets" aria-label={`${row.name}: bucket`}>
+          {Array.from({ length: BUCKETS }, (_, i) => (
+            <li class={i === row.bucket ? 'on' : ''}>{i}</li>
+          ))}
+        </ol>
+      </div>
+    ))
+  }
+</hash-playground>
+
+<script>
+  const hashes: Record<string, (bytes: Uint8Array) => { value: string; n: number }> = {
+    sum(bytes) {
+      const n = bytes.reduce((a, b) => a + b, 0);
+      return { value: String(n), n };
+    },
+    fnv(bytes) {
+      let h = 0x811c9dc5;
+      for (const byte of bytes) h = Math.imul(h ^ byte, 0x01000193) >>> 0;
+      return { value: h.toString(16).padStart(8, '0'), n: h };
+    },
+  };
+
+  class HashPlayground extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const update = () => {
+        const bytes = new TextEncoder().encode(input.value);
+        for (const row of this.querySelectorAll<HTMLElement>('.hash-row')) {
+          const { value, n } = hashes[row.dataset.fn!](bytes);
+          row.querySelector('.hash-value')!.textContent = value;
+          const cells = row.querySelectorAll('li');
+          cells.forEach((cell, i) => cell.classList.toggle('on', i === n % cells.length));
+        }
+      };
+      input.addEventListener('input', update);
+      this.addEventListener('click', (event) => {
+        const key = (event.target as HTMLElement).closest('button')?.dataset.key;
+        if (key === undefined) return;
+        input.value = key;
+        update();
+      });
+    }
+  }
+
+  customElements.define('hash-playground', HashPlayground);
+</script>
