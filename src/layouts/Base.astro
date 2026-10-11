@@ -1,0 +1,143 @@
+---
+import '../styles/global.css';
+import Sidebar from '../components/Sidebar.astro';
+import { url } from '../lib/url';
+
+interface Props {
+  title?: string;
+  description?: string;
+  currentId?: string;
+}
+
+const {
+  title,
+  description = 'A visual, book-style guide to computer science concepts.',
+  currentId,
+} = Astro.props;
+const pageTitle = title ? `${title} · CS Concepts` : 'CS Concepts';
+const favicon =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f66c1'/%3E%3Cpath d='M16 8v6m0 0-7 4m7-4 7 4' stroke='%23fff' stroke-width='2' fill='none'/%3E%3Ccircle cx='16' cy='8' r='3' fill='%23fff'/%3E%3Ccircle cx='9' cy='21' r='3' fill='%23fff'/%3E%3Ccircle cx='23' cy='21' r='3' fill='%23fff'/%3E%3C/svg%3E";
+---
+
+<!doctype html>
+<html lang="en" data-base={url('')}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={favicon} />
+    <script is:inline>
+      try {
+        const theme = localStorage.getItem('theme');
+        if (theme) document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
+  </head>
+  <body>
+    <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-label="Show contents" />
+    <header class="topbar">
+      <label for="nav-toggle" class="icon-btn menu-btn" aria-hidden="true">
+        <svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>
+      </label>
+      <a class="brand" href={url('')}>CS Concepts</a>
+      <button id="search-btn" class="search-btn" type="button">
+        <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>
+        <span>Search</span>
+        <kbd>/</kbd>
+      </button>
+      <button id="theme-btn" class="icon-btn" type="button" aria-label="Switch between light and dark theme">
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor"></path></svg>
+      </button>
+    </header>
+
+    <nav class="sidebar" aria-label="Contents">
+      <Sidebar currentId={currentId} />
+    </nav>
+    <label for="nav-toggle" class="scrim" aria-hidden="true"></label>
+
+    <main>
+      <slot />
+    </main>
+
+    <dialog id="search" class="search-dialog" aria-label="Search">
+      <div id="search-ui"></div>
+      <p id="search-fallback" class="search-fallback" hidden>
+        Search is built with the site. Run <code>pnpm build &amp;&amp; pnpm preview</code> to use it locally.
+      </p>
+    </dialog>
+
+    <script is:inline>
+      (() => {
+        const root = document.documentElement;
+        const base = root.dataset.base;
+
+        document.getElementById('theme-btn').addEventListener('click', () => {
+          const current =
+            root.dataset.theme ||
+            (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          const next = current === 'dark' ? 'light' : 'dark';
+          root.dataset.theme = next;
+          try {
+            localStorage.setItem('theme', next);
+          } catch {}
+        });
+
+        // Keep the current page visible in a long sidebar.
+        document
+          .querySelector('.sidebar [aria-current="page"]')
+          ?.scrollIntoView({ block: 'center' });
+
+        // Pagefind is only fetched the first time search is opened.
+        const dialog = document.getElementById('search');
+        let loading;
+        function loadSearch() {
+          loading ??= new Promise((resolve, reject) => {
+            const css = document.createElement('link');
+            css.rel = 'stylesheet';
+            css.href = base + 'pagefind/pagefind-ui.css';
+            const js = document.createElement('script');
+            js.src = base + 'pagefind/pagefind-ui.js';
+            js.onload = resolve;
+            js.onerror = reject;
+            document.head.append(css, js);
+          })
+            .then(() => {
+              new PagefindUI({
+                element: '#search-ui',
+                showImages: false,
+                showSubResults: true,
+              });
+            })
+            .catch(() => {
+              document.getElementById('search-fallback').hidden = false;
+            });
+          return loading;
+        }
+        async function openSearch() {
+          if (dialog.open) return;
+          dialog.showModal();
+          await loadSearch();
+          dialog.querySelector('input')?.focus();
+        }
+        document.getElementById('search-btn').addEventListener('click', openSearch);
+        dialog.addEventListener('click', (event) => {
+          if (event.target === dialog) dialog.close();
+        });
+
+        document.addEventListener('keydown', (event) => {
+          const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName);
+          if ((event.key === '/' && !typing) || (event.key === 'k' && (event.metaKey || event.ctrlKey))) {
+            event.preventDefault();
+            openSearch();
+            return;
+          }
+          if (typing || dialog.open || event.metaKey || event.ctrlKey || event.altKey) return;
+          const rel = { ArrowLeft: 'prev', ArrowRight: 'next' }[event.key];
+          const link = rel && document.querySelector(`a[rel="${rel}"]`);
+          if (link) location.href = link.href;
+        });
+      })();
+    </script>
+  </body>
+</html>

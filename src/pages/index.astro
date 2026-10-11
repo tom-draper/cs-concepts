@@ -1,0 +1,62 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import { allPages, parts } from '../outline';
+import { url } from '../lib/url';
+
+const written = new Set((await getCollection('docs')).map((entry) => entry.id));
+const first = allPages.find((page) => written.has(page.id));
+---
+
+<Base>
+  <div class="page home">
+    <section class="hero">
+      <h1>Computer science, one concept at a time.</h1>
+      <p>
+        A book-style guide where every concept gets its own page, its own diagrams and a
+        worked example. Read it front to back, or jump straight to the thing you need.
+      </p>
+      {
+        first && (
+          <a class="cta" href={url(first.id)}>
+            Start reading <span aria-hidden="true">→</span>
+          </a>
+        )
+      }
+      <p class="progress">
+        {written.size} of {allPages.length} pages written so far. Greyed-out titles are
+        planned.
+      </p>
+    </section>
+
+    <section class="contents">
+      {
+        parts.map((part, index) => (
+          <section class="part">
+            <h2>
+              <span class="num">{index + 1}</span>
+              {part.title}
+            </h2>
+            <p class="summary">{part.summary}</p>
+            {part.chapters.map((chapter) => (
+              <div class="chapter">
+                <h3>{chapter.title}</h3>
+                <ul>
+                  {chapter.pages.map((page) => (
+                    <li>
+                      {written.has(page.id) ? (
+                        <a href={url(page.id)}>{page.title}</a>
+                      ) : (
+                        <span class="planned">{page.title}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </section>
+        ))
+      }
+    </section>
+  </div>
+</Base>
