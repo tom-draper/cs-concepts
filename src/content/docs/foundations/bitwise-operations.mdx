@@ -1,0 +1,144 @@
+---
+description: Operations that work on the individual bits of a number. AND, OR, XOR, NOT and shifts are the fastest things a processor can do, and the basis of flags, masks and many clever tricks.
+difficulty: intermediate
+---
+
+Ordinary arithmetic treats a number as a quantity. Bitwise operations treat it as what it physically is: a row of [bits](/foundations/bits-and-bytes/). Each operation looks at the bits position by position, with no carrying between columns.
+
+They map directly onto single processor instructions, which makes them as fast as anything a computer does.
+
+## The operations
+
+Flip bits in A and B, and switch between operators, to see each one work.
+
+<BitwiseDemo />
+
+For the two-input operators, each result bit depends only on the two bits directly above it.
+
+| A | B | A AND B | A OR B | A XOR B |
+| --- | --- | --- | --- | --- |
+| 0 | 0 | 0 | 0 | 0 |
+| 0 | 1 | 0 | 1 | 1 |
+| 1 | 0 | 0 | 1 | 1 |
+| 1 | 1 | 1 | 1 | 0 |
+
+- **AND** (`&`): 1 only where **both** are 1.
+- **OR** (`|`): 1 where **either** is 1.
+- **XOR** (`^`), "exclusive or": 1 where the two **differ**.
+- **NOT** (`~`): flips every bit.
+- **Left shift** (`<<`): slides every bit left, filling with zeros on the right. Each shift **doubles** the number.
+- **Right shift** (`>>`): slides every bit right. Each shift **halves** it, discarding the remainder.
+
+<Aside type="warning" title="Not the same as the logical operators">
+
+`&` and `|` are different from `&&` and `||` (or `and` and `or`). The logical operators treat each whole value as true or false and return one answer. The bitwise ones work on every bit separately. `6 & 1` is 0, but `6 && 1` is true.
+
+</Aside>
+
+## Masks: working on chosen bits
+
+The most common use of these operators is to read or change particular bits while leaving the others alone. The pattern that picks out the bits you care about is called a **mask**.
+
+Each operator has a characteristic effect when combined with a mask.
+
+| To | Use | Because |
+| --- | --- | --- |
+| test whether a bit is set | `x & mask` | AND with 0 clears, AND with 1 keeps |
+| set a bit to 1 | `x \| mask` | OR with 1 forces a 1, OR with 0 keeps |
+| clear a bit to 0 | `x & ~mask` | AND with 0 forces a 0 |
+| flip a bit | `x ^ mask` | XOR with 1 flips, XOR with 0 keeps |
+
+A mask for bit number n is `1 << n`: a single 1, shifted into position.
+
+## Flags: many booleans in one number
+
+A set of yes/no options can be packed into one integer, one bit each.
+
+```python
+READ    = 1 << 0     # 0b001
+WRITE   = 1 << 1     # 0b010
+EXECUTE = 1 << 2     # 0b100
+
+permissions = READ | WRITE          # 0b011: combine with OR
+
+if permissions & WRITE:             # test with AND
+    ...
+
+permissions |= EXECUTE              # switch on:   0b111
+permissions &= ~WRITE               # switch off:  0b101
+permissions ^= READ                 # toggle:      0b100
+```
+
+This is how Unix file permissions work, how operating systems pass options to system calls, and how network protocols pack several settings into a single header byte. Thirty-two independent switches fit in four bytes and can be tested or combined in one instruction.
+
+A [set](/data-structures/sets/) of small integers stored this way is called a **bitset**. Union is OR, intersection is AND, and both process 64 members at once.
+
+## Shifts as arithmetic
+
+Shifting left by n multiplies by 2ⁿ; shifting right by n divides by 2ⁿ, rounding down.
+
+```text
+  5        =  00000101
+  5 << 1   =  00001010   =  10
+  5 << 3   =  00101000   =  40
+ 40 >> 2   =  00001010   =  10
+```
+
+Compilers make this substitution automatically, so there is no need to write `x << 1` for speed when you mean `x * 2`. Write the shift when you are thinking about bits, and the multiplication when you are thinking about numbers.
+
+Shifts combined with masks extract fields packed into a larger value. A colour stored as `0xFF8800` holds three bytes:
+
+```python
+colour = 0xFF8800
+red    = (colour >> 16) & 0xFF      # 0xFF = 255
+green  = (colour >> 8)  & 0xFF      # 0x88 = 136
+blue   =  colour        & 0xFF      # 0x00 = 0
+```
+
+<Aside title="Two kinds of right shift">
+
+What fills the gap on the left when shifting right? A **logical** shift always fills with zeros. An **arithmetic** shift copies the sign bit, so that a negative number in [two's complement](/foundations/twos-complement/) stays negative and is still halved. Most languages use an arithmetic shift for signed types. Java and JavaScript provide `>>>` for the logical one.
+
+</Aside>
+
+## Useful tricks
+
+A few short expressions come up often enough to be worth recognising.
+
+**Is n a power of two?** A power of two has exactly one bit set. Subtracting 1 flips that bit and all the bits below it, so the two have no bits in common.
+
+```python
+n > 0 and n & (n - 1) == 0
+```
+
+```text
+16      =  00010000
+15      =  00001111
+16 & 15 =  00000000    →  a power of two
+```
+
+**Isolate the lowest set bit:** `n & -n`. This is the heart of the [Fenwick tree](/data-structures/fenwick-trees/#the-one-line-that-makes-it-work).
+
+**Remainder by a power of two:** `n % 8` is the same as `n & 7`. [Ring buffers](/data-structures/ring-buffers/#the-power-of-two-trick) and hash tables use this to wrap an index without a division.
+
+**Is n odd?** `n & 1`.
+
+**XOR undoes itself.** `a ^ b ^ b` is `a`. Applying the same XOR twice restores the original, which is why XOR is at the centre of simple ciphers, checksums and RAID parity. It also solves a classic puzzle: in a list where every number appears twice except one, XOR-ing everything together leaves that one.
+
+## Where they show up
+
+- **Flags and permissions**, as above.
+- **Graphics.** Packing and unpacking colour channels, and blending pixels.
+- **Networking.** Applying a subnet mask is an AND. Parsing a packet header is shifts and masks.
+- **[Hash functions](/data-structures/hash-functions/)** and random number generators, which scramble bits with shifts and XORs.
+- **Compression and cryptography**, which work at the level of individual bits.
+- **Compact data structures**: bitsets, [Bloom filters](/data-structures/bloom-filters/), chess engines that represent the board as 64-bit "bitboards".
+- **Hardware control.** Device registers are collections of flag bits.
+
+## Key takeaways
+
+- Bitwise operators act on each bit position independently.
+- AND tests and clears, OR sets, XOR flips, and a mask chooses which bits are affected.
+- Shifting left or right multiplies or divides by powers of two.
+- Packing flags into one integer is compact and fast.
+- A few idioms, such as `n & (n - 1)` and `n & -n`, appear throughout low-level code.
