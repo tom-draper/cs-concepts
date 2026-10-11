@@ -1,0 +1,187 @@
+---
+description: A tree that always keeps its smallest (or largest) item at the top, stored compactly in an array. The structure behind priority queues.
+difficulty: intermediate
+---
+
+Sometimes you do not need data fully sorted. You only ever need the **next most important** item: the earliest deadline, the shortest path found so far, the highest-priority job. A heap is built for exactly that question. It finds the minimum instantly, and adds or removes items in O(log n), by keeping the data only *partly* ordered.
+
+<Aside title="Not that heap">
+
+This is unrelated to "the heap" where programs allocate memory. The two share a name and nothing else. See [stack and heap](/foundations/stack-and-heap/) for that one.
+
+</Aside>
+
+## Two rules
+
+A binary **min-heap** is a binary tree with two properties.
+
+1. **Heap property**: every node is less than or equal to its children.
+2. **Shape property**: the tree is *complete*. Every level is full, except possibly the last, which fills from left to right.
+
+<Tree
+  root={{ k: 1, c: [{ k: 3, c: [7, 4] }, { k: 2, c: [5, 9] }] }}
+  highlight={[1]}
+  caption="A min-heap. Every parent is smaller than its children, so the smallest item is always the root."
+/>
+
+Notice what the heap property does *not* say. There is no rule between siblings or between the left and right subtrees: `3` sits to the left of `2`, and `7` to the left of `4`. A heap is much less ordered than a [binary search tree](/data-structures/binary-search-trees/), and that looseness is what makes it cheap to maintain.
+
+A **max-heap** is the same with the comparison flipped, keeping the largest item at the root.
+
+## The array trick
+
+Because a complete tree has no gaps, it can be stored in a plain [array](/data-structures/arrays/) with no pointers at all. Read the tree level by level, left to right:
+
+<ArrayViz
+  values={[1, 3, 2, 7, 4, 5, 9]}
+  highlight={[0]}
+  caption="The same heap as an array. Index 0 is the root; indices 1 and 2 are its children; 3 to 6 are the next level."
+/>
+
+Parents and children are found by arithmetic on the index:
+
+```text
+left child of i   =  2i + 1
+right child of i  =  2i + 2
+parent of i       =  (i - 1) // 2
+```
+
+For example, `3` is at index 1. Its children are at indices 3 and 4, holding `7` and `4`. This layout is compact and cache-friendly, and it is how heaps are implemented in practice.
+
+## Inserting: bubble up
+
+To insert, keep the shape first and fix the order second. Put the new item in the next free slot (the end of the array), then swap it with its parent for as long as it is smaller.
+
+Inserting `0`:
+
+<Steps>
+<Step title="Add it in the next free position">
+
+The shape is right but the order is wrong: 0 is below 7.
+
+<Tree root={{ k: 1, c: [{ k: 3, c: [{ k: 7, c: [0, null] }, 4] }, { k: 2, c: [5, 9] }] }} alt={[0]} />
+
+</Step>
+<Step title="Swap with the parent while it is smaller">
+
+0 is less than 7, so swap. Then 0 is less than 3, so swap again.
+
+<Tree root={{ k: 1, c: [{ k: 0, c: [{ k: 3, c: [7, null] }, 4] }, { k: 2, c: [5, 9] }] }} alt={[0]} highlight={[3, 7]} />
+
+</Step>
+<Step title="Stop at the root, or when the parent is smaller">
+
+0 is less than 1, so one more swap makes it the new root.
+
+<Tree root={{ k: 0, c: [{ k: 1, c: [{ k: 3, c: [7, null] }, 4] }, { k: 2, c: [5, 9] }] }} alt={[0]} highlight={[1, 3, 7]} />
+
+</Step>
+</Steps>
+
+The item climbs at most one level per swap, and a complete tree with n items has about log₂ n levels. So insertion is **O(log n)**.
+
+## Removing the minimum: sift down
+
+The minimum is the root, but removing it would leave a hole at the top. So again, fix the shape first: move the **last** item into the root, then swap it downward with its **smaller** child until it settles.
+
+Removing `1` from the original heap:
+
+<Steps>
+<Step title="Take the root, and move the last item into its place">
+
+<Tree root={{ k: 9, c: [{ k: 3, c: [7, 4] }, { k: 2, c: [5, null] }] }} alt={[9]} />
+
+</Step>
+<Step title="Swap with the smaller child">
+
+The children are 3 and 2. Swapping with 2, the smaller, keeps the heap property between the new parent and the other child.
+
+<Tree root={{ k: 2, c: [{ k: 3, c: [7, 4] }, { k: 9, c: [5, null] }] }} alt={[9]} highlight={[2]} />
+
+</Step>
+<Step title="Repeat until neither child is smaller">
+
+9 is greater than 5, so swap once more. Now it is a leaf and the heap is valid again.
+
+<Tree root={{ k: 2, c: [{ k: 3, c: [7, 4] }, { k: 5, c: [9, null] }] }} alt={[9]} highlight={[2, 5]} />
+
+</Step>
+</Steps>
+
+Again at most one swap per level: **O(log n)**.
+
+## The code
+
+```python
+def push(heap, value):
+    heap.append(value)
+    i = len(heap) - 1
+    while i > 0:
+        parent = (i - 1) // 2
+        if heap[parent] <= heap[i]:
+            break
+        heap[parent], heap[i] = heap[i], heap[parent]
+        i = parent
+
+
+def pop(heap):
+    heap[0], heap[-1] = heap[-1], heap[0]
+    smallest = heap.pop()
+    i = 0
+    while True:
+        left, right, least = 2 * i + 1, 2 * i + 2, i
+        if left < len(heap) and heap[left] < heap[least]:
+            least = left
+        if right < len(heap) and heap[right] < heap[least]:
+            least = right
+        if least == i:
+            return smallest
+        heap[i], heap[least] = heap[least], heap[i]
+        i = least
+```
+
+In real code, use the library: `heapq` in Python, `BinaryHeap` in Rust, `PriorityQueue` in Java, `std::priority_queue` in C++.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Peek at the minimum', 'O(1)'],
+    ['Insert', 'O(log n)'],
+    ['Remove the minimum', 'O(log n)'],
+    ['Build from n items', 'O(n)'],
+    ['Search for a value', 'O(n)'],
+  ]}
+/>
+
+Two of those deserve a comment.
+
+**Building is O(n), not O(n log n).** Inserting n items one at a time costs O(n log n). But starting from an unsorted array and sifting down each non-leaf node, from the bottom up, is O(n) in total, because most nodes are near the bottom and have very little distance to fall.
+
+**Searching is O(n).** A heap knows where its minimum is and almost nothing else. To find an arbitrary value you have to look everywhere. If you need to search, a heap is the wrong tool.
+
+## Heap or sorted array or search tree?
+
+| | Find min | Insert | Remove min | Find any value |
+| --- | --- | --- | --- | --- |
+| Unsorted array | O(n) | O(1) | O(n) | O(n) |
+| Sorted array | O(1) | O(n) | O(1) | O(log n) |
+| Balanced search tree | O(log n) | O(log n) | O(log n) | O(log n) |
+| **Heap** | O(1) | O(log n) | O(log n) | O(n) |
+
+A balanced tree matches the heap on paper and can do more. The heap wins in practice for priority-queue work because it is a flat array: no pointers, no rebalancing, and far better cache behaviour.
+
+## Where heaps show up
+
+- **Priority queues**, which is almost a synonym. Operating system schedulers, event loops and timer systems all ask "what is due next?"
+- **[Dijkstra's algorithm](/algorithms/dijkstras-algorithm/)** repeatedly takes the closest unvisited node.
+- **[Heapsort](/algorithms/heapsort/)** builds a heap, then removes the extreme item n times: an O(n log n) sort with no extra memory.
+- **Top-k problems.** To find the 10 largest of a billion values, keep a min-heap of size 10 and discard anything smaller than its root. Memory use stays at 10 items.
+- **Merging sorted streams.** A heap holding the head of each stream yields the next item overall.
+
+## Key takeaways
+
+- A heap keeps the smallest (or largest) item at the root, and is only loosely ordered below it.
+- It is a complete binary tree, which lets it live in an array with index arithmetic instead of pointers.
+- Insert bubbles up, remove-min sifts down, and both are O(log n).
+- It is the standard implementation of a priority queue, and a poor choice if you need to search.
