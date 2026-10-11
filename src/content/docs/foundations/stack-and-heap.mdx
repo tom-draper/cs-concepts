@@ -1,0 +1,118 @@
+---
+description: The two regions of memory a running program uses. The stack is fast, automatic and short-lived. The heap is flexible and has to be managed.
+difficulty: intermediate
+---
+
+A running program keeps its data in two main areas of memory, which work in completely different ways. Knowing which one a value lives in explains how long it lasts, how fast it is to create, and a large share of the bugs in low-level code.
+
+<Aside title="Two unrelated meanings">
+
+These are regions of memory. They share names with two data structures, the [stack](/data-structures/stacks/) and the [heap](/data-structures/heaps/). The memory stack really does behave like a stack. The memory heap has nothing to do with the heap data structure.
+
+</Aside>
+
+## The stack
+
+Every time a function is called, the program sets aside a block of memory for it called a **stack frame**. The frame holds the function's arguments, its local variables, and where to return to when it finishes.
+
+Frames are stacked on top of one another. A call adds a frame to the top; a return removes it. Because the function called most recently is always the first to finish, this last-in, first-out order fits exactly.
+
+<Player>
+<Frame caption="The program starts. <code>main</code> has a frame holding its local variables.">
+<ArrayViz values={['main', null, null]} highlight={[0]} pointers={{ top: 0 }} indices={false} />
+</Frame>
+<Frame caption="<code>main</code> calls <code>load</code>. A frame for it is added on top.">
+<ArrayViz values={['main', 'load', null]} highlight={[1]} pointers={{ top: 1 }} indices={false} />
+</Frame>
+<Frame caption="<code>load</code> calls <code>parse</code>. Only the top frame is running; the others are waiting.">
+<ArrayViz values={['main', 'load', 'parse']} highlight={[2]} pointers={{ top: 2 }} indices={false} />
+</Frame>
+<Frame caption="<code>parse</code> returns. Its frame is removed, and its local variables are gone.">
+<ArrayViz values={['main', 'load', null]} alt={[1]} pointers={{ top: 1 }} indices={false} />
+</Frame>
+<Frame caption="<code>load</code> returns. Back in <code>main</code>.">
+<ArrayViz values={['main', null, null]} alt={[0]} pointers={{ top: 0 }} indices={false} />
+</Frame>
+</Player>
+
+Three properties follow.
+
+- **It is extremely fast.** Making room for a frame is just moving one pointer, the "stack pointer". There is nothing to search for and nothing to tidy up.
+- **It is automatic.** Local variables appear when a function starts and vanish when it returns. Nobody has to free them.
+- **It is limited.** The stack has a fixed maximum size, typically a few megabytes. Each frame also needs a size known in advance.
+
+## The heap
+
+Some data does not fit that pattern.
+
+- It must **outlive** the function that created it, such as an object returned to the caller.
+- Its **size is not known** until the program runs, such as a list a user keeps adding to.
+- It is simply **too big** for the stack.
+
+For these there is the heap: a large pool of memory from which a program can request a block of any size at any time. The block stays allocated until it is explicitly released, or until a garbage collector determines that nothing refers to it any more.
+
+The block has no name. The program is given its **address**, and holds on to it with a [pointer](/foundations/pointers-and-references/). Typically the pointer is a small local variable on the stack, and the data it points to is on the heap.
+
+```python
+def make_list():
+    numbers = [1, 2, 3]     # the list lives on the heap
+    return numbers          # `numbers` (a reference) is on the stack and disappears;
+                            # the list itself survives, because the caller now refers to it
+```
+
+## Side by side
+
+| | Stack | Heap |
+| --- | --- | --- |
+| Holds | function frames: local variables, arguments | data with a flexible size or lifetime |
+| Allocated | automatically, on each call | on request |
+| Freed | automatically, on return | manually, or by a garbage collector |
+| Speed | very fast: move a pointer | slower: find a suitable free block |
+| Size | small and fixed (megabytes) | large (limited by available memory) |
+| Lifetime | until the function returns | until freed |
+| Layout | compact and contiguous | scattered |
+
+The speed difference is real. A heap allocation must find free space, record that it is taken, and often coordinate between threads. Heap data is also spread around memory, which is harder on the processor's cache. Allocating in a tight loop is a common cause of slow code.
+
+## What goes wrong
+
+### Stack overflow
+
+If calls nest too deeply, usually through [recursion](/algorithms/recursion/) that never reaches its base case, the stack runs out of space. The program stops with a stack overflow.
+
+### Memory leaks
+
+A heap block that is never freed stays allocated. If a long-running program keeps allocating without freeing, its memory use climbs until the system runs out. Garbage-collected languages can leak too, by accidentally keeping a reference to data that is no longer needed, for example in a cache that only ever grows.
+
+### Use after free
+
+Free a block and then keep using the pointer, and you are reading or writing memory that may have been handed to something else. The result is corrupted data or a crash, often far from the real mistake. This and its relatives are behind a large proportion of serious security vulnerabilities.
+
+### Returning a pointer to a local
+
+A function that returns the address of one of its own local variables hands back a pointer into a frame that no longer exists. The next function call overwrites that memory.
+
+## How languages handle it
+
+Languages differ mainly in who is responsible for the heap.
+
+| Approach | Languages | Trade-off |
+| --- | --- | --- |
+| Manual | C, C++ | full control and speed; mistakes are easy and dangerous |
+| [Garbage collection](/languages/garbage-collection/) | Java, Python, Go, JavaScript, C# | memory is freed for you; costs some speed and occasional pauses |
+| [Ownership](/languages/ownership-and-borrowing/) | Rust | the compiler works out where to free, with no collector, in exchange for stricter rules |
+
+They also differ in what lives where.
+
+- In **C, C++ and Rust** you choose. Local values go on the stack unless you ask for heap allocation.
+- In **Java**, numbers and other primitives in local variables are on the stack, and every object is on the heap.
+- In **Python and JavaScript**, essentially everything is a heap object, and variables hold references.
+- **Go** decides for you: the compiler puts a value on the stack if it can prove it does not outlive the function, and on the heap otherwise.
+
+## Key takeaways
+
+- The stack holds one frame per active function call. It is fast, automatic and limited in size.
+- The heap holds data whose size or lifetime does not fit the stack. It is flexible, slower, and must be freed by someone.
+- A stack variable often holds a pointer to data on the heap.
+- Stack overflows come from runaway recursion; leaks and use-after-free bugs come from mismanaging the heap.
+- Languages differ in whether you, a garbage collector or the compiler manages the heap.
