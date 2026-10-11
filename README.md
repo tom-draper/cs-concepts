@@ -142,6 +142,10 @@ step by step on a graph you describe, and lets the reader restart it from any
 vertex. Algorithms: `bfs`, `dfs`, `dijkstra`, `topo` (pass `directed` for a DAG).
 The traces live in `src/lib/graph-traces.ts`.
 
+The data-representation pages have four small widgets, all backed by
+`src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
+value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
+
 `<HashPlayground />` is a live widget for the Hash Functions page. Widgets like
 it are custom elements with a script that only ships on pages that use them.
 
