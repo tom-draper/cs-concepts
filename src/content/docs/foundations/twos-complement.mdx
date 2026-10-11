@@ -1,0 +1,102 @@
+---
+title: Two's Complement
+description: The way computers represent negative whole numbers. It makes the top bit count as negative, which lets addition and subtraction use the same circuit.
+difficulty: intermediate
+---
+
+[Eight bits](/foundations/bits-and-bytes/) can represent 256 patterns, which is enough for the numbers 0 to 255. But what about −5? There is no minus sign in memory, only bits. Negative numbers need a convention for reading them, and nearly every computer uses the same one: **two's complement**.
+
+## The obvious idea, and why it lost
+
+The first thing anyone thinks of is to use the leftmost bit as a sign: 0 for positive, 1 for negative, with the other bits giving the size. This is called *sign-magnitude*.
+
+It has two flaws. There are two zeros, `00000000` and `10000000` (plus and minus zero), which must be treated as equal. Worse, ordinary binary addition gives wrong answers when the signs differ, so the hardware needs separate logic for adding and subtracting.
+
+## The idea that won
+
+Two's complement changes one thing about ordinary binary. The leftmost bit keeps its usual place value, but **negative**. In a byte, the top bit is worth −128 instead of +128.
+
+<BitsDemo value={251} signed step />
+
+Things to try:
+
+- The pattern shown is `11111011`. As an ordinary number that is 251. Read with the top bit negative, it is −128 + 123 = **−5**.
+- Turn on every bit. That is −128 + 127 = **−1**. All ones is always −1.
+- Turn on only the top bit: **−128**, the most negative value.
+- Press **Clear**, then **− 1**. Zero minus one wraps round to all ones.
+- Set the value to 127 (everything on except the top bit) and press **+ 1**. It becomes −128.
+
+## Why it is the right design
+
+**Addition just works.** Take 5 + (−5):
+
+```text
+  00000101     5
++ 11111011    −5
+----------
+1 00000000     0   (the ninth bit does not fit and is dropped)
+```
+
+The processor added two bit patterns exactly as if they were ordinary unsigned numbers, and the right answer came out. It did not need to know the numbers were signed. Subtraction is the same circuit too: `a − b` is computed as `a + (−b)`.
+
+**There is one zero.** Only `00000000` means zero.
+
+**The sign is still easy to read.** The top bit is 1 for every negative number and 0 otherwise.
+
+## Negating a number
+
+To find the negative of a number: **flip every bit, then add one.**
+
+```text
+ 5   =  00000101
+flip    11111010
+ + 1    11111011   =  −5
+```
+
+The same recipe works in reverse: flip `11111011` to get `00000100`, add one, and you are back at `00000101`.
+
+## The range is lopsided
+
+A byte in two's complement holds −128 to +127. There is one more negative number than positive, because zero takes up one of the patterns that start with 0.
+
+| Bits | Smallest | Largest |
+| --- | --- | --- |
+| 8 | −128 | 127 |
+| 16 | −32,768 | 32,767 |
+| 32 | −2,147,483,648 | 2,147,483,647 |
+| 64 | about −9.2 × 10¹⁸ | about 9.2 × 10¹⁸ |
+
+In general, n bits cover −2ⁿ⁻¹ to 2ⁿ⁻¹ − 1.
+
+The lopsidedness has a real consequence. The most negative number has **no positive counterpart**: in a byte, +128 does not exist. So negating −128 gives −128 again, and `abs(−128)` returns a negative number. In 32-bit code the same is true of −2,147,483,648, and it is a long-standing source of bugs.
+
+## Overflow
+
+A fixed number of bits can only count so far. Go past the largest value and the pattern wraps round to the smallest, as you saw with 127 + 1. This is **integer overflow**.
+
+It is worth picturing the numbers arranged in a circle rather than a line: after 127 comes −128, then −127, counting up to −1, then 0.
+
+Overflow has caused spectacular failures. A video game character's score wrapping to a huge negative number is the harmless version. The Ariane 5 rocket was lost in 1996 after a number too large for a 16-bit integer was converted into one. And 32-bit systems that count time in seconds since 1970 will overflow in January 2038.
+
+Languages disagree about what should happen.
+
+| Language | On signed overflow |
+| --- | --- |
+| C, C++ | undefined behaviour: the compiler may assume it never happens |
+| Java, C#, Go | wraps round silently |
+| Rust | stops the program in debug builds; wraps in release builds unless you ask otherwise |
+| Python | cannot happen: integers grow as large as needed |
+
+## Signed and unsigned
+
+The same bits can be read either way, and the hardware does not record which. `11111011` is 251 if you call it unsigned and −5 if you call it signed. The type in your program decides.
+
+Mixing the two is a classic trap. Compare a signed −1 with an unsigned 1 in C, and the −1 is reinterpreted as a huge positive number, so `−1 < 1` comes out false.
+
+## Key takeaways
+
+- Two's complement is ordinary binary with the top bit's place value made negative.
+- Addition and subtraction use the same hardware for signed and unsigned numbers.
+- To negate: flip all the bits and add one.
+- The range is −2ⁿ⁻¹ to 2ⁿ⁻¹ − 1, with one extra negative value.
+- Exceeding the range wraps round. Whether that is an error depends on the language.
