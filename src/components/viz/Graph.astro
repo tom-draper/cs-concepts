@@ -1,6 +1,7 @@
 ---
 import Figure from './Figure.astro';
 import { arrowHead, fit } from './geom';
+import { layoutGraph } from './graph-layout';
 
 interface Props {
   /** Vertex name to `[column, row]` on a grid; fractions are fine. */
@@ -27,47 +28,16 @@ const {
   label,
 } = Astro.props;
 
-const UNIT = 84;
-const R = 19;
-const PAD = 14;
 const has = (list: (string | number)[], name: string) => list.map(String).includes(name);
-const points = Object.fromEntries(
-  Object.entries(nodes).map(([name, [col, row]]) => [
-    name,
-    { x: PAD + R + col * UNIT, y: PAD + R + row * UNIT },
-  ]),
-);
-const width = Math.max(...Object.values(points).map((p) => p.x)) + R + PAD;
-const height = Math.max(...Object.values(points).map((p) => p.y)) + R + PAD;
-
-const onPath = (a: string, b: string) =>
-  path.some(
+const { points, lines: plain, width, height } = layoutGraph(nodes, edges, directed);
+const lines = plain.map((line) => ({
+  ...line,
+  on: path.some(
     ([from, to]) =>
-      (String(from) === a && String(to) === b) ||
-      (!directed && String(from) === b && String(to) === a),
-  );
-
-const lines = edges.map(([from, to, weight]) => {
-  const a = points[String(from)];
-  const b = points[String(to)];
-  const length = Math.hypot(b.x - a.x, b.y - a.y);
-  const ux = (b.x - a.x) / length;
-  const uy = (b.y - a.y) / length;
-  const tip = { x: b.x - ux * (R + 2), y: b.y - uy * (R + 2) };
-  return {
-    x1: a.x + ux * R,
-    y1: a.y + uy * R,
-    // Stop the line short of the arrowhead so the tip stays sharp.
-    x2: directed ? tip.x - ux * 6 : b.x - ux * R,
-    y2: directed ? tip.y - uy * 6 : b.y - uy * R,
-    tip,
-    weight,
-    // Sit the weight just off the midpoint, on the line's normal.
-    wx: (a.x + b.x) / 2 - uy * 11,
-    wy: (a.y + b.y) / 2 + ux * 11,
-    on: onPath(String(from), String(to)),
-  };
-});
+      (String(from) === line.from && String(to) === line.to) ||
+      (!directed && String(from) === line.to && String(to) === line.from),
+  ),
+}));
 ---
 
 <Figure caption={caption}>
@@ -92,10 +62,10 @@ const lines = edges.map(([from, to, weight]) => {
         ))
     }
     {
-      Object.entries(points).map(([name, p]) => (
-        <g class={`v-node ${has(highlight, name) ? 'hl' : has(alt, name) ? 'alt' : ''}`}>
-          <rect x={p.x - R} y={p.y - R} width={R * 2} height={R * 2} rx={R} />
-          <text class="v-text" x={p.x} y={p.y}>{name}</text>
+      points.map((p) => (
+        <g class={`v-node ${has(highlight, p.name) ? 'hl' : has(alt, p.name) ? 'alt' : ''}`}>
+          <rect x={p.x - p.hw} y={p.y - p.r} width={p.hw * 2} height={p.r * 2} rx={p.r} />
+          <text class="v-text" x={p.x} y={p.y}>{p.name}</text>
         </g>
       ))
     }
