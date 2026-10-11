@@ -1,0 +1,92 @@
+---
+description: Find the smallest remaining item and swap it to the front. Always quadratic, but it moves data less than any other sort.
+difficulty: beginner
+---
+
+Selection sort does the most obvious thing possible. Scan the whole array for the smallest value and swap it into position 0. Scan the rest for the next smallest and swap it into position 1. Carry on until the array is sorted.
+
+## Watch it run
+
+<SortDemo algorithm="selection" />
+
+Things to notice:
+
+- The dark bar is the smallest value found so far in the current scan.
+- Each scan ends with **at most one swap**, and that swap puts a value into its final place for good.
+- Try **Sorted**, then **Reversed**. The number of comparisons is always 28 for eight values. Selection sort cannot tell that the input is already sorted, because it has to scan everything to be sure which value is smallest.
+
+## The code
+
+```python
+def selection_sort(a):
+    for i in range(len(a) - 1):
+        smallest = i
+        for j in range(i + 1, len(a)):
+            if a[j] < a[smallest]:
+                smallest = j
+        a[i], a[smallest] = a[smallest], a[i]
+```
+
+## The cost
+
+The first scan looks at n − 1 elements, the next at n − 2, and so on: n(n − 1)/2 comparisons, every time, regardless of the input.
+
+<Ops
+  items={[
+    ['Best case', 'O(n²)'],
+    ['Average case', 'O(n²)'],
+    ['Worst case', 'O(n²)'],
+    ['Swaps', 'O(n)', 'at most n − 1'],
+    ['Extra memory', 'O(1)'],
+  ]}
+/>
+
+That makes it the least adaptive of the simple sorts. [Insertion sort](/algorithms/insertion-sort/) finishes sorted input in n comparisons; selection sort still does all n²/2.
+
+## Its one real advantage: few writes
+
+Selection sort performs at most n − 1 swaps. No other common sort moves data so rarely. Compare the write counts in the demos: for the default input, selection sort does 10 writes where bubble sort and insertion sort each do 26.
+
+That matters in the unusual situations where writing is far more expensive than reading or comparing:
+
+- Flash memory with a limited number of write cycles.
+- Records that are very large and expensive to move.
+- Physical systems, such as a robot rearranging pallets, where a comparison is a glance and a swap is real work.
+
+## It is not stable
+
+The long-distance swap can carry an element past others with an equal key, changing their relative order.
+
+<Steps>
+<Step title="Two equal 5s, labelled a and b, with a first">
+
+<ArrayViz values={['5a', '5b', '2']} highlight={[0]} alt={[2]} indices={false} />
+
+</Step>
+<Step title="The smallest value, 2, is swapped with position 0">
+
+`5a` jumps over `5b`. The two 5s are now in the opposite order from how they started.
+
+<ArrayViz values={['2', '5b', '5a']} highlight={[2]} alt={[0]} indices={false} />
+
+</Step>
+</Steps>
+
+See [sorting stability](/algorithms/sorting-stability/) for why that can matter.
+
+| Property | |
+| --- | --- |
+| Stable | no |
+| In place | yes |
+| Adaptive | no |
+
+## The idea done properly
+
+"Repeatedly take the smallest remaining item" is a good plan. The slow part is *finding* that item with a linear scan. Keep the remaining items in a [heap](/data-structures/heaps/) instead, and finding and removing the extreme value costs O(log n) rather than O(n). That is [heapsort](/algorithms/heapsort/), which is selection sort with a better data structure, and it is O(n log n).
+
+## Key takeaways
+
+- Selection sort repeatedly swaps the smallest remaining value into the next position.
+- It always makes about n²/2 comparisons, even on sorted input.
+- It makes at most n − 1 swaps, the fewest of any common sort.
+- It is in place but not stable. Heapsort is the same idea made fast.
