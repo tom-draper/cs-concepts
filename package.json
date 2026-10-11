@@ -1,0 +1,21 @@
+{
+  "name": "cs-concepts",
+  "version": "0.1.0",
+  "description": "A complete guide for Computer Science concepts.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build && pagefind --site dist",
+    "preview": "astro preview"
+  },
+  "license": "MIT",
+  "packageManager": "pnpm@12.11.2",
+  "dependencies": {
+    "@astrojs/mdx": "^8.0.3",
+    "astro": "^7.3.8"
+  },
+  "devDependencies": {
+    "pagefind": "^1.5.2"
+  }
+}
