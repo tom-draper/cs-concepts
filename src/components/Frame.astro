@@ -1,0 +1,13 @@
+---
+// One step inside a <Player>.
+interface Props {
+  caption?: string;
+}
+
+const { caption } = Astro.props;
+---
+
+<div class="frame">
+  <slot />
+  {caption && <p class="frame-caption" set:html={caption} />}
+</div>

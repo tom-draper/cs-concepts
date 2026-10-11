@@ -1,0 +1,84 @@
+---
+// Steps through its <Frame> children one at a time. Without JavaScript the
+// frames simply appear one after another.
+---
+
+<step-player class="player" tabindex="0" role="group" aria-label="Step-through diagram">
+  <div class="frames"><slot /></div>
+  <div class="controls" hidden>
+    <button type="button" data-act="prev" aria-label="Previous step">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </button>
+    <button type="button" data-act="play" class="play">Play</button>
+    <button type="button" data-act="next" aria-label="Next step">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </button>
+    <input type="range" min="0" value="0" step="1" aria-label="Step" />
+    <span class="count" aria-live="polite"></span>
+  </div>
+</step-player>
+
+<script>
+  class StepPlayer extends HTMLElement {
+    index = 0;
+    timer = 0;
+
+    connectedCallback() {
+      const frames = [...this.querySelectorAll<HTMLElement>('.frame')];
+      const controls = this.querySelector<HTMLElement>('.controls')!;
+      const slider = controls.querySelector('input')!;
+      const count = controls.querySelector('.count')!;
+      const play = controls.querySelector<HTMLButtonElement>('.play')!;
+      const last = frames.length - 1;
+      if (last < 1) return;
+
+      const show = (i: number) => {
+        this.index = Math.max(0, Math.min(last, i));
+        frames.forEach((frame, n) => frame.classList.toggle('on', n === this.index));
+        slider.value = String(this.index);
+        count.textContent = `${this.index + 1} / ${frames.length}`;
+      };
+      const stop = () => {
+        clearInterval(this.timer);
+        this.timer = 0;
+        play.textContent = this.index === last ? 'Replay' : 'Play';
+      };
+      const start = () => {
+        if (this.index === last) show(0);
+        play.textContent = 'Pause';
+        this.timer = window.setInterval(() => {
+          show(this.index + 1);
+          if (this.index === last) stop();
+        }, 1200);
+      };
+      const step = (delta: number) => {
+        stop();
+        show(this.index + delta);
+        stop();
+      };
+
+      controls.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (act === 'prev') step(-1);
+        if (act === 'next') step(1);
+        if (act === 'play') this.timer ? stop() : start();
+      });
+      slider.max = String(last);
+      slider.addEventListener('input', () => step(Number(slider.value) - this.index));
+      this.addEventListener('keydown', (event) => {
+        const delta = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+        if (!delta) return;
+        // Keep the arrow keys from also turning the page.
+        event.stopPropagation();
+        event.preventDefault();
+        step(delta);
+      });
+
+      controls.hidden = false;
+      this.dataset.ready = '';
+      show(0);
+    }
+  }
+
+  customElements.define('step-player', StepPlayer);
+</script>
