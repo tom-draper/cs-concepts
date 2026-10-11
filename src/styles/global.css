@@ -654,6 +654,23 @@ main {
   stroke: var(--alt);
 }
 
+.v-node.rb-red rect {
+  fill: #c93a3a;
+}
+
+.v-node.rb-black rect {
+  fill: light-dark(#2b2a28, #050505);
+}
+
+.viz-svg .rb-red text,
+.viz-svg .rb-black text {
+  fill: #fff;
+}
+
+.viz-svg .note {
+  text-anchor: start;
+}
+
 .v-node.dim {
   opacity: 0.35;
 }

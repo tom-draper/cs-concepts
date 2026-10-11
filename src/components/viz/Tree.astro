@@ -1,6 +1,6 @@
 ---
 import Figure from './Figure.astro';
-import { fit } from './geom';
+import { arrowHead, fit } from './geom';
 
 type Key = string | number;
 /**
@@ -16,6 +16,15 @@ interface Props {
   dim?: Key[];
   /** Draw every node as a row of key cells with edges leaving between the keys. */
   btree?: boolean;
+  /** Colour nodes as in a red-black tree. */
+  red?: Key[];
+  black?: Key[];
+  /** Small annotation beside a node, keyed by its first key, e.g. a balance factor. */
+  notes?: Record<string, string>;
+  /** Join the leaves left to right, as in a B+ tree. */
+  linkLeaves?: boolean;
+  /** Apply `highlight`, `alt` and `dim` to leaf nodes only (B+ trees repeat keys). */
+  leafOnly?: boolean;
   caption?: string;
   label?: string;
 }
@@ -31,13 +40,26 @@ interface Node {
   y: number;
 }
 
-const { root, highlight = [], alt = [], dim = [], btree = false, caption, label } = Astro.props;
+const {
+  root,
+  highlight = [],
+  alt = [],
+  dim = [],
+  btree = false,
+  red = [],
+  black = [],
+  notes = {},
+  linkLeaves = false,
+  leafOnly = false,
+  caption,
+  label,
+} = Astro.props;
 
 const KW = btree ? 36 : 40;
 const NH = 36;
 const GAP = btree ? 20 : 12;
 const LEVEL = 68;
-const PAD = 10;
+const PAD = Object.keys(notes).length ? 24 : 10;
 const EMPTY = KW * 0.6 + GAP;
 
 function build(input: Input): Node | null {
@@ -91,10 +113,29 @@ place(tree, PAD, 0);
 const width = tree.span + PAD * 2;
 const height = PAD * 2 + depth * LEVEL + NH;
 
-const keyState = (key: Key) =>
-  highlight.includes(key) ? 'hl' : alt.includes(key) ? 'alt' : dim.includes(key) ? 'dim' : '';
-const marked = (node: Node) => node.keys.some((key) => /hl|alt/.test(keyState(key)));
+const keyState = (node: Node, key: Key) => {
+  const colour = red.includes(key) ? ' rb-red' : black.includes(key) ? ' rb-black' : '';
+  if (leafOnly && node.children.length) return colour;
+  const mark = highlight.includes(key)
+    ? 'hl'
+    : alt.includes(key)
+      ? 'alt'
+      : dim.includes(key)
+        ? 'dim'
+        : '';
+  return mark + colour;
+};
+const marked = (node: Node) => node.keys.some((key) => /hl|alt/.test(keyState(node, key)));
 const cells = (node: Node) => btree || node.keys.length > 1;
+
+const leaves = nodes.filter((node) => !node.children.length);
+const leafLinks = linkLeaves
+  ? leaves.slice(1).map((leaf, i) => ({
+      x1: leaves[i].x + leaves[i].w / 2,
+      x2: leaf.x - leaf.w / 2,
+      y: leaf.y + NH / 2,
+    }))
+  : [];
 
 const edges = nodes.flatMap((node) =>
   node.children.flatMap((child, i) =>
@@ -127,9 +168,26 @@ const edges = nodes.flatMap((node) =>
         .map((e) => <line class={`v-edge ${e.on ? 'on' : ''}`} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />)
     }
     {
+      leafLinks.map((l) => (
+        <g class="v-pointer">
+          <line x1={l.x1} y1={l.y} x2={l.x2 - 6} y2={l.y} />
+          <polygon points={arrowHead(l.x1, l.y, l.x2 - 1, l.y, 7)} />
+        </g>
+      ))
+    }
+    {
+      nodes.map((node) =>
+        notes[String(node.keys[0])] ? (
+          <text class="v-label note" x={node.x + node.w / 2 + 3} y={node.y + 4}>
+            {notes[String(node.keys[0])]}
+          </text>
+        ) : null,
+      )
+    }
+    {
       nodes.map((node) =>
         node.keys.map((key, i) => (
-          <g class={`v-node ${keyState(key)}`}>
+          <g class={`v-node ${keyState(node, key)}`}>
             <rect
               x={node.x - node.w / 2 + i * KW}
               y={node.y}
