@@ -1,0 +1,110 @@
+---
+description: Binary, decimal and hexadecimal are different ways of writing the same numbers. Binary is what the machine uses, and hexadecimal is how people read it.
+difficulty: beginner
+---
+
+The number of days in a week can be written `7`, `VII` or `111`. The quantity is the same; only the notation differs. Computing uses three notations constantly, and moving between them is a basic skill.
+
+## Positional notation
+
+In ordinary decimal, the position of a digit decides what it is worth. Each place is worth **ten times** the one to its right.
+
+```text
+  4     7     0     3
+1000   100    10    1          4×1000 + 7×100 + 0×10 + 3×1  =  4703
+```
+
+Ten is the **base**. There is nothing special about it, beyond the number of fingers people have. Any whole number greater than one works as a base.
+
+## Binary: base 2
+
+In binary there are only two digits, 0 and 1, and each place is worth **twice** the one to its right.
+
+```text
+  1    0    1    1    0    1
+ 32   16    8    4    2    1       32 + 8 + 4 + 1  =  45
+```
+
+Binary is the natural notation for hardware built from [bits](/foundations/bits-and-bytes/). Flip the bits to see the place values add up.
+
+<BitsDemo value={45} />
+
+### Converting by hand
+
+**Binary to decimal:** add up the place values where there is a 1.
+
+**Decimal to binary:** repeatedly take the largest power of two that fits.
+
+```text
+45  →  32 fits, leaving 13      1
+13  →  16 does not fit          0
+13  →   8 fits, leaving 5       1
+ 5  →   4 fits, leaving 1       1
+ 1  →   2 does not fit          0
+ 1  →   1 fits, leaving 0       1       →   101101
+```
+
+## Hexadecimal: base 16
+
+Binary is tiresome for people. A 32-bit value is 32 digits long, and `10110100` and `10110010` are easy to confuse.
+
+Hexadecimal, or **hex**, uses base 16. It needs sixteen digits, so after 9 it borrows letters: `A` is ten, `B` eleven, up to `F` for fifteen.
+
+The reason hex is used, rather than decimal, is that 16 is 2⁴. **One hex digit is exactly four bits.** Converting is a matter of looking up each group of four, with no arithmetic.
+
+| Decimal | Binary | Hex | | Decimal | Binary | Hex |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0000 | 0 | | 8 | 1000 | 8 |
+| 1 | 0001 | 1 | | 9 | 1001 | 9 |
+| 2 | 0010 | 2 | | 10 | 1010 | A |
+| 3 | 0011 | 3 | | 11 | 1011 | B |
+| 4 | 0100 | 4 | | 12 | 1100 | C |
+| 5 | 0101 | 5 | | 13 | 1101 | D |
+| 6 | 0110 | 6 | | 14 | 1110 | E |
+| 7 | 0111 | 7 | | 15 | 1111 | F |
+
+So a byte, eight bits, is always exactly **two hex digits**:
+
+```text
+1011 0100
+  B    4         →   0xB4
+```
+
+In the demo above, watch the hex readout while you flip bits. The left four bits control the first hex digit and the right four control the second, independently.
+
+## Telling them apart
+
+`10` could be ten, two or sixteen. Programming languages mark the base with a prefix.
+
+| Base | Prefix | Example | Value |
+| --- | --- | --- | --- |
+| Decimal | none | `45` | 45 |
+| Binary | `0b` | `0b101101` | 45 |
+| Hexadecimal | `0x` | `0x2D` | 45 |
+| Octal | `0o` | `0o55` | 45 |
+
+## Where you will see hex
+
+- **Colours.** `#FF8800` is three bytes: red `FF` (255), green `88` (136), blue `00` (0). A strong orange.
+- **Memory addresses**, such as `0x7ffe5a3c`, in debuggers and error messages.
+- **Raw bytes.** Hex dumps of files and network packets show each byte as two digits.
+- **Character codes.** The euro sign is `U+20AC`.
+- **Hashes and identifiers**, such as the commit `3f9a1c2` in Git.
+- **Bit masks.** `0xFF` is "the lowest eight bits", much clearer than `255` when you are thinking about [bitwise operations](/foundations/bitwise-operations/).
+
+## Octal: base 8
+
+Octal uses the digits 0 to 7, and one octal digit is exactly three bits. It was common on early machines and survives mainly in Unix file permissions. `chmod 755` is three groups of three bits: `111 101 101`, meaning read, write and execute for the owner, and read and execute for everyone else.
+
+<Aside type="warning" title="A leading zero can change the value">
+
+In C, and in older JavaScript, a number written with a leading zero is octal: `010` is eight, not ten. This has caused real bugs, typically when someone pads numbers with zeros to line them up. Modern languages require the explicit `0o` prefix.
+
+</Aside>
+
+## Key takeaways
+
+- A base is how many digits a notation has, and how much each place is worth relative to the next.
+- Binary (base 2) matches how hardware stores data.
+- Hexadecimal (base 16) is a compact way to write binary: one hex digit is four bits, and one byte is two hex digits.
+- Prefixes mark the base: `0b` for binary, `0x` for hex, `0o` for octal.
