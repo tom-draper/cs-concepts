@@ -1,0 +1,156 @@
+---
+description: Solving a problem by having a function call itself on a smaller version of the same problem, until the problem is small enough to answer directly.
+difficulty: beginner
+---
+
+A recursive function is one that calls itself. That sounds circular, but it is not, because each call is given a **smaller** problem than the last, and eventually the problem is so small that the answer is obvious.
+
+It is the natural way to handle anything with a self-similar shape: a folder contains folders, a [tree](/data-structures/binary-trees/) is made of smaller trees, a sorted list can be built from two smaller sorted lists.
+
+## Two ingredients
+
+Every correct recursive function has both of these.
+
+- A **base case**: an input small enough to answer directly, with no further calls.
+- A **recursive case**: reduce the problem to a smaller one, call yourself on that, and build the answer from the result.
+
+Factorial is the standard first example. 4! means 4 × 3 × 2 × 1. Notice that 4! is just 4 × 3!, and 3! is 3 × 2!, and so on.
+
+```python
+def factorial(n):
+    if n <= 1:                       # base case
+        return 1
+    return n * factorial(n - 1)      # recursive case
+```
+
+## What actually happens
+
+A call to `factorial(4)` cannot finish until `factorial(3)` has returned, which is waiting on `factorial(2)`, which is waiting on `factorial(1)`. Each unfinished call is kept on the **[call stack](/data-structures/stacks/#the-stack-you-use-without-noticing)**, remembering where it was and what it still has to do.
+
+So recursion has two phases: calls pile up on the way **down**, and answers are combined on the way back **up**.
+
+<Player>
+<Frame caption="<code>factorial(4)</code> is called. It needs <code>factorial(3)</code> before it can multiply.">
+<ArrayViz values={['f(4)', null, null, null]} highlight={[0]} pointers={{ top: 0 }} indices={false} />
+</Frame>
+<Frame caption="<code>factorial(3)</code> is called. It needs <code>factorial(2)</code>.">
+<ArrayViz values={['f(4)', 'f(3)', null, null]} highlight={[1]} pointers={{ top: 1 }} indices={false} />
+</Frame>
+<Frame caption="<code>factorial(2)</code> is called. It needs <code>factorial(1)</code>.">
+<ArrayViz values={['f(4)', 'f(3)', 'f(2)', null]} highlight={[2]} pointers={{ top: 2 }} indices={false} />
+</Frame>
+<Frame caption="<code>factorial(1)</code> is the base case. It returns 1 straight away, with no further calls. The stack is at its deepest.">
+<ArrayViz values={['f(4)', 'f(3)', 'f(2)', 'f(1)']} alt={[3]} pointers={{ top: 3 }} indices={false} />
+</Frame>
+<Frame caption="Back in <code>factorial(2)</code>: 2 × 1 = 2. It returns 2 and its frame is removed.">
+<ArrayViz values={['f(4)', 'f(3)', '= 2', null]} alt={[2]} pointers={{ top: 2 }} indices={false} />
+</Frame>
+<Frame caption="Back in <code>factorial(3)</code>: 3 × 2 = 6.">
+<ArrayViz values={['f(4)', '= 6', null, null]} alt={[1]} pointers={{ top: 1 }} indices={false} />
+</Frame>
+<Frame caption="Back in <code>factorial(4)</code>: 4 × 6 = 24. The stack is empty and the answer is 24.">
+<ArrayViz values={['= 24', null, null, null]} alt={[0]} pointers={{ top: 0 }} indices={false} />
+</Frame>
+</Player>
+
+## How to think about it
+
+Tracing every call, as above, is useful once. After that it gets in the way. The practical technique is called the **recursive leap of faith**:
+
+1. Assume the function already works for any smaller input.
+2. Use that to solve the current input.
+3. Make sure the smallest inputs are handled directly.
+
+To write `factorial(n)`, you do not think about the whole chain of calls. You think: "suppose `factorial(n - 1)` gives the right answer. Then mine is `n` times that." This is the same reasoning as a proof by induction, and it is valid for the same reason.
+
+## Where recursion shines
+
+Some structures are *defined* recursively, and code that handles them is much simpler when it follows the same shape.
+
+```python
+def total_size(folder):
+    size = 0
+    for item in folder.items:
+        if item.is_folder:
+            size += total_size(item)     # a folder inside a folder: same problem
+        else:
+            size += item.size
+    return size
+```
+
+Writing that with loops alone means managing your own stack of folders still to visit. The recursive version lets the call stack do it.
+
+The same applies to [tree traversals](/data-structures/binary-trees/#traversals-visiting-every-node), [depth-first search](/algorithms/depth-first-search/), parsing nested expressions, and the whole family of [divide and conquer](/algorithms/divide-and-conquer/) algorithms such as [merge sort](/algorithms/merge-sort/).
+
+## Three ways it goes wrong
+
+### No base case, or one that is never reached
+
+```python
+def countdown(n):
+    print(n)
+    countdown(n - 1)     # never stops
+```
+
+Every call adds a frame to the call stack, and the stack has a limited size. This runs until it hits that limit and fails with a **stack overflow** (in Python, a `RecursionError`). The same happens if the recursive call does not actually move towards the base case.
+
+### Too deep
+
+Even correct recursion can overflow if it goes deep enough. Python's default limit is about 1,000 nested calls, so `factorial(5000)` fails although it is logically fine. Recursion over a list of a million items, one item per call, is a bug waiting to happen. Recursion that *halves* the problem each time is safe: a million items is only 20 levels.
+
+### Repeating work
+
+The Fibonacci numbers are defined recursively: each is the sum of the previous two.
+
+```python
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+```
+
+This is correct and disastrously slow. Each call makes two more, and they recompute the same values again and again.
+
+<Tree
+  root={{ k: 'f(5)', c: [{ k: 'f(4)', c: [{ k: 'f(3)', c: [{ k: 'f(2)', c: ['f(1)', 'f(0)'] }, 'f(1)'] }, { k: 'f(2)', c: ['f(1)', 'f(0)'] }] }, { k: 'f(3)', c: [{ k: 'f(2)', c: ['f(1)', 'f(0)'] }, 'f(1)'] }] }}
+  highlight={['f(3)']}
+  alt={['f(2)']}
+  caption="The calls made by fib(5). f(3) is computed twice and f(2) three times. For fib(30) there are about 2.7 million calls."
+/>
+
+The number of calls grows exponentially. The cure is to remember each answer the first time it is computed, which turns this into a linear-time function. That idea is [dynamic programming](/algorithms/dynamic-programming/).
+
+## Recursion and loops
+
+Anything written with recursion can be written with a loop, and vice versa. A loop version of factorial:
+
+```python
+def factorial(n):
+    result = 1
+    for i in range(2, n + 1):
+        result *= i
+    return result
+```
+
+| | Recursion | Loop |
+| --- | --- | --- |
+| Suits | trees, nested data, divide and conquer | sequences, counting, simple repetition |
+| Memory | one stack frame per level | constant |
+| Risk | stack overflow when deep | none of that kind |
+| Clarity | mirrors recursive structure | better for linear processes |
+
+Use recursion when the problem is shaped like a tree. Use a loop when it is shaped like a line. For problems that branch, a loop needs an explicit [stack](/data-structures/stacks/) to keep track of unfinished work, and at that point you are doing by hand what recursion gives you for free.
+
+<Aside title="Tail calls">
+
+If the recursive call is the very last thing a function does, its stack frame is no longer needed, and some languages reuse it instead of adding a new one. That is *tail call optimisation*, and it lets recursion run in constant memory. Scheme and most functional languages guarantee it. Python, Java and JavaScript engines in general do not, so in those languages deep recursion should be rewritten as a loop.
+
+</Aside>
+
+## Key takeaways
+
+- A recursive function solves a problem by calling itself on a smaller one.
+- It needs a base case that stops the recursion, and every call must move towards it.
+- Each unfinished call occupies a frame on the call stack, so depth costs memory and too much depth overflows.
+- Reason about it by trusting the smaller call to work, not by tracing every step.
+- It fits tree-shaped problems. Naive recursion that repeats work can be exponentially slow.
