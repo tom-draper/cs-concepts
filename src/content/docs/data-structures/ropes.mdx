@@ -1,0 +1,157 @@
+---
+description: A way of storing a long string as a tree of short pieces, so that inserting or deleting in the middle does not mean copying everything after it.
+difficulty: advanced
+---
+
+A string is normally stored as one contiguous [array](/data-structures/arrays/) of characters. That is ideal for reading, and poor for editing. Insert one character at the start of a 10-megabyte document and every byte after it has to shift along.
+
+A text editor does that kind of edit on every keystroke. A **rope** is a string representation built to make it cheap.
+
+## The structure
+
+A rope is a [binary tree](/data-structures/binary-trees/).
+
+- Each **leaf** holds a short piece of the text.
+- Each **internal node** holds no text. It stores a number, its **weight**: the total length of the text in its *left* subtree.
+
+Reading the leaves from left to right gives the whole string. Here is a rope for `Hello, wonderful world`.
+
+<Tree
+  root={{ k: 13, c: [{ k: 7, c: ['"Hello, "', '"wonder"'] }, { k: 4, c: ['"ful "', '"world"'] }] }}
+  highlight={[13, 7, 4]}
+  caption="Four leaves holding 7, 6, 4 and 5 characters. The root's weight is 13 because its left subtree holds 7 + 6 characters."
+/>
+
+Real ropes use leaves of a few hundred to a few thousand characters. Tiny ones are used here to keep the picture small.
+
+## Finding a character
+
+The weights let you navigate to any position without reading the text. To find the character at index `i`, start at the root.
+
+- If `i` is **less than** the node's weight, the character is in the left subtree. Go left.
+- Otherwise it is in the right subtree. Go right, and **subtract the weight** from `i`.
+
+Finding index 15:
+
+<Tree
+  root={{ k: 13, c: [{ k: 7, c: ['"Hello, "', '"wonder"'] }, { k: 4, c: ['"ful "', '"world"'] }] }}
+  highlight={[13, 4]}
+  alt={['"ful "']}
+  caption="At the root, 15 is not less than 13: go right, looking for index 2. At the next node, 2 is less than 4: go left. Index 2 of that leaf is the letter l."
+/>
+
+```python
+def char_at(node, i):
+    while not node.is_leaf:
+        if i < node.weight:
+            node = node.left
+        else:
+            i -= node.weight
+            node = node.right
+    return node.text[i]
+```
+
+This takes O(log n), against O(1) for a plain array. That is the price a rope pays for everything else.
+
+## Editing
+
+All edits are built from two operations.
+
+### Concatenate
+
+To join two ropes, create a new root with the two as its children, and set its weight to the length of the left one.
+
+No characters are copied. However long the two strings are, joining them is O(1), plus a little rebalancing to stop the tree becoming lopsided.
+
+### Split
+
+To cut a rope in two at some position, walk down to that position as in a lookup. Along the way, the path divides the tree into the subtrees that fall to the left of the cut and those that fall to the right. At most one leaf has to be divided in two. Reassembling each side is O(log n).
+
+### Insert and delete
+
+- **Insert** text at position i: split at i, then concatenate the left part, the new text, and the right part.
+- **Delete** a range: split at its start, split at its end, and concatenate the two outer parts, leaving the middle out.
+
+<Steps>
+<Step title="Insert “very ” at index 7: split the rope there">
+
+The cut falls neatly between two leaves, so nothing is divided.
+
+<Tree roots={['"Hello, "', { k: 6, c: ['"wonder"', { k: 4, c: ['"ful "', '"world"'] }] }]} highlight={['"Hello, "']} />
+
+</Step>
+<Step title="Concatenate: left part, new text, right part">
+
+Only a few internal nodes were created. Every existing leaf is untouched.
+
+<Tree
+  root={{ k: 12, c: [{ k: 7, c: ['"Hello, "', '"very "'] }, { k: 6, c: ['"wonder"', { k: 4, c: ['"ful "', '"world"'] }] }] }}
+  alt={['"very "']}
+/>
+
+</Step>
+</Steps>
+
+<Ops
+  items={[
+    ['Index', 'O(log n)'],
+    ['Insert', 'O(log n)'],
+    ['Delete', 'O(log n)'],
+    ['Concatenate', 'O(log n)', 'O(1) before rebalancing'],
+    ['Read everything in order', 'O(n)'],
+  ]}
+/>
+
+## Rope or plain string?
+
+| | Array of characters | Rope |
+| --- | --- | --- |
+| Index | O(1) | O(log n) |
+| Insert or delete in the middle | O(n) | O(log n) |
+| Concatenate | O(n) | O(log n) |
+| Memory | compact, contiguous | extra nodes, scattered leaves |
+| Sequential read | very fast | fast within a leaf, then a jump |
+
+For short strings, a plain array wins comfortably. Its operations are simple, and for a few kilobytes even an O(n) insert is just one fast memory copy. Ropes earn their place only when the text is **large and edited in the middle**.
+
+## Sharing unchanged parts
+
+Because edits create new nodes and leave old ones alone, two versions of a document can **share** almost all of their structure. The version before an edit and the version after differ by a handful of nodes along one path.
+
+That makes several hard things easy.
+
+- **Undo** is keeping a pointer to the previous root.
+- **Snapshots** are free. A background task, such as saving or spell-checking, can work on a consistent snapshot while the user keeps typing.
+- **Concurrent access** is safe, because nothing is modified in place.
+
+## Storing more than length
+
+A node's weight is a summary of its left subtree. Nothing limits that summary to a character count. Editors usually store several.
+
+| Stored per node | Lets you find, in O(log n) |
+| --- | --- |
+| characters | the nth character |
+| line breaks | the start of line n, or the line containing a position |
+| bytes | the conversion between byte offsets and character offsets |
+
+"Jump to line 40,000" in a large file becomes a walk down the tree, not a scan through the text. This is the same idea as a [segment tree](/data-structures/segment-trees/): each node holds an aggregate of everything beneath it.
+
+## What editors actually use
+
+The rope is one of three classic designs.
+
+| Structure | Idea | Used by |
+| --- | --- | --- |
+| **Gap buffer** | one array with a movable gap at the cursor | Emacs |
+| **Piece table** | the original file plus an append-only buffer of additions, with a list of spans into both | Visual Studio Code, classic Microsoft Word |
+| **Rope** | a balanced tree of text chunks | Zed, Helix, the Xi editor |
+
+A gap buffer is extremely fast for edits near the cursor and has to move the gap when the cursor jumps far. A piece table never modifies the original file, which also makes undo simple. Modern piece tables keep their spans in a balanced tree, at which point they and ropes are close cousins.
+
+## Key takeaways
+
+- A rope stores a long string as a balanced tree whose leaves are short chunks of text.
+- Each internal node records the length of its left subtree, which makes indexing O(log n).
+- Insert and delete are built from split and concatenate, and cost O(log n) regardless of position.
+- Old and new versions share structure, making undo and snapshots cheap.
+- It suits large, heavily edited text. For ordinary strings, a plain array is faster.
