@@ -1,0 +1,126 @@
+---
+description: A compact structure that answers "have I seen this before?" using a fraction of the memory of a real set. It can be wrong in one direction only, and you choose how often.
+difficulty: intermediate
+---
+
+A [set](/data-structures/sets/) answers "is this item present?" exactly, but it has to store every item. For a billion URLs that is tens of gigabytes. A Bloom filter answers the same question in about a gigabyte, by giving up certainty in one carefully controlled way.
+
+Its two possible answers are:
+
+- **"Definitely not."** This is always correct.
+- **"Probably yes."** This is occasionally wrong.
+
+It never says no to something that was added. That one-sidedness is what makes it useful.
+
+## How it works
+
+A Bloom filter is an array of **bits**, all starting at 0, together with several [hash functions](/data-structures/hash-functions/).
+
+- **To add an item**, hash it with each function to get several positions, and set those bits to 1.
+- **To check an item**, hash it the same way and look at those positions. If **any** is 0, the item was never added. If **all** are 1, it probably was.
+
+This filter has 32 bits and 3 hash functions. Five words have already been added.
+
+<BloomDemo />
+
+Things to try:
+
+- **emu** was never added, and one of its three bits is 0. The filter is certain.
+- **cat** was added. All three of its bits are set, as they must be.
+- **rat** and **lion** were never added, yet all three of their bits happen to be set, each by different words. The filter wrongly says "probably yes". These are **false positives**.
+- Press **Add** a few times with new words. As the bits fill up, more and more checks come back positive.
+- **Empty the filter**. Every word is now "definitely not".
+
+## Why the errors only go one way
+
+Adding an item only ever sets bits to 1. Nothing sets them back. So if an item was added, its bits are certainly still 1, and it can never be reported absent.
+
+A false positive needs a coincidence: every one of an item's bits must have been set by *other* items. The fuller the filter, the more likely that is.
+
+## Choosing the size
+
+The false positive rate is not left to chance. It follows from three numbers: n items, m bits and k hash functions. You pick the rate you can tolerate, and that tells you how big to make the filter.
+
+| Target false positive rate | Bits per item | Hash functions |
+| --- | --- | --- |
+| 10% | 4.8 | 3 |
+| 1% | 9.6 | 7 |
+| 0.1% | 14.4 | 10 |
+
+Every tenfold improvement costs about 4.8 more bits per item. Note what is **not** in the table: the size of the items. A filter for a billion URLs at 1% needs about 1.2 GB whether the URLs are 20 characters long or 2,000, because the items themselves are never stored.
+
+The number of hash functions is a balance. Too few, and each item is represented by too little. Too many, and the filter fills up too quickly. The best choice is about 0.7 × (bits per item).
+
+```python
+import hashlib
+
+class BloomFilter:
+    def __init__(self, size, hash_count):
+        self.size = size
+        self.hash_count = hash_count
+        self.bits = [False] * size
+
+    def _positions(self, item):
+        digest = hashlib.sha256(item.encode()).digest()
+        a = int.from_bytes(digest[:8], 'big')
+        b = int.from_bytes(digest[8:16], 'big')
+        # Two hashes are enough to simulate any number of them.
+        return [(a + i * b) % self.size for i in range(self.hash_count)]
+
+    def add(self, item):
+        for p in self._positions(item):
+            self.bits[p] = True
+
+    def might_contain(self, item):
+        return all(self.bits[p] for p in self._positions(item))
+```
+
+<Ops
+  items={[
+    ['Add', 'O(k)'],
+    ['Check', 'O(k)'],
+    ['Memory', 'O(n)', 'about 10 bits per item'],
+  ]}
+/>
+
+Both operations take the same time however many items are stored.
+
+## The usual pattern: a cheap filter in front of an expensive lookup
+
+A Bloom filter is rarely the final answer. It sits in front of something slow, and its job is to say "do not bother".
+
+```python
+def lookup(key):
+    if not bloom.might_contain(key):
+        return None                    # certain: skip the slow part entirely
+    return slow_lookup(key)            # probably there; occasionally a wasted trip
+```
+
+A "no" saves a disk read or a network call, and is always right. A false "yes" costs one unnecessary lookup, which then correctly finds nothing. So false positives cost a little time and never cause a wrong result.
+
+This pays off most when **most lookups are for things that are absent**.
+
+## Where it shows up
+
+- **Databases.** Storage engines built on [LSM trees](/data-structures/lsm-trees/), including RocksDB, LevelDB and Cassandra, keep data in many files on disk. Each file has a Bloom filter in memory, so a read can skip every file that definitely does not hold the key.
+- **Caches.** A content delivery network can use one to avoid caching an object until it has been requested twice, since a large share of objects are only ever requested once.
+- **Avoiding repeats.** A web crawler remembering which URLs it has visited, or a feed that must not show the same story twice.
+- **Safe browsing.** A browser can check a URL against a compact local filter of known bad sites, and only contact a server on a possible match.
+- **Distributed systems.** Two machines can exchange small filters to find out which records the other is probably missing, instead of exchanging the records.
+
+## What it cannot do
+
+- **Delete.** Clearing an item's bits might clear bits that other items rely on, causing a false negative. A *counting Bloom filter* replaces each bit with a small counter to allow removal, at several times the memory.
+- **List its contents.** The items were never stored.
+- **Grow.** The size is fixed when it is created. Add many more items than planned and the false positive rate climbs towards 100%. Estimate generously, or use a scalable variant that adds further filters as it fills.
+- **Count.** It records presence, not how many times. For that, see the [count-min sketch](/data-structures/count-min-sketch/).
+
+The structure is named after Burton Bloom, who described it in 1970, when a spelling dictionary was too large to fit in memory.
+
+## Key takeaways
+
+- A Bloom filter is a bit array plus several hash functions, answering membership queries in very little space.
+- "No" is always right. "Yes" is occasionally wrong.
+- The false positive rate is chosen in advance: about 10 bits per item gives 1%, whatever the size of the items.
+- It is used in front of an expensive lookup, to skip the work when the answer is certainly no.
+- It cannot delete, list or count, and it must be sized for the expected number of items.
