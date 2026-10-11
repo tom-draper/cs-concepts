@@ -1,0 +1,64 @@
+---
+// A number line wrapped into a ring: step a value and watch it wrap at the modulus.
+import { mod, modRing } from '../lib/discrete';
+
+interface Props {
+  value?: number;
+  modulus?: number;
+}
+
+const { value = 17, modulus = 12 } = Astro.props;
+const r = mod(value, modulus);
+const q = Math.floor(value / modulus);
+---
+
+<mod-clock class="playground mod-clock" data-value={value} data-modulus={modulus}>
+  <svg class="viz-svg" viewBox="0 0 220 220" width="220" height="220" aria-hidden="true" set:html={modRing(modulus, r)} />
+  <div class="mod-side">
+    <p class="mod-result" aria-live="polite">
+      <span data-out="a">{value}</span> mod <span data-out="n">{modulus}</span> = <b data-out="r">{r}</b>
+    </p>
+    <p class="mod-why">
+      because <span data-out="why">{value} = {q} × {modulus} + {r}</span>
+    </p>
+    <p class="tries">
+      Value
+      <button type="button" data-value="-1" aria-label="Value minus one">− 1</button>
+      <button type="button" data-value="1" aria-label="Value plus one">+ 1</button>
+      <button type="button" data-value="5" aria-label="Value plus five">+ 5</button>
+    </p>
+    <p class="tries">
+      Modulus
+      <button type="button" data-modulus="-1" aria-label="Modulus minus one">− 1</button>
+      <button type="button" data-modulus="1" aria-label="Modulus plus one">+ 1</button>
+    </p>
+  </div>
+</mod-clock>
+
+<script>
+  import { mod, modRing } from '../lib/discrete';
+
+  class ModClock extends HTMLElement {
+    connectedCallback() {
+      let value = Number(this.dataset.value);
+      let modulus = Number(this.dataset.modulus);
+      const svg = this.querySelector('svg')!;
+      const out = (name: string, text: string | number) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = String(text));
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.value) value += Number(button.dataset.value);
+        if (button.dataset.modulus) modulus = Math.max(2, Math.min(24, modulus + Number(button.dataset.modulus)));
+        const r = mod(value, modulus);
+        svg.innerHTML = modRing(modulus, r);
+        out('a', value);
+        out('n', modulus);
+        out('r', r);
+        out('why', `${value} = ${Math.floor(value / modulus)} × ${modulus} + ${r}`);
+      });
+    }
+  }
+
+  customElements.define('mod-clock', ModClock);
+</script>

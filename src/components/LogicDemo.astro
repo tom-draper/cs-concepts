@@ -1,0 +1,52 @@
+---
+// Two inputs you can flip, and every common logical operator applied to them.
+import { logicRows } from '../lib/discrete';
+
+const a = true;
+const b = false;
+---
+
+<logic-demo class="playground logic-demo">
+  <p class="tries" role="group" aria-label="Inputs">
+    <button type="button" data-input="a" aria-pressed="true">A is <b>true</b></button>
+    <button type="button" data-input="b" aria-pressed="false">B is <b>false</b></button>
+  </p>
+  <table aria-live="polite">
+    <tbody>
+      {
+        logicRows.map(([name, symbol, f], i) => (
+          <tr data-row={i} data-on={f(a, b) ? '' : undefined}>
+            <td>{name}</td>
+            <td>{symbol}</td>
+            <td class="result">{String(f(a, b))}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</logic-demo>
+
+<script>
+  import { logicRows } from '../lib/discrete';
+
+  class LogicDemo extends HTMLElement {
+    connectedCallback() {
+      const state: Record<string, boolean> = { a: true, b: false };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        const key = button.dataset.input!;
+        state[key] = !state[key];
+        button.setAttribute('aria-pressed', String(state[key]));
+        button.querySelector('b')!.textContent = String(state[key]);
+        for (const row of this.querySelectorAll<HTMLElement>('tr')) {
+          const value = logicRows[Number(row.dataset.row)][2](state.a, state.b);
+          row.toggleAttribute('data-on', value);
+          row.querySelector('.result')!.textContent = String(value);
+        }
+      });
+    }
+  }
+
+  customElements.define('logic-demo', LogicDemo);
+</script>

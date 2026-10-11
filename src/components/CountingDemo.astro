@@ -1,0 +1,62 @@
+---
+// Choose n and k, and see the standard counts side by side.
+import { countings } from '../lib/discrete';
+
+const n = 5;
+const k = 3;
+const counts = countings(n, k);
+const rows = [
+  ['sequences', 'Order matters, repeats allowed', 'nᵏ'],
+  ['arrangements', 'Order matters, no repeats', 'n! / (n − k)!'],
+  ['combinations', 'Order ignored, no repeats', 'n! / (k! (n − k)!)'],
+  ['multisets', 'Order ignored, repeats allowed', '(n + k − 1)! / (k! (n − 1)!)'],
+  ['factorial', 'All orderings of n items', 'n!'],
+];
+---
+
+<counting-demo class="playground counting-demo">
+  <div class="sliders">
+    <label>
+      <span>n = <b data-out="n">{n}</b> items to choose from</span>
+      <input type="range" name="n" min="0" max="30" value={n} />
+    </label>
+    <label>
+      <span>k = <b data-out="k">{k}</b> chosen</span>
+      <input type="range" name="k" min="0" max="30" value={k} />
+    </label>
+  </div>
+  <table aria-live="polite">
+    <tbody>
+      {
+        rows.map(([key, name, formula]) => (
+          <tr>
+            <td>{name}</td>
+            <td>{formula}</td>
+            <td class="result" data-out={key}>{counts[key]}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</counting-demo>
+
+<script>
+  import { countings } from '../lib/discrete';
+
+  class CountingDemo extends HTMLElement {
+    connectedCallback() {
+      const input = (name: string) => this.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+      const update = () => {
+        const n = Number(input('n').value);
+        const k = Number(input('k').value);
+        const values: Record<string, string | number> = { n, k, ...countings(n, k) };
+        for (const [key, value] of Object.entries(values)) {
+          this.querySelector(`[data-out="${key}"]`)!.textContent = String(value);
+        }
+      };
+      this.addEventListener('input', update);
+    }
+  }
+
+  customElements.define('counting-demo', CountingDemo);
+</script>
