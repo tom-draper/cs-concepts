@@ -1,0 +1,113 @@
+---
+description: Pick a pivot, move smaller items to its left and larger to its right, then do the same to each side. Usually the fastest general-purpose sort.
+difficulty: intermediate
+---
+
+Quicksort is built on one operation, called **partitioning**. Choose one element as the **pivot**. Rearrange the array so that everything smaller than the pivot is to its left and everything larger is to its right. The pivot is now in exactly the position it will occupy in the sorted array, and it never moves again.
+
+That leaves two smaller, independent problems: the left part and the right part. Sort each the same way.
+
+## Watch it run
+
+<SortDemo algorithm="quick" />
+
+The dark bar is the pivot, and the bright bars are the part being partitioned. Things to notice:
+
+- After each partition, one more bar turns green: the pivot has reached its final place.
+- With the default input, the first pivot is 4, which splits the array evenly. That is the good case.
+- Now try **Sorted**. The pivot is always the largest value, so each partition splits off nothing at all. It takes 28 comparisons instead of 16. This is quicksort's worst case, and it is triggered by the most ordinary input imaginable.
+
+## Partitioning
+
+This version, known as the Lomuto scheme, uses the last element as the pivot. It keeps a `boundary` marking the end of the "smaller than the pivot" section, and grows that section as it scans.
+
+```python
+def quicksort(a, lo=0, hi=None):
+    if hi is None:
+        hi = len(a) - 1
+    if lo >= hi:
+        return
+
+    pivot = a[hi]
+    boundary = lo
+    for j in range(lo, hi):
+        if a[j] < pivot:
+            a[boundary], a[j] = a[j], a[boundary]
+            boundary += 1
+    a[boundary], a[hi] = a[hi], a[boundary]    # pivot into its final place
+
+    quicksort(a, lo, boundary - 1)
+    quicksort(a, boundary + 1, hi)
+```
+
+Compare this with [merge sort](/algorithms/merge-sort/). Both are [divide and conquer](/algorithms/divide-and-conquer/), but they do the work at opposite ends. Merge sort splits trivially and works hard to combine. Quicksort works hard to split, and then there is nothing to combine.
+
+## Everything depends on the pivot
+
+Partitioning n elements always costs O(n). What varies is how evenly the pivot splits them.
+
+| Pivot lands | Levels of recursion | Total work |
+| --- | --- | --- |
+| Near the middle each time | about log₂ n | O(n log n) |
+| At one end each time | n | O(n²) |
+
+A balanced split halves the problem, as in merge sort. A pivot that is the smallest or largest value removes only itself, leaving a problem of size n − 1, and the algorithm degenerates into something like [selection sort](/algorithms/selection-sort/).
+
+The split does not need to be perfect. Even a consistent 90/10 split still gives O(n log n), just with a larger constant. Only consistently terrible pivots cause trouble.
+
+<Ops
+  items={[
+    ['Best case', 'O(n log n)'],
+    ['Average case', 'O(n log n)'],
+    ['Worst case', 'O(n²)', 'bad pivots every time'],
+    ['Extra memory', 'O(log n)', 'recursion stack'],
+  ]}
+/>
+
+## Choosing a better pivot
+
+Taking the first or last element is the worst possible policy for sorted or reversed input, which real programs meet all the time. Practical implementations do better.
+
+- **Random pivot.** Pick a random element. No particular input is bad any more; the worst case needs astronomically bad luck.
+- **Median of three.** Take the median of the first, middle and last elements. This handles sorted and reversed input well.
+- **Fall back when things go wrong.** *Introsort*, used by C++'s `std::sort`, watches the recursion depth and switches to [heapsort](/algorithms/heapsort/) if it grows too deep. That guarantees O(n log n) in the worst case while keeping quicksort's speed in the usual one.
+
+<Aside type="warning" title="A security concern, too">
+
+If an attacker can predict your pivot choice, they can craft input that forces the O(n²) case and tie up your server. Randomised pivots or an introsort-style fallback close that hole.
+
+</Aside>
+
+## Why it is fast in practice
+
+Merge sort and heapsort have better guarantees, yet quicksort is usually quicker. The reasons are about hardware, not Big-O.
+
+- **It sorts in place.** No second array, so less memory is touched.
+- **It scans sequentially.** Partitioning walks through contiguous memory, which is ideal for the CPU cache.
+- **Its inner loop is tiny.** A comparison and sometimes a swap.
+
+| Property | |
+| --- | --- |
+| [Stable](/algorithms/sorting-stability/) | no |
+| In place | yes |
+| Adaptive | no |
+
+The lack of stability is the main reason libraries offer two sorts: a quicksort variant when order among equals does not matter, and a merge sort variant when it does.
+
+## In the wild
+
+- C++ `std::sort`: introsort (quicksort, heapsort and insertion sort combined).
+- Rust `sort_unstable` and Go's `sort` and `slices` packages: pattern-defeating quicksort (pdqsort), a modern introsort.
+- Java `Arrays.sort` for primitive types: a dual-pivot quicksort.
+
+All of them hand small partitions to [insertion sort](/algorithms/insertion-sort/).
+
+Quicksort was invented by Tony Hoare in 1959, while he was working on machine translation and needed to sort words.
+
+## Key takeaways
+
+- Quicksort partitions around a pivot, which puts the pivot in its final place, then recurses on each side.
+- It averages O(n log n) and sorts in place, with excellent cache behaviour.
+- A consistently bad pivot gives O(n²); the naive choice makes sorted input the worst case.
+- Real implementations choose pivots carefully and fall back to heapsort if recursion gets too deep.
+- It is not stable.
