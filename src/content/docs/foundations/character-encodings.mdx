@@ -1,0 +1,123 @@
+---
+description: How text becomes bytes. Unicode gives every character a number, and UTF-8 is the standard way of storing those numbers.
+difficulty: intermediate
+---
+
+Computers store numbers, not letters. To store text, there has to be an agreed table saying which number stands for which character, and an agreed way of writing those numbers as [bytes](/foundations/bits-and-bytes/). Together those are a **character encoding**.
+
+When the writer and the reader of some text disagree about the encoding, you get garbage such as `cafÃ©` where `café` was meant. Nearly every text bug comes down to that.
+
+## ASCII: the starting point
+
+In the 1960s, ASCII assigned numbers to 128 characters: the English letters in both cases, the digits, punctuation, and some control codes such as newline.
+
+| Character | Number | | Character | Number |
+| --- | --- | --- | --- | --- |
+| `A` | 65 | | `a` | 97 |
+| `B` | 66 | | `0` | 48 |
+| `Z` | 90 | | space | 32 |
+
+128 values need only 7 bits, so each character fits in one byte with a bit to spare. ASCII worked well, for English.
+
+## The mess that followed
+
+Every other language needed characters ASCII lacked. A byte has 256 values and ASCII used 128, so different regions filled the spare half with different characters. The result was dozens of incompatible "code pages".
+
+The byte 233 meant `é` in Western Europe, `й` in Russia and `י` in Israel. A file carried no record of which table it used. Languages with thousands of characters, such as Chinese and Japanese, needed multi-byte schemes of their own. Mixing two languages in one document was often impossible.
+
+## Unicode: one table for everything
+
+Unicode solves this with a single table covering every writing system. Each character is assigned a number called a **code point**, written `U+` followed by hex digits.
+
+| Character | Code point | |
+| --- | --- | --- |
+| `A` | U+0041 | the same value as in ASCII |
+| `é` | U+00E9 | |
+| `€` | U+20AC | |
+| `日` | U+65E5 | |
+| `😀` | U+1F600 | |
+
+There is room for over a million code points, of which around 150,000 are assigned so far.
+
+Unicode is only the table. It says `€` is number 8,364. It does not say how to write 8,364 as bytes. That is the job of an encoding, and there are three.
+
+| Encoding | Bytes per code point | Notes |
+| --- | --- | --- |
+| UTF-32 | always 4 | simple, and wasteful |
+| UTF-16 | 2 or 4 | used internally by Windows, Java and JavaScript |
+| **UTF-8** | 1 to 4 | the standard for files and the web |
+
+## UTF-8
+
+UTF-8 uses a variable number of bytes: one for the characters English uses most, and more for rarer ones.
+
+<Utf8Demo />
+
+Things to try:
+
+- **hello**: five characters, five bytes. Plain English text is byte-for-byte identical to ASCII.
+- **naïve**: five characters, six bytes. The `ï` takes two.
+- **日本語**: three characters, nine bytes.
+- **👍🏽**: looks like one character, but is two code points, a thumbs-up followed by a skin-tone modifier.
+- **🇬🇧**: a flag is two "regional indicator" code points, G and B.
+
+### How the bytes are laid out
+
+The leading bits of each byte say what kind of byte it is.
+
+| Code point range | Bytes | Layout |
+| --- | --- | --- |
+| U+0000 to U+007F | 1 | `0xxxxxxx` |
+| U+0080 to U+07FF | 2 | `110xxxxx 10xxxxxx` |
+| U+0800 to U+FFFF | 3 | `1110xxxx 10xxxxxx 10xxxxxx` |
+| U+10000 to U+10FFFF | 4 | `11110xxx 10xxxxxx 10xxxxxx 10xxxxxx` |
+
+The `x` positions hold the bits of the code point. The number of leading 1s in the first byte gives the length, and every following byte starts with `10`.
+
+This design, by Ken Thompson and Rob Pike in 1992, has several properties that explain why it won.
+
+- **Backwards compatible.** Any ASCII file is already valid UTF-8, and software written for ASCII mostly keeps working.
+- **Self-synchronising.** A byte starting with `10` is always a continuation. Dropped into the middle of a stream, you can find the start of the next character by skipping at most three bytes.
+- **No byte-order problem.** It is defined as a sequence of bytes, so [endianness](/foundations/endianness/) does not affect it, unlike UTF-16 and UTF-32.
+- **Compact** for text that is mostly ASCII, which includes source code, markup and most data formats.
+
+## What is the length of a string?
+
+It depends what you are counting, and languages do not agree.
+
+| Text | Looks like | Code points | UTF-8 bytes | UTF-16 units |
+| --- | --- | --- | --- | --- |
+| `hello` | 5 | 5 | 5 | 5 |
+| `naïve` | 5 | 5 | 6 | 5 |
+| `😀` | 1 | 1 | 4 | 2 |
+| `👍🏽` | 1 | 2 | 8 | 4 |
+| `🇬🇧` | 1 | 2 | 8 | 4 |
+
+| Language | `length` counts |
+| --- | --- |
+| Python 3 | code points |
+| JavaScript, Java, C# | UTF-16 units |
+| Rust, Go | bytes |
+
+So `"😀".length` is 2 in JavaScript, 1 in Python and 4 in Rust.
+
+None of these is what a person means by "characters". What a reader sees as one character is a **grapheme cluster**, which may be several code points. Cutting a string at an arbitrary index can split one in half and corrupt the text. Truncating, reversing or counting what users see needs a library that understands graphemes.
+
+### The same text, different code points
+
+`é` can be one code point (U+00E9) or two: a plain `e` (U+0065) followed by a combining accent (U+0301). They look identical and compare as **different**. Converting text to a single consistent form is called **normalisation**, and it should be done before comparing or searching text that came from users.
+
+## Practical rules
+
+- **Use UTF-8 everywhere**: files, databases, network messages. Over 98% of web pages do.
+- **Bytes and text are different things.** You *decode* bytes into text using an encoding, and *encode* text into bytes. Keep the two apart in your program, and convert at the boundaries.
+- **Always state the encoding** when reading or writing. Relying on the platform default is how mojibake happens.
+- **Do not assume one character is one byte**, or one of anything.
+
+## Key takeaways
+
+- A character encoding maps characters to numbers and numbers to bytes.
+- Unicode assigns every character a code point. UTF-8, UTF-16 and UTF-32 are ways of storing code points.
+- UTF-8 uses 1 to 4 bytes per code point, is identical to ASCII for English text, and is the standard.
+- A string's "length" might mean bytes, code units, code points or visible characters. They differ.
+- Garbled text means bytes were decoded with the wrong encoding.
