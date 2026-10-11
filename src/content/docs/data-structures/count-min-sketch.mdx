@@ -1,0 +1,140 @@
+---
+description: A small grid of counters that estimates how often each item appears in a huge stream. It may overcount, but never undercounts, and the error is bounded.
+difficulty: advanced
+---
+
+Which search terms are trending? Which IP addresses are sending the most traffic? Which products are being viewed most right now?
+
+All of these ask **how often** each item appears in a stream. The exact answer is a [hash table](/data-structures/hash-tables/) from item to count. But if there are a billion distinct items, that table has a billion entries, most of them for things seen once.
+
+A **count-min sketch** estimates frequencies in a fixed, small amount of memory. It is to counting what a [Bloom filter](/data-structures/bloom-filters/) is to membership.
+
+## The structure
+
+A count-min sketch is a grid of counters with **d rows** and **w columns**, all starting at zero. Each row has its own [hash function](/data-structures/hash-functions/), which maps any item to one column in that row.
+
+**To add an item:** in each row, hash the item to find its column, and add 1 to that counter. One counter per row is incremented.
+
+**To estimate an item's count:** look at the same d counters and take the **smallest**.
+
+## Try it
+
+This sketch has 3 rows and 8 columns: 24 counters to track up to ten different fruits.
+
+<CountMinDemo />
+
+Things to try:
+
+- Add **apple** a few times. One counter in each row goes up. Its estimate is exact.
+- Add several different fruits. Sooner or later two share a counter in some row. Each then inflates the other's count in that row.
+- Press **Add 50 at random** a few times. The stream is deliberately skewed, so a few fruits are much more common than the rest. Compare the estimates with the true counts.
+- Look at which items are overestimated. The common ones are nearly right; the rare ones suffer most, because the error they pick up from heavy neighbours is large relative to their own small count.
+
+## Why take the minimum
+
+Every counter an item touches has been incremented once for each of that item's occurrences. So each one is **at least** the true count.
+
+It may be more, because other items can hash to the same counter and add to it. Collisions only ever push counters **up**.
+
+So all d counters are overestimates or exactly right, and the smallest is the one that has been polluted least. That is the "min" in the name.
+
+Two guarantees follow.
+
+- The estimate is **never less** than the true count.
+- For the estimate to be far too high, the item must collide with heavy items in **every** row at once. With independent hash functions, that becomes unlikely very quickly as rows are added.
+
+## The code
+
+```python
+import hashlib
+
+class CountMinSketch:
+    def __init__(self, width, depth):
+        self.width = width
+        self.depth = depth
+        self.table = [[0] * width for _ in range(depth)]
+
+    def _columns(self, item):
+        for row in range(self.depth):
+            digest = hashlib.sha256(f'{row}:{item}'.encode()).digest()
+            yield row, int.from_bytes(digest[:8], 'big') % self.width
+
+    def add(self, item, count=1):
+        for row, col in self._columns(item):
+            self.table[row][col] += count
+
+    def estimate(self, item):
+        return min(self.table[row][col] for row, col in self._columns(item))
+```
+
+<Ops
+  items={[
+    ['Add', 'O(d)'],
+    ['Estimate', 'O(d)'],
+    ['Memory', 'O(w × d)', 'independent of the number of items'],
+  ]}
+/>
+
+## Choosing the size
+
+The two dimensions control two different things.
+
+- **Width** controls **how large** the error can be. A wider grid means fewer collisions.
+- **Depth** controls **how likely** you are to stay within that error. More rows mean more chances that one of them is clean.
+
+With N items added in total, the estimate exceeds the true count by more than about (2.72 / w) × N only with probability about (1 / 2.72)ᵈ.
+
+| Width | Depth | Counters | Error at most | With probability |
+| --- | --- | --- | --- | --- |
+| 272 | 5 | 1,360 | 1% of N | 99.3% |
+| 2,719 | 5 | 13,595 | 0.1% of N | 99.3% |
+| 2,719 | 7 | 19,033 | 0.1% of N | 99.9% |
+
+About 80 kilobytes of counters tracks frequencies to within 0.1% of the stream's size, no matter how many distinct items there are.
+
+Note what the error is relative to: the **total** number of items, N, not the item's own count. This is the central thing to understand about the structure.
+
+## What it is good and bad at
+
+In a stream of a billion events with 0.1% error, estimates may be off by up to a million.
+
+- For an item that appears **50 million** times, being a million out is a 2% error. Excellent.
+- For an item that appears **ten** times, being a million out makes the estimate meaningless.
+
+A count-min sketch is accurate for **frequent** items and unreliable for rare ones. Fortunately that is usually what is wanted. Real data is highly skewed: a small number of items account for most of the traffic, and those are the ones people ask about.
+
+### Finding the heavy hitters
+
+The sketch can estimate the count of an item you name, but it cannot list the most frequent ones, because it does not store the items.
+
+The standard solution pairs it with a small [heap](/data-structures/heaps/) of the current top k items. For each arriving item, update the sketch, read back its estimate, and if that beats the smallest entry in the heap, replace it. The result is the top k in bounded memory.
+
+## The family of sketches
+
+| Question | Exact structure | Approximate structure |
+| --- | --- | --- |
+| Have I seen this item? | [set](/data-structures/sets/) | [Bloom filter](/data-structures/bloom-filters/) |
+| How many distinct items? | set | [HyperLogLog](/data-structures/hyperloglog/) |
+| How many times has this item appeared? | [hash table](/data-structures/hash-tables/) of counts | **count-min sketch** |
+
+They share a philosophy: give up exactness in a controlled, quantified way, in exchange for memory that does not grow with the data.
+
+Like the other two, count-min sketches of the same shape **merge**: add the two grids together counter by counter. Many machines can sketch their own traffic and the results can be combined.
+
+## Where it shows up
+
+- **Trending topics and popular items**, in feeds, search and shops.
+- **Network monitoring.** Finding the flows or addresses responsible for most of the traffic, including detecting denial-of-service attacks.
+- **Databases.** Estimating how common a value is in a column, to help the query planner.
+- **Caches.** Some caches use a sketch to estimate how often each key is requested, and use that to decide what is worth keeping. The widely used Caffeine cache for Java works this way.
+- **Rate limiting** by approximate request counts per client.
+
+The structure was introduced by Graham Cormode and S. Muthukrishnan in 2003.
+
+## Key takeaways
+
+- A count-min sketch estimates how often each item appears, using a fixed grid of counters.
+- Adding an item increments one counter per row; the estimate is the minimum of those counters.
+- It never underestimates. Collisions can only make counts too high.
+- The error is a fraction of the total stream size, so it is accurate for frequent items and poor for rare ones.
+- Width sets the size of the error, depth sets the confidence, and sketches of the same shape can be merged.
