@@ -146,6 +146,13 @@ The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
 
+The discrete maths pages use `<LogicDemo />`, `<ModClock value={17} modulus={12} />`,
+`<CountingDemo />`, `<BirthdayDemo />` and the static `<Venn />`, with their maths
+in `src/lib/discrete.ts`.
+
+In page prose, wrap anything containing curly braces (such as set notation) in
+backticks. MDX treats a bare `{` as the start of a JavaScript expression.
+
 `<HashPlayground />` is a live widget for the Hash Functions page. Widgets like
 it are custom elements with a script that only ships on pages that use them.
 
