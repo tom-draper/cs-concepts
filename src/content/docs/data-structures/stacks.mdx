@@ -1,0 +1,127 @@
+---
+description: A collection where you can only add to and remove from one end. The last item in is the first one out.
+difficulty: beginner
+---
+
+Picture a stack of plates. You add a plate to the top and take a plate from the top. Getting at the bottom plate means removing everything above it first. A stack in computing is exactly that restriction, and the restriction is the point: it gives you **last in, first out** (LIFO) order.
+
+## The three operations
+
+- **push**: put an item on top.
+- **pop**: remove the top item and return it.
+- **peek**: look at the top item without removing it.
+
+<Steps>
+<Step title="Push 4, then 9, then 2">
+
+<ArrayViz values={[4, 9, 2, null, null]} highlight={[2]} pointers={{ top: 2 }} />
+
+</Step>
+<Step title="Pop returns 2, the most recent item">
+
+<ArrayViz values={[4, 9, null, null, null]} highlight={[1]} pointers={{ top: 1 }} />
+
+</Step>
+<Step title="Push 7">
+
+<ArrayViz values={[4, 9, 7, null, null]} highlight={[2]} pointers={{ top: 2 }} />
+
+</Step>
+</Steps>
+
+There is deliberately no "get the third item" or "remove from the bottom". Having fewer operations makes a stack simple to implement and easy to reason about.
+
+<Ops
+  items={[
+    ['Push', 'O(1)'],
+    ['Pop', 'O(1)'],
+    ['Peek', 'O(1)'],
+  ]}
+/>
+
+## Implementing one
+
+A stack is usually a thin layer over a [dynamic array](/data-structures/dynamic-arrays/). The end of the array is the top, because that is the one place an array can add and remove in O(1).
+
+```python
+stack = []
+stack.append(4)    # push
+stack.append(9)
+top = stack[-1]    # peek -> 9
+stack.pop()        # pop  -> 9
+```
+
+A [linked list](/data-structures/linked-lists/) works too, pushing and popping at the head. The array version is nearly always faster because its memory is contiguous. Strictly, the array's push is O(1) [amortized](/foundations/amortized-analysis/), since it occasionally resizes.
+
+## A worked example: matching brackets
+
+Checking that brackets are balanced is the classic stack problem. Each closing bracket must match the **most recent** unclosed opening bracket, and "most recent" is exactly what a stack hands you.
+
+The rule: push every opening bracket. On a closing bracket, pop and check that the two match.
+
+Here it is catching the mistake in `[(])`:
+
+<Steps>
+<Step title="Read [ and push it">
+
+<ArrayViz values={['[', null, null]} highlight={[0]} pointers={{ top: 0 }} indices={false} />
+
+</Step>
+<Step title="Read ( and push it">
+
+<ArrayViz values={['[', '(', null]} highlight={[1]} pointers={{ top: 1 }} indices={false} />
+
+</Step>
+<Step title="Read ] and pop: the top is (, which does not match">
+
+The most recent unclosed bracket is `(`, so a `]` here is an error.
+
+<ArrayViz values={['[', '(', null]} alt={[1]} pointers={{ top: 1 }} indices={false} />
+
+</Step>
+</Steps>
+
+```python
+def balanced(text):
+    pairs = {')': '(', ']': '[', '}': '{'}
+    stack = []
+    for ch in text:
+        if ch in '([{':
+            stack.append(ch)
+        elif ch in pairs:
+            if not stack or stack.pop() != pairs[ch]:
+                return False
+    return not stack   # anything left over was never closed
+```
+
+## The stack you use without noticing
+
+Every running program has a **call stack**. Calling a function pushes a *frame* holding its arguments, local variables and the place to return to. Returning pops it. The function that was called most recently is always the one that finishes first, which is LIFO order.
+
+```python
+def a():
+    b()
+
+def b():
+    c()
+
+def c():
+    ...   # the call stack here is: a, b, c  (c on top)
+```
+
+This is why a stack trace reads as a list of nested calls, and why [recursion](/algorithms/recursion/) that never stops produces a **stack overflow**: frames keep being pushed until the memory reserved for the call stack runs out. The page on [stack and heap](/foundations/stack-and-heap/) memory has the details.
+
+## Where stacks show up
+
+- **Undo.** Each action is pushed; undo pops the most recent one.
+- **Back buttons.** Browser history and app navigation are stacks of pages.
+- **Parsing and evaluating expressions.** Compilers use stacks to handle nesting and operator precedence.
+- **[Depth-first search](/algorithms/depth-first-search/).** Explore as far as possible, then pop back to the last junction.
+- **Replacing recursion.** Any recursive algorithm can be rewritten as a loop with an explicit stack, which avoids overflowing the call stack on deep inputs.
+
+## Key takeaways
+
+- A stack allows access at one end only, giving last-in, first-out order.
+- Push, pop and peek are all O(1).
+- It is the natural tool whenever the most recent thing must be dealt with first: nesting, undoing, backtracking.
+- The call stack that runs your functions is one.
