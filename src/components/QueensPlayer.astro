@@ -1,0 +1,100 @@
+---
+// Backtracking on the n-queens puzzle, one placement or retreat per frame.
+import Frame from './Frame.astro';
+import Player from './Player.astro';
+import Figure from './viz/Figure.astro';
+
+interface Props {
+  n?: number;
+}
+
+const { n = 4 } = Astro.props;
+
+interface Step {
+  queens: number[];
+  /** Row being worked on, and whether the step is a retreat. */
+  row: number;
+  retreat: boolean;
+  note: string;
+}
+
+const steps: Step[] = [];
+const queens: number[] = [];
+const safe = (row: number, col: number) =>
+  queens.every((c, r) => c !== col && Math.abs(c - col) !== row - r);
+const columns = (list: number[]) =>
+  list.length === 1 ? `column ${list[0]} is` : `columns ${list.slice(0, -1).join(', ')} and ${list[list.length - 1]} are`;
+let solved = false;
+
+function place(row: number, from = 0): void {
+  if (solved) return;
+  if (row === n) {
+    solved = true;
+    return;
+  }
+  const rejected: number[] = [];
+  for (let col = from; col < n; col++) {
+    if (!safe(row, col)) {
+      rejected.push(col);
+      continue;
+    }
+    queens.push(col);
+    steps.push({
+      queens: [...queens],
+      row,
+      retreat: false,
+      note:
+        (rejected.length ? `Row ${row}: ${columns(rejected)} attacked. ` : `Row ${row}: `) +
+        `Place a queen in column ${col}.` +
+        (row === n - 1 ? ' Every row has a queen. Solved.' : ''),
+    });
+    place(row + 1);
+    if (solved) return;
+    queens.pop();
+    rejected.length = 0;
+    rejected.push(col);
+  }
+  if (row > 0) {
+    steps.push({
+      queens: [...queens],
+      row,
+      retreat: true,
+      note: `Row ${row}: no column is safe. This is a dead end, so go back and move the queen in row ${row - 1}.`,
+    });
+  }
+}
+
+steps.push({ queens: [], row: 0, retreat: false, note: `An empty ${n} × ${n} board. Place one queen per row, top to bottom.` });
+place(0);
+
+const CELL = 44;
+const PAD = 8;
+const size = n * CELL + PAD * 2;
+---
+
+<Player>
+  {
+    steps.map((step) => (
+      <Frame caption={step.note}>
+        <Figure>
+          <svg class="viz-svg board" viewBox={`0 0 ${size} ${size}`} width={size} height={size} role="img" aria-label={`Queens in columns ${step.queens.join(', ') || 'none'}`}>
+            {
+              Array.from({ length: n * n }, (_, i) => {
+                const row = Math.floor(i / n);
+                const col = i % n;
+                const queen = step.queens[row] === col;
+                const last = queen && row === step.queens.length - 1 && !step.retreat;
+                return (
+                  <g class={`v-node ${last ? 'alt' : queen ? 'hl' : step.retreat && row === step.row ? 'blocked' : (row + col) % 2 ? 'dark' : ''}`}>
+                    <rect x={PAD + col * CELL} y={PAD + row * CELL} width={CELL} height={CELL} />
+                    {queen && <text class="v-text queen" x={PAD + col * CELL + CELL / 2} y={PAD + row * CELL + CELL / 2}>♛</text>}
+                  </g>
+                );
+              })
+            }
+          </svg>
+        </Figure>
+      </Frame>
+    ))
+  }
+</Player>
