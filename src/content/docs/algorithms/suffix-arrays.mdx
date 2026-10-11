@@ -1,0 +1,145 @@
+---
+description: A sorted list of every suffix of a text. Once built, it finds any pattern by binary search, however long the text is.
+difficulty: advanced
+---
+
+[KMP](/algorithms/knuth-morris-pratt/) and [Rabin-Karp](/algorithms/rabin-karp/) search a text in time proportional to its length. That is as good as it gets if you search once. But suppose the text is a whole genome, or the collected works of an author, and you will search it millions of times. Reading the entire text for every query is wasteful.
+
+The alternative is to **preprocess the text once** into an index that makes every later search fast. A suffix array is the simplest and most widely used such index.
+
+## The idea
+
+A **suffix** of a string is what is left after removing some characters from the front. `banana` has six of them.
+
+The key observation: **every substring of a text is the beginning of one of its suffixes.** The substring `nan` is the start of the suffix `nana`. So finding a pattern anywhere in the text is the same as finding a suffix that begins with it.
+
+Now sort all the suffixes alphabetically.
+
+| Position in sorted order | Suffix | Starts at index |
+| --- | --- | --- |
+| 0 | `a` | 5 |
+| 1 | `ana` | 3 |
+| 2 | `anana` | 1 |
+| 3 | `banana` | 0 |
+| 4 | `na` | 4 |
+| 5 | `nana` | 2 |
+
+The **suffix array** is just the last column: `[5, 3, 1, 0, 4, 2]`. It is a list of starting positions, in the order their suffixes would appear in a dictionary.
+
+The suffixes themselves are not stored. Each is identified by one number, and the text supplies the characters. So the index costs one integer per character of the text.
+
+## Searching
+
+Because the suffixes are sorted, all those starting with a given pattern sit **next to each other**. A [binary search](/algorithms/binary-search/) finds them.
+
+Searching `banana` for `an`:
+
+<ArrayViz
+  values={['a', 'ana', 'anana', 'banana', 'na', 'nana']}
+  alt={[1, 2]}
+  dim={[0, 3, 4, 5]}
+  caption="The suffixes in sorted order. Those beginning with “an” form one contiguous block."
+/>
+
+<ArrayViz
+  values={[5, 3, 1, 0, 4, 2]}
+  alt={[1, 2]}
+  dim={[0, 3, 4, 5]}
+  caption="The suffix array itself. The block holds 3 and 1, so “an” occurs at indices 3 and 1 of the text."
+/>
+
+Two binary searches, one for each end of the block, give every occurrence at once. The width of the block is the **number of occurrences**.
+
+```python
+def find_all(text, suffix_array, pattern):
+    m = len(pattern)
+
+    def first_index(strictly_after):
+        lo, hi = 0, len(suffix_array)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            piece = text[suffix_array[mid]:suffix_array[mid] + m]
+            if piece < pattern or (strictly_after and piece == pattern):
+                lo = mid + 1
+            else:
+                hi = mid
+        return lo
+
+    start, end = first_index(False), first_index(True)
+    return sorted(suffix_array[start:end])
+```
+
+Each step of the binary search compares up to m characters, so a search costs **O(m log n)**. For a three-billion-letter genome, log₂ n is about 32. A pattern of 20 letters is found with a few hundred character comparisons instead of three billion.
+
+## Building it
+
+The obvious construction is to sort the suffixes directly.
+
+```python
+def build_suffix_array(text):
+    return sorted(range(len(text)), key=lambda i: text[i:])
+```
+
+It is one line, and it is slow. Sorting does O(n log n) comparisons, but comparing two suffixes can take O(n) characters, for O(n² log n) in the worst case. On repetitive text that worst case is real.
+
+Better methods use the fact that the suffixes are not independent strings: they overlap heavily.
+
+| Method | Time | Idea |
+| --- | --- | --- |
+| Sort directly | O(n² log n) worst case | compare suffixes character by character |
+| Prefix doubling | O(n log² n) or O(n log n) | sort by the first 1, 2, 4, 8… characters, reusing the previous round's ranks |
+| SA-IS, DC3 | O(n) | sort a sample of suffixes recursively, then deduce the rest |
+
+**Prefix doubling** is the one worth understanding. Once the suffixes are ranked by their first k characters, ranking them by their first 2k characters is easy: a suffix's first 2k characters are its first k, followed by the first k characters of the suffix starting k places later. Both of those ranks are already known. So each round is a sort of pairs of numbers, and there are only log n rounds.
+
+Libraries use the linear-time algorithms.
+
+## The LCP array
+
+A suffix array is usually paired with a second array: the **longest common prefix** between each suffix and the one before it in sorted order.
+
+| Suffix | Starts at | Shares with the previous suffix | LCP |
+| --- | --- | --- | --- |
+| `a` | 5 | | 0 |
+| `ana` | 3 | `a` | 1 |
+| `anana` | 1 | `ana` | 3 |
+| `banana` | 0 | nothing | 0 |
+| `na` | 4 | nothing | 0 |
+| `nana` | 2 | `na` | 2 |
+
+The LCP array can be built in O(n) once the suffix array exists. Together they answer questions about the structure of the text itself.
+
+- **Longest repeated substring.** It is the largest value in the LCP array. Here that is 3, for `ana`, which appears at indices 1 and 3.
+- **Number of distinct substrings.** The total number of substrings, minus the sum of the LCP values.
+- **Longest substring common to two texts.** Join the two with a separator, build the arrays, and look for the largest LCP between neighbours that come from different texts.
+
+## Suffix arrays, tries and trees
+
+A suffix array is a compressed form of an older structure.
+
+| Structure | Memory | Search | Notes |
+| --- | --- | --- | --- |
+| Suffix [trie](/data-structures/tries/) | O(n²) | O(m) | every suffix inserted into a trie; far too big |
+| Suffix tree | O(n), about 20 bytes per character | O(m) | a compressed suffix trie; powerful and memory-hungry |
+| **Suffix array** | O(n), 4 to 8 bytes per character | O(m log n) | simple, compact, cache-friendly |
+| FM-index | less than the text itself | O(m) | a compressed suffix array |
+
+Reading the leaves of a suffix tree from left to right gives the suffix array. The array gives up a little search speed for a large saving in memory, and with the LCP array it can do nearly everything the tree can. That trade is why suffix arrays largely replaced suffix trees in practice.
+
+## Where it shows up
+
+- **Genomics.** Aligning billions of short DNA fragments against a reference genome is the defining application. The standard tools use the FM-index, which is built from the suffix array.
+- **Compression.** The Burrows-Wheeler transform, the core of `bzip2`, is computed directly from the suffix array. It rearranges text so that similar characters cluster together and compress well.
+- **Full-text search** where arbitrary substrings must be found, not just whole words.
+- **Finding repeats and duplicated code**, and detecting plagiarism.
+- **Data deduplication**, by finding long shared stretches between files.
+
+Search engines for web pages use a different structure, the *inverted index*, which maps whole words to documents. Suffix arrays are for when a match can start and end anywhere.
+
+## Key takeaways
+
+- A suffix array lists the starting positions of every suffix of a text, in sorted order.
+- Every substring is a prefix of some suffix, so all occurrences of a pattern form one contiguous block.
+- Binary search finds that block in O(m log n), independent of how many times you search.
+- It can be built in O(n log n) with prefix doubling, or O(n) with more advanced algorithms.
+- With the LCP array it answers questions about repeats, and it underlies genome aligners and the Burrows-Wheeler transform.
