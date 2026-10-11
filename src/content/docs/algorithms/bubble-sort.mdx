@@ -1,0 +1,70 @@
+---
+description: Repeatedly swap neighbours that are out of order until nothing is left to swap. Easy to understand, and too slow to use.
+difficulty: beginner
+---
+
+Bubble sort is usually the first sorting algorithm anyone learns, because the idea fits in a sentence: walk along the array, and whenever two neighbours are the wrong way round, swap them. Keep doing passes until a pass makes no swaps.
+
+## Watch it run
+
+<SortDemo algorithm="bubble" />
+
+Things to notice:
+
+- On each pass the **largest remaining value** is carried all the way to the right. That is the "bubbling", and it means each pass can stop one position earlier than the last.
+- Try **Sorted**. One pass, no swaps, and it stops: 7 comparisons.
+- Try **Reversed**. This is the worst case: every one of the 28 comparisons leads to a swap. (The demo counts a swap as two writes.)
+
+## The code
+
+```python
+def bubble_sort(a):
+    for end in range(len(a) - 1, 0, -1):
+        swapped = False
+        for i in range(end):
+            if a[i] > a[i + 1]:
+                a[i], a[i + 1] = a[i + 1], a[i]
+                swapped = True
+        if not swapped:      # a clean pass: already sorted
+            break
+```
+
+The `swapped` flag is the early exit. Without it, bubble sort does the full number of passes even on sorted input.
+
+## Why it is slow
+
+The first pass makes n − 1 comparisons, the next n − 2, and so on down to 1. That sums to n(n − 1)/2, which is **O(n²)**.
+
+| Items | Comparisons, worst case |
+| --- | --- |
+| 8 | 28 |
+| 1,000 | 499,500 |
+| 1,000,000 | about 500 billion |
+
+It is also slow *among* the O(n²) sorts. An element can only move one position per swap, so a small value stuck at the far right (sometimes called a "turtle") crawls left one step per pass. [Insertion sort](/algorithms/insertion-sort/) does the same job with far fewer writes and is nearly always faster in practice.
+
+<Ops
+  items={[
+    ['Best case', 'O(n)', 'already sorted'],
+    ['Average case', 'O(n²)'],
+    ['Worst case', 'O(n²)', 'reversed'],
+    ['Extra memory', 'O(1)'],
+  ]}
+/>
+
+| Property | |
+| --- | --- |
+| [Stable](/algorithms/sorting-stability/) | yes: equal neighbours are never swapped |
+| In place | yes |
+| Adaptive | yes, with the early exit |
+
+## Should you ever use it?
+
+Almost never. Its value is in teaching: it shows what a comparison sort is, what "in place" and "stable" mean, and why O(n²) hurts. For real work, call your language's built-in sort. If you must write a simple sort yourself for a small array, write [insertion sort](/algorithms/insertion-sort/).
+
+## Key takeaways
+
+- Bubble sort swaps out-of-order neighbours, pass after pass, until a pass makes no swaps.
+- Each pass puts the largest remaining value into its final place.
+- It is O(n²) on average and in the worst case, and O(n) on input that is already sorted.
+- It is stable and in place, but outperformed by insertion sort in every practical respect.
