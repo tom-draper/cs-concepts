@@ -1,0 +1,135 @@
+---
+description: A collection where items leave in the order they arrived. Add at the back, remove from the front.
+difficulty: beginner
+---
+
+A queue is a line at a shop: whoever has waited longest is served next. Items join at the **back** and leave from the **front**, giving **first in, first out** (FIFO) order. It is the mirror image of a [stack](/data-structures/stacks/), which serves the newest item first.
+
+## The operations
+
+- **enqueue**: add an item at the back.
+- **dequeue**: remove the item at the front and return it.
+- **peek**: look at the front item without removing it.
+
+<Steps>
+<Step title="Enqueue A, B, then C">
+
+<ArrayViz values={['A', 'B', 'C', null, null]} pointers={{ front: 0, back: 2 }} indices={false} />
+
+</Step>
+<Step title="Dequeue returns A, the oldest item">
+
+<ArrayViz values={[null, 'B', 'C', null, null]} highlight={[1]} pointers={{ front: 1, back: 2 }} indices={false} />
+
+</Step>
+<Step title="Enqueue D">
+
+<ArrayViz values={[null, 'B', 'C', 'D', null]} highlight={[3]} pointers={{ front: 1, back: 3 }} indices={false} />
+
+</Step>
+</Steps>
+
+## Why a plain array is not enough
+
+A stack sits comfortably on an [array](/data-structures/arrays/), because it only touches the end. A queue touches **both** ends, and removing from the front of an array means shifting every other element left: O(n) per dequeue.
+
+<Aside type="warning" title="A common trap">
+
+In Python, `items.pop(0)` on a list is O(n) for exactly this reason. Draining a list of a million items that way does around half a trillion element moves. Use `collections.deque`, which is O(1) at both ends.
+
+</Aside>
+
+The pictures above hint at the fix: do not shift anything. Leave the items where they are and move the `front` marker instead. That makes dequeue O(1), but it creates a new problem. The used region drifts to the right, and eventually the back hits the end of the array while there are free slots at the start.
+
+## The circular buffer
+
+The solution is to treat the array as a circle: when the back reaches the last slot, it wraps round to slot 0.
+
+<Steps>
+<Step title="The back has reached the end, but the first three slots are free">
+
+<ArrayViz values={[null, null, null, 'D', 'E', 'F']} pointers={{ front: 3, back: 5 }} />
+
+</Step>
+<Step title="Enqueue G: the back wraps round to index 0">
+
+<ArrayViz values={['G', null, null, 'D', 'E', 'F']} highlight={[0]} pointers={{ front: 3, back: 0 }} />
+
+</Step>
+<Step title="Dequeue returns D, and the front moves along">
+
+<ArrayViz values={['G', null, null, null, 'E', 'F']} pointers={{ front: 4, back: 0 }} />
+
+</Step>
+</Steps>
+
+The wrap-around is one line of arithmetic, using the remainder operator:
+
+```text
+next index = (index + 1) % capacity
+```
+
+Nothing is ever shifted, so both operations are O(1). This structure is also called a [ring buffer](/data-structures/ring-buffers/).
+
+```python
+class Queue:
+    def __init__(self, capacity):
+        self.slots = [None] * capacity
+        self.front = 0
+        self.count = 0
+
+    def enqueue(self, value):
+        if self.count == len(self.slots):
+            raise OverflowError('queue is full')
+        back = (self.front + self.count) % len(self.slots)
+        self.slots[back] = value
+        self.count += 1
+
+    def dequeue(self):
+        if self.count == 0:
+            raise IndexError('queue is empty')
+        value = self.slots[self.front]
+        self.slots[self.front] = None
+        self.front = (self.front + 1) % len(self.slots)
+        self.count -= 1
+        return value
+```
+
+Tracking `count` rather than a separate back index avoids a classic ambiguity: with two indices, a completely full queue and a completely empty one look identical.
+
+A real implementation grows the buffer when it is full, the same way a [dynamic array](/data-structures/dynamic-arrays/) does. The other common approach is a [linked list](/data-structures/linked-lists/) with pointers to both the head and the tail, which is O(1) at each end with no capacity to manage, at the cost of an allocation per item.
+
+<Ops
+  items={[
+    ['Enqueue', 'O(1)'],
+    ['Dequeue', 'O(1)'],
+    ['Peek', 'O(1)'],
+  ]}
+/>
+
+## Where queues show up
+
+Queues appear wherever work arrives faster than it can be handled, or must be handled in arrival order.
+
+- **Task and job queues.** Print jobs, background workers, web server request backlogs.
+- **Buffers.** Keyboard input, network packets and audio samples wait in queues between producer and consumer.
+- **Message queues.** Systems such as Kafka and RabbitMQ are queues between separate programs.
+- **[Breadth-first search](/algorithms/breadth-first-search/).** Visiting a graph level by level means processing nodes in the order they were discovered.
+
+<Aside title="Bounded queues and backpressure">
+
+A queue with no size limit hides overload: if producers are faster than consumers, it grows until memory runs out. A bounded queue forces a decision when full, whether that is making the producer wait, rejecting the item or dropping the oldest. Choosing that behaviour deliberately is a large part of building reliable systems.
+
+</Aside>
+
+## Relatives
+
+- A **[deque](/data-structures/deques/)** (double-ended queue) allows adding and removing at both ends. It can act as a stack or a queue.
+- A **priority queue** serves the most important item first rather than the oldest. It is usually built on a [heap](/data-structures/heaps/).
+
+## Key takeaways
+
+- A queue is first in, first out: add at the back, remove from the front.
+- Removing from the front of a plain array is O(n), so queues use a circular buffer or a linked list.
+- A circular buffer wraps its indices with `% capacity`, making both ends O(1) with no shifting.
+- In production, decide what happens when the queue is full.
