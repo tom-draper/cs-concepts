@@ -1,0 +1,128 @@
+---
+description: A string search that never re-reads a character of the text. When a match fails part-way, it uses what it has already seen to work out how far the pattern can safely jump.
+difficulty: advanced
+---
+
+Finding one string inside another is among the most common operations in computing. It is what happens when you press Ctrl+F, run `grep`, or call `indexOf`. The Knuth-Morris-Pratt algorithm, usually shortened to **KMP**, does it in time proportional to the lengths of the two strings, however unlucky the input.
+
+## The obvious way, and its weakness
+
+Line the pattern up at the start of the text. Compare character by character. On a mismatch, slide the pattern one place to the right and start comparing again from the pattern's first character.
+
+Here it is searching for `ABABD`.
+
+<MatchDemo algorithm="naive" text="ABABCABABD" pattern="ABABD" />
+
+Look at the first step. Four characters matched before the mismatch. The naive method then throws that knowledge away: it slides along by one and compares characters of the text it has **already read**.
+
+On ordinary text this hardly matters. On repetitive input it is a disaster. Searching for `AAAAB` in a long run of `A`s matches four characters and fails on the fifth, at *every* position: O(n × m) comparisons for a text of length n and a pattern of length m. Repetitive input is not rare. DNA has an alphabet of four letters, and binary data has two.
+
+## The insight
+
+After matching `ABAB` and then failing, we know exactly what the last four characters of the text were, because they matched the pattern: they were `ABAB`.
+
+So we can work out, **from the pattern alone**, where the next possible match could begin. The text that was just read ends with `AB`. The pattern begins with `AB`. So slide the pattern along until its opening `AB` sits under that `AB`, and carry on comparing from there. The two characters are already known to match and are not compared again.
+
+<MatchDemo algorithm="kmp" text="ABABCABABD" pattern="ABABD" />
+
+The dashed cells are characters KMP knows to match without looking. It took 12 comparisons where the naive method took 16, and the position in the text **never moved backwards**.
+
+## The failure table
+
+The question KMP asks after a mismatch is: of the part that matched, what is the longest piece at its **end** that is also a piece at the **start** of the pattern?
+
+That depends only on the pattern, so it is worked out once, in advance, for every possible length of match. The result is the **failure table** (also called the prefix function or LPS table).
+
+For each position, the entry is the length of the longest proper prefix of the pattern, up to that position, that is also a suffix of it.
+
+For `ABABD`:
+
+| Matched so far | Longest start that is also an end | Entry |
+| --- | --- | --- |
+| `A` | none | 0 |
+| `AB` | none | 0 |
+| `ABA` | `A` | 1 |
+| `ABAB` | `AB` | 2 |
+| `ABABD` | none | 0 |
+
+When a mismatch happens after matching j characters, look up the entry for j. That many characters of the pattern are already matched, so continue comparing from there. If the entry is 0, nothing can be reused.
+
+("Proper" means the prefix cannot be the whole thing. Otherwise every string would trivially match itself.)
+
+## The code
+
+```python
+def failure_table(pattern):
+    table = [0] * len(pattern)
+    k = 0                                   # length of the current match
+    for i in range(1, len(pattern)):
+        while k > 0 and pattern[i] != pattern[k]:
+            k = table[k - 1]                # fall back to a shorter match
+        if pattern[i] == pattern[k]:
+            k += 1
+        table[i] = k
+    return table
+
+
+def kmp_search(text, pattern):
+    table = failure_table(pattern)
+    j = 0                                   # characters of the pattern matched
+    for i, ch in enumerate(text):
+        while j > 0 and ch != pattern[j]:
+            j = table[j - 1]                # mismatch: reuse what we can
+        if ch == pattern[j]:
+            j += 1
+        if j == len(pattern):
+            return i - j + 1                # found: the match starts here
+    return -1
+```
+
+Two things stand out.
+
+**The text index `i` only ever goes forward.** That is the whole point. KMP can search a stream it is unable to rewind, such as data arriving over a network.
+
+**Building the table is the same algorithm.** `failure_table` is the search loop with the pattern being matched against *itself*. Finding where a prefix of the pattern reappears inside the pattern is a string search.
+
+## Why it is linear
+
+There is a `while` inside a `for`, which looks as though it could be slow. Count differently: `j` goes up by at most 1 per character of text, so it rises at most n times in total. Every pass of the `while` loop makes `j` smaller. It cannot fall more often than it rises. So the `while` loop runs at most n times across the entire search.
+
+This is an [amortized](/foundations/amortized-analysis/) argument.
+
+<Ops
+  items={[
+    ['Build the table', 'O(m)'],
+    ['Search', 'O(n)'],
+    ['Total', 'O(n + m)'],
+    ['Extra memory', 'O(m)'],
+    ['Naive search, worst case', 'O(n × m)'],
+  ]}
+/>
+
+## Is this what `indexOf` does?
+
+Usually not. KMP's guarantee is excellent, but on everyday text mismatches happen on the first or second character, and the naive method is already close to linear with less overhead.
+
+Real libraries tend to use algorithms that are faster on typical input.
+
+- **Boyer-Moore** and its relatives compare from the *end* of the pattern and can skip whole stretches of the text without looking at them. `grep` is built on this idea.
+- **Two-way** search, used in several C libraries and in Rust, has KMP's linear guarantee with O(1) extra memory.
+- Processor instructions that compare many bytes at once make a simple scan very fast for short patterns.
+
+KMP remains important for three reasons: its worst case is guaranteed, it never backs up in the text, and its failure table is the seed of bigger ideas.
+
+## Beyond a single pattern
+
+- **Aho-Corasick** extends KMP's failure links to a whole dictionary of patterns arranged as a [trie](/data-structures/tries/), finding all of them in one pass. It is used in virus scanners, intrusion detection and keyword filters.
+- **[Finite automata](/theory/finite-automata/).** KMP is a machine with one state per character matched. The failure table says which state to move to on a mismatch. Regular expression engines that guarantee linear time are built the same way.
+- **Periodicity.** The failure table reveals whether a string is made of a repeated block, and how long that block is.
+
+The algorithm was published in 1977 by Donald Knuth, James Morris and Vaughan Pratt, who had arrived at it from two different directions.
+
+## Key takeaways
+
+- KMP finds a pattern in a text in O(n + m) time, even in the worst case.
+- After a partial match fails, the matched characters tell you what the text contained, so nothing needs re-reading.
+- The failure table records, for each prefix of the pattern, the longest start of it that is also its end.
+- The position in the text never moves backwards, which suits streamed data.
+- Library searches often use other algorithms that are faster on typical text; KMP is the one with the clean guarantee.
