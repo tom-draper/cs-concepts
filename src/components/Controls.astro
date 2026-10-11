@@ -1,0 +1,17 @@
+---
+// Step controls shared by the interactive diagrams. Hidden until a script
+// (src/lib/stepper.ts) takes over. Extra buttons go in the slot.
+---
+
+<div class="controls" hidden>
+  <button type="button" data-act="prev" aria-label="Previous step">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  </button>
+  <button type="button" data-act="play" class="play">Play</button>
+  <button type="button" data-act="next" aria-label="Next step">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+  </button>
+  <input type="range" min="0" value="0" step="1" aria-label="Step" />
+  <span class="count"></span>
+  <slot />
+</div>
