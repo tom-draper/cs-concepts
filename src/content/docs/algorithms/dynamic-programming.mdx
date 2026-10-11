@@ -1,0 +1,185 @@
+---
+description: Solve a problem by solving its smaller subproblems once each and remembering the answers. It turns many exponential-time recursions into fast ones.
+difficulty: advanced
+---
+
+Dynamic programming (DP) has a reputation for being difficult. The core idea is small: **if you are going to need an answer more than once, work it out once and write it down.**
+
+It applies to problems that break down into smaller subproblems which *overlap*, so that the same subproblem turns up over and over. A naive solution recomputes each one every time. Dynamic programming computes each one once.
+
+## The problem it fixes
+
+The [recursion](/algorithms/recursion/#repeating-work) page ends with this function, which is correct and exponentially slow.
+
+```python
+def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+```
+
+<Tree
+  root={{ k: 'f(5)', c: [{ k: 'f(4)', c: [{ k: 'f(3)', c: [{ k: 'f(2)', c: ['f(1)', 'f(0)'] }, 'f(1)'] }, { k: 'f(2)', c: ['f(1)', 'f(0)'] }] }, { k: 'f(3)', c: [{ k: 'f(2)', c: ['f(1)', 'f(0)'] }, 'f(1)'] }] }}
+  highlight={['f(3)']}
+  alt={['f(2)']}
+  caption="fib(5) makes 15 calls, but there are only six different questions being asked: f(0) to f(5)."
+/>
+
+That gap is the opportunity. The tree has exponentially many nodes, but only n + 1 *distinct* ones.
+
+| | Calls for fib(30) | Calls for fib(50) |
+| --- | --- | --- |
+| Naive recursion | about 2.7 million | about 40 billion |
+| Remembering answers | 31 | 51 |
+
+## Two ways to do it
+
+### Top-down: memoization
+
+Keep the recursive function exactly as it is, and add a cache. Before computing anything, check whether the answer is already there.
+
+```python
+def fib(n, memo={}):
+    if n < 2:
+        return n
+    if n not in memo:
+        memo[n] = fib(n - 1) + fib(n - 2)
+    return memo[n]
+```
+
+Each value is computed the first time it is asked for and looked up after that. In Python, the standard library does this for you: put `@functools.cache` above the original function.
+
+### Bottom-up: tabulation
+
+Turn it around. Start from the smallest subproblems and build upward, so that everything a step needs has already been computed.
+
+```python
+def fib(n):
+    if n < 2:
+        return n
+    prev, curr = 0, 1
+    for _ in range(n - 1):
+        prev, curr = curr, prev + curr
+    return curr
+```
+
+Here the "table" has shrunk to two variables, because each step only looks at the previous two answers.
+
+| | Top-down (memoization) | Bottom-up (tabulation) |
+| --- | --- | --- |
+| Written as | recursion plus a cache | loops filling a table |
+| Computes | only the subproblems actually needed | every subproblem |
+| Risk | stack overflow on deep recursion | none |
+| Memory | the whole cache | can often be reduced to the last row or two |
+| Easier to | write, starting from the recursive idea | optimise |
+
+They give the same answers at the same asymptotic cost. Start top-down while working out the idea; convert to bottom-up if you need the speed or the memory saving.
+
+## When it applies
+
+A problem is suited to dynamic programming when it has both of these.
+
+- **Overlapping subproblems.** The same smaller problems recur. Without this there is nothing to reuse, and plain [divide and conquer](/algorithms/divide-and-conquer/) is enough.
+- **Optimal substructure.** The best answer to the whole problem can be built from the best answers to its subproblems.
+
+## A real example: fewest coins
+
+You have coins worth **1, 3 and 4**, as many of each as you like. What is the smallest number of coins that adds up to **6**?
+
+The tempting approach is greedy: always take the biggest coin that fits. That gives 4 + 1 + 1, three coins. But 3 + 3 does it in two. [Greedy algorithms](/algorithms/greedy-algorithms/) are fast and sometimes wrong; this is a case where they are wrong.
+
+### Finding the subproblems
+
+Think about the **last coin** in an optimal solution for 6. It must be a 1, a 3 or a 4. Whichever it is, the coins before it must be an optimal way to make what remains: 5, 3 or 2.
+
+So, writing `best(a)` for the fewest coins that make amount `a`:
+
+```text
+best(a) = 1 + the smallest of  best(a − 1),  best(a − 3),  best(a − 4)
+best(0) = 0
+```
+
+This is called the **recurrence**, and finding it is the hard part of any DP problem. The rest is bookkeeping.
+
+### Filling the table
+
+Work upward from 0. Each entry looks back at up to three earlier entries.
+
+export const best = [0, 1, 2, 1, 1, 2, 2];
+export const coins = [1, 3, 4];
+
+<Player>
+  {best.map((value, a) => {
+    const from = coins.filter((c) => c <= a).map((c) => a - c);
+    return (
+      <Frame
+        caption={
+          a === 0
+            ? 'Amount 0 needs no coins. This is the base case.'
+            : `Amount ${a}: look back by each coin, to amount${from.length > 1 ? 's' : ''} ${from.join(', ')}. The smallest value there is ${value - 1}, so the answer is ${value - 1} + 1 = <strong>${value}</strong>.`
+        }
+      >
+        <ArrayViz
+          values={best.map((v, i) => (i <= a ? v : null))}
+          highlight={[a]}
+          alt={from}
+        />
+      </Frame>
+    );
+  })}
+</Player>
+
+The index is the amount; the value is the fewest coins. The answer for 6 is 2, found by looking back to amount 3.
+
+```python
+def min_coins(coins, amount):
+    INF = float('inf')
+    best = [0] + [INF] * amount
+    for a in range(1, amount + 1):
+        for coin in coins:
+            if coin <= a and best[a - coin] + 1 < best[a]:
+                best[a] = best[a - coin] + 1
+    return best[amount] if best[amount] != INF else None
+```
+
+Two nested loops: **O(amount × number of coins)**. Trying every combination of coins would be exponential.
+
+## A recipe
+
+Most dynamic programming problems yield to the same four questions.
+
+1. **What is a subproblem?** Define precisely what one table entry means. ("`best[a]` is the fewest coins that make amount `a`.") This is called the *state*.
+2. **How do subproblems relate?** Write the recurrence, usually by considering the last decision made.
+3. **What are the base cases?** The entries that need no smaller ones.
+4. **In what order?** Fill the table so that every entry's dependencies come before it.
+
+The running time is then the **number of states × the work per state**.
+
+## Classic problems
+
+Once the pattern is familiar, a great many problems turn out to be instances of it.
+
+| Problem | State | Time |
+| --- | --- | --- |
+| Fibonacci | position n | O(n) |
+| Fewest coins | amount | O(amount × coins) |
+| Paths through a grid | cell (row, column) | O(rows × columns) |
+| Longest common subsequence | a prefix of each string | O(n × m) |
+| [Edit distance](/algorithms/edit-distance/) | a prefix of each string | O(n × m) |
+| Knapsack | items considered, capacity left | O(items × capacity) |
+
+Edit distance powers spell checkers and `diff`. Sequence alignment in genetics is the same algorithm. Several shortest-path algorithms, including [Bellman-Ford](/algorithms/bellman-ford/), are dynamic programming over a graph.
+
+<Aside title="About the name">
+
+"Dynamic programming" describes nothing about the technique. Richard Bellman coined it in the 1950s, and later wrote that he chose it partly because it sounded impressive and would be hard for a research-averse official to object to. "Programming" here means planning, as in a television programme, not writing code.
+
+</Aside>
+
+## Key takeaways
+
+- Dynamic programming solves each subproblem once and reuses the answer.
+- It needs overlapping subproblems and optimal substructure.
+- Top-down adds a cache to a recursive function; bottom-up fills a table in dependency order.
+- The hard part is defining the state and the recurrence. Think about the last decision.
+- Running time is the number of states times the work per state.
