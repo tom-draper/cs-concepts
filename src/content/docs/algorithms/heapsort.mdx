@@ -1,0 +1,100 @@
+---
+description: Turn the array into a heap, then repeatedly move the largest item to the end. O(n log n) guaranteed, with no extra memory.
+difficulty: intermediate
+---
+
+[Selection sort](/algorithms/selection-sort/) repeatedly finds the largest remaining item, which costs O(n) each time. Heapsort does the same thing, but keeps the remaining items in a [heap](/data-structures/heaps/), where the largest is always at the front and removing it costs only O(log n).
+
+Read the [heaps](/data-structures/heaps/) page first if the structure is new to you. Heapsort uses a **max-heap**, with the largest value at the root.
+
+## Watch it run
+
+<SortDemo algorithm="heap" />
+
+There are two phases. Things to notice:
+
+- **Phase one** rearranges the array into a max-heap. It does not look sorted, but the largest value ends up at index 0.
+- **Phase two** swaps that largest value to the end of the heap, shrinks the heap by one, and repairs it. The sorted section grows from the right.
+- Try **Sorted** and **Reversed**. The counts barely change. Heapsort has no good or bad input.
+
+## How it works in place
+
+The trick is that the heap and the sorted output share one array. The heap occupies the front, the sorted values accumulate at the back, and the boundary between them moves left one step at a time.
+
+<ArrayViz
+  values={[7, 5, 4, 1, 2, 3, 8, 9]}
+  highlight={[0, 1, 2, 3, 4, 5]}
+  alt={[6, 7]}
+  pointers={{ 'heap ends': 5 }}
+  caption="Part-way through. Indices 0–5 are still a max-heap, with 7 at the root. Indices 6–7 are sorted and final."
+/>
+
+Recall that a heap in an array needs no pointers: the children of index `i` are at `2i + 1` and `2i + 2`.
+
+```python
+def sift_down(a, i, size):
+    while True:
+        left, right, largest = 2 * i + 1, 2 * i + 2, i
+        if left < size and a[left] > a[largest]:
+            largest = left
+        if right < size and a[right] > a[largest]:
+            largest = right
+        if largest == i:
+            return
+        a[i], a[largest] = a[largest], a[i]
+        i = largest
+
+
+def heapsort(a):
+    n = len(a)
+    for i in range(n // 2 - 1, -1, -1):    # phase one: build the heap
+        sift_down(a, i, n)
+    for end in range(n - 1, 0, -1):        # phase two: extract the largest
+        a[0], a[end] = a[end], a[0]
+        sift_down(a, 0, end)
+```
+
+## The cost
+
+Building the heap is O(n). Then there are n − 1 extractions, each followed by a sift-down of at most log₂ n steps. The total is **O(n log n)**, in every case.
+
+<Ops
+  items={[
+    ['Best case', 'O(n log n)'],
+    ['Average case', 'O(n log n)'],
+    ['Worst case', 'O(n log n)'],
+    ['Extra memory', 'O(1)'],
+  ]}
+/>
+
+No other common sort offers both of those last two lines together.
+
+| | Worst case | Extra memory | Stable |
+| --- | --- | --- | --- |
+| [Merge sort](/algorithms/merge-sort/) | O(n log n) | O(n) | yes |
+| [Quicksort](/algorithms/quicksort/) | O(n²) | O(log n) | no |
+| **Heapsort** | O(n log n) | O(1) | no |
+
+## So why is it not the default?
+
+On paper heapsort looks like the best of the three. In practice it is typically the slowest, often by a factor of two or more behind a good quicksort.
+
+The reason is memory access. A sift-down jumps from index `i` to `2i + 1`, then to roughly `4i`, and so on. In a large array those positions are far apart, so nearly every step is a cache miss. Quicksort and merge sort both sweep through memory in order, which the processor handles far more efficiently.
+
+Heapsort is also **not [stable](/algorithms/sorting-stability/)**, since its long-distance swaps reorder equal elements, and it is **not adaptive**: sorted input takes as long as random input.
+
+## Where it earns its place
+
+Heapsort is the safety net.
+
+- **Introsort.** C++'s `std::sort` and similar library sorts run quicksort, and switch to heapsort if the recursion gets suspiciously deep. Quicksort's speed in the normal case, heapsort's guarantee in the worst.
+- **Operating system kernels and embedded systems.** The Linux kernel's general-purpose sort is a heapsort. It needs no extra memory, no recursion and has no worst-case input an attacker could exploit.
+- **Finding the top k.** You do not need to finish the sort. Build the heap and extract k times for the k largest values in O(n + k log n).
+
+## Key takeaways
+
+- Heapsort builds a max-heap in the array, then repeatedly swaps the largest value to the end.
+- It is O(n log n) in every case and needs no extra memory.
+- It is slower in practice than quicksort because its memory access pattern is cache-unfriendly.
+- It is neither stable nor adaptive.
+- Its main job is as the guaranteed fallback inside hybrid sorts, and in settings where predictability matters most.
