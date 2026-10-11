@@ -1,0 +1,174 @@
+---
+description: A tree that stores strings one character per level, so words with a common prefix share a path. Built for prefix questions like autocomplete.
+difficulty: intermediate
+---
+
+A [hash table](/data-structures/hash-tables/) can tell you instantly whether "card" is in a dictionary. It cannot tell you which words *start with* "car", because hashing deliberately scatters similar keys. A trie (usually pronounced "try", from re**trie**val) is organised around exactly that question. It is also called a **prefix tree**.
+
+## The idea
+
+Instead of storing each word whole, store it as a path. The root represents the empty string, each step down adds one character, and words that begin the same way share the beginning of their path.
+
+Here is a trie holding `cat`, `car`, `card`, `do` and `dog`:
+
+<Tree
+  show="last"
+  root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }, { k: 'd', c: [{ k: 'do', c: ['dog'] }] }] }}
+  terminal={['cat', 'car', 'card', 'do', 'dog']}
+  caption="Read down from the root to spell a word. A double outline marks a node where a complete word ends."
+/>
+
+Two things to notice:
+
+- The letters `c` and `a` are stored once, although three words use them.
+- A node needs a flag saying "a word ends here". Without it you could not tell that `car` and `do` are words but `ca` is not. A word can end in the middle of the tree.
+
+## Building one
+
+Inserting a word walks down from the root, following existing nodes where the path already exists and creating new ones where it does not.
+
+<Player>
+<Frame caption="An empty trie is just the root.">
+<Tree show="last" root={{ k: '' }} />
+</Frame>
+<Frame caption="Insert <code>cat</code>: nothing exists yet, so create three nodes and mark the last one as a word.">
+<Tree show="last" root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat'] }] }] }} terminal={['cat']} alt={['c', 'ca', 'cat']} />
+</Frame>
+<Frame caption="Insert <code>car</code>: the path c, a already exists. Only one new node is needed.">
+<Tree show="last" root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', 'car'] }] }] }} terminal={['cat', 'car']} highlight={['c', 'ca']} alt={['car']} />
+</Frame>
+<Frame caption="Insert <code>card</code>: follow c, a, r, then add d below it. The node for car stays a word.">
+<Tree show="last" root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }] }} terminal={['cat', 'car', 'card']} highlight={['c', 'ca', 'car']} alt={['card']} />
+</Frame>
+<Frame caption="Insert <code>dog</code>: no word starts with d yet, so a new branch grows from the root.">
+<Tree show="last" root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }, { k: 'd', c: [{ k: 'do', c: ['dog'] }] }] }} terminal={['cat', 'car', 'card', 'dog']} alt={['d', 'do', 'dog']} />
+</Frame>
+<Frame caption="Insert <code>do</code>: every node already exists. All that changes is the flag on the o.">
+<Tree show="last" root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }, { k: 'd', c: [{ k: 'do', c: ['dog'] }] }] }} terminal={['cat', 'car', 'card', 'do', 'dog']} highlight={['d']} alt={['do']} />
+</Frame>
+</Player>
+
+## Searching
+
+To look up a word, follow its characters down from the root. There are three possible outcomes.
+
+- The path runs out before the word does: the word is **not present**.
+- The path exists but ends on an unflagged node: it is a **prefix** of some word, but not a word itself.
+- The path exists and ends on a flagged node: **found**.
+
+<Tree
+  show="last"
+  root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }, { k: 'd', c: [{ k: 'do', c: ['dog'] }] }] }}
+  terminal={['cat', 'car', 'card', 'do', 'dog']}
+  highlight={['', 'c', 'ca']}
+  alt={['car']}
+  caption="Looking up “car”: three steps down, landing on a flagged node. The number of other words in the trie made no difference."
+/>
+
+## Prefix queries
+
+Finding every word with a given prefix is two steps: walk down to the node for the prefix, then collect every flagged node beneath it. For "ca":
+
+<Tree
+  show="last"
+  root={{ k: '', c: [{ k: 'c', c: [{ k: 'ca', c: ['cat', { k: 'car', c: ['card'] }] }] }, { k: 'd', c: [{ k: 'do', c: ['dog'] }] }] }}
+  terminal={['cat', 'car', 'card', 'do', 'dog']}
+  highlight={['', 'c', 'ca']}
+  alt={['cat', 'car', 'card']}
+  caption="Everything below the “ca” node is a completion: cat, car, card."
+/>
+
+This is autocomplete. The cost depends on the length of the prefix and the number of matches, not on how many million other words are stored.
+
+## The costs at a glance
+
+With L as the length of the word:
+
+<Ops
+  items={[
+    ['Insert', 'O(L)'],
+    ['Search', 'O(L)'],
+    ['Has prefix?', 'O(L)'],
+    ['All words with a prefix', 'O(L + k)', 'k = size of the subtree'],
+  ]}
+/>
+
+None of these depend on n, the number of words stored. A hash table lookup is also O(L) in truth, since hashing a string reads every character, so a trie is not asymptotically slower. In practice it usually is slower, because each step follows a pointer to a different part of memory.
+
+## The code
+
+```python
+class TrieNode:
+    def __init__(self):
+        self.children = {}      # character -> TrieNode
+        self.is_word = False
+
+
+class Trie:
+    def __init__(self):
+        self.root = TrieNode()
+
+    def insert(self, word):
+        node = self.root
+        for ch in word:
+            node = node.children.setdefault(ch, TrieNode())
+        node.is_word = True
+
+    def _walk(self, prefix):
+        node = self.root
+        for ch in prefix:
+            node = node.children.get(ch)
+            if node is None:
+                return None
+        return node
+
+    def contains(self, word):
+        node = self._walk(word)
+        return node is not None and node.is_word
+
+    def starts_with(self, prefix):
+        return self._walk(prefix) is not None
+```
+
+## The catch: memory
+
+A trie has a node for every distinct prefix, and each node has to hold links to its children. How those links are stored is the main design choice.
+
+| Children stored as | Lookup per step | Memory per node |
+| --- | --- | --- |
+| Array with one slot per letter | fastest | large, and mostly empty |
+| Hash map | fast | moderate |
+| Sorted list | slower | small |
+
+With an array of 26 pointers per node, a node costs over 200 bytes on a 64-bit machine, however few children it has.
+
+### Compressed tries
+
+Real dictionaries have long chains of nodes with a single child. A **radix tree** (or compressed trie) merges each such chain into one node whose edge is labelled with a whole string. `card` hanging off `car` becomes one edge labelled `d`, and a lone word like `zebra` becomes a single edge instead of five nodes. This saves most of the memory and is what production systems use.
+
+## Trie or hash table?
+
+| | Hash table | Trie |
+| --- | --- | --- |
+| Exact lookup | O(L), fast in practice | O(L), slower in practice |
+| Words with a given prefix | must scan everything | O(L + k) |
+| Keys in sorted order | no | yes, by walking the tree |
+| Longest stored prefix of a string | no | yes |
+| Memory | compact | heavy unless compressed |
+
+Use a hash table for plain lookups. Use a trie when the question is about prefixes.
+
+## Where tries show up
+
+- **Autocomplete and search suggestions.**
+- **Spell checkers** and word games, which need to ask "can any word start this way?" to prune a search.
+- **IP routing.** A router finds the most specific route matching an address with a longest-prefix match on a trie of address bits.
+- **Web framework routers**, which match URL paths with radix trees.
+- **Databases and key-value stores.** Radix trees index keys in Redis and in the Linux kernel's page cache.
+
+## Key takeaways
+
+- A trie stores strings as paths from the root, sharing the path for any common prefix.
+- Each node needs an "end of word" flag, because one word can be a prefix of another.
+- Operations cost O(L), the length of the key, regardless of how many keys are stored.
+- Its strength is prefix queries; its weakness is memory, which compressed (radix) tries largely fix.
