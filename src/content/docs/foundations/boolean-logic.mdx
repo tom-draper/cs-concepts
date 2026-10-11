@@ -1,0 +1,124 @@
+---
+description: The algebra of true and false. Three operations, AND, OR and NOT, are enough to build every condition in a program and every circuit in a processor.
+difficulty: beginner
+---
+
+Ordinary algebra works with numbers. Boolean algebra works with just two values, **true** and **false**, and a handful of operations that combine them. It is named after George Boole, who worked it out in the 1850s as a way of doing logic with symbols.
+
+It turned out to be the mathematics of computing. Every `if` statement is a Boolean expression, and every processor is built from circuits that compute them.
+
+## The three basic operations
+
+| Operation | Written | True when |
+| --- | --- | --- |
+| **NOT** A | `!a`, `not a`, ¬A | A is false |
+| A **AND** B | `a && b`, `a and b`, A ∧ B | both are true |
+| A **OR** B | `a \|\| b`, `a or b`, A ∨ B | at least one is true |
+
+Because there are only two possible values, an operation can be described completely by listing every case. That list is a **truth table**.
+
+| A | B | A AND B | A OR B |
+| --- | --- | --- | --- |
+| false | false | false | false |
+| false | true | false | true |
+| true | false | false | true |
+| true | true | true | true |
+
+Flip the two inputs to see every common operation at once.
+
+<LogicDemo />
+
+## The other operations
+
+Everything else can be built from AND, OR and NOT, but a few combinations are common enough to have names.
+
+- **XOR** ("exclusive or"): true when the inputs **differ**. Everyday "or" is often exclusive ("tea or coffee?"), but the logical OR is not: it is also true when both are.
+- **NAND** and **NOR**: AND and OR with the result inverted.
+- **Equals** (also called XNOR): true when the inputs are the same.
+- **Implies** (A → B): "if A then B". It is false in only one case, when A is true and B is false.
+
+Implication trips people up. "If it is raining, the ground is wet" is not contradicted by a dry day, so when A is false the statement counts as true whatever B is. This is called being *vacuously true*, and it is why "every item in an empty list is positive" is true.
+
+## Laws for simplifying
+
+Boolean expressions can be rearranged by rules, just like numeric ones. These are the most useful.
+
+| Law | Statement |
+| --- | --- |
+| Double negation | `not (not a)` is `a` |
+| Identity | `a and true` is `a`; `a or false` is `a` |
+| Domination | `a and false` is `false`; `a or true` is `true` |
+| Absorption | `a or (a and b)` is `a` |
+| Distribution | `a and (b or c)` is `(a and b) or (a and c)` |
+| **De Morgan** | `not (a and b)` is `(not a) or (not b)` |
+| **De Morgan** | `not (a or b)` is `(not a) and (not b)` |
+
+**De Morgan's laws** are the ones you will use most. To negate a compound condition, negate each part and swap AND with OR. In words: "not both" means "at least one is not", and "neither" means "both are not".
+
+```python
+if not (user.is_admin or user.is_owner):       # hard to read
+    deny()
+
+if not user.is_admin and not user.is_owner:    # the same thing, by De Morgan
+    deny()
+```
+
+You can check any law by writing out its truth table. If both sides agree in every row, they are equal.
+
+## In code
+
+### Precedence
+
+NOT binds tightest, then AND, then OR. So `a or b and c` means `a or (b and c)`, the same way `1 + 2 * 3` means `1 + (2 * 3)`. When mixing AND and OR, add brackets. Nobody should have to remember the rule to read your condition.
+
+### Short-circuit evaluation
+
+Most languages stop evaluating as soon as the answer is known.
+
+- In `a and b`, if `a` is false the result is false, so `b` is never evaluated.
+- In `a or b`, if `a` is true the result is true, so `b` is never evaluated.
+
+This is relied on constantly to guard an expression that would otherwise fail:
+
+```python
+if user is not None and user.age >= 18:    # the second part runs only if user exists
+    ...
+```
+
+Swap the two halves and the program crashes on a missing user.
+
+### A classic mistake
+
+```python
+if colour == 'red' or 'blue':      # always true
+```
+
+This does not mean "colour is red or blue". It means `(colour == 'red') or ('blue')`, and a non-empty string counts as true. Each side of an `or` must be a complete condition: `colour == 'red' or colour == 'blue'`.
+
+### Truthiness
+
+Many languages let non-Boolean values stand in for true and false. In Python, `0`, `''`, `[]` and `None` are "falsy" and almost everything else is "truthy". The rules differ between languages: an empty array is falsy in Python and truthy in JavaScript. When it matters, compare explicitly.
+
+## From logic to hardware
+
+The same operations exist as physical circuits called [logic gates](/architecture/logic-gates/). A gate takes wires carrying high or low voltage and produces an output according to its truth table. Wire enough of them together and you get an [adder](/architecture/adders/), then a processor.
+
+A remarkable fact is that **NAND alone is enough**. NOT, AND and OR can each be built from NAND gates, so an entire computer can be made from one kind of component.
+
+| To build | From NAND |
+| --- | --- |
+| NOT A | A NAND A |
+| A AND B | NOT (A NAND B) |
+| A OR B | (NOT A) NAND (NOT B) |
+
+The last line is De Morgan's law at work.
+
+Applying the same operations to every bit of a number at once gives the [bitwise operations](/foundations/bitwise-operations/).
+
+## Key takeaways
+
+- Boolean logic has two values and three basic operations: AND, OR and NOT.
+- A truth table lists the result for every combination of inputs, and defines an operation completely.
+- De Morgan's laws negate a compound condition: negate each part and swap AND with OR.
+- `and` and `or` short-circuit, which is used to guard later conditions.
+- Every digital circuit is built from these operations, and NAND alone is sufficient.
