@@ -1,0 +1,130 @@
+---
+description: A string search that compares hash values instead of characters, using a rolling hash that can be updated in constant time as the window slides along the text.
+difficulty: advanced
+---
+
+Comparing two strings takes time proportional to their length. Comparing two **numbers** takes one step. The Rabin-Karp algorithm exploits that. It turns the pattern into a number, a [hash](/data-structures/hash-functions/), and then looks for a stretch of the text with the same hash.
+
+## The idea
+
+To find a pattern of length m:
+
+1. Compute the hash of the pattern.
+2. Slide a [window](/algorithms/sliding-window/) of length m along the text, computing the hash of each window.
+3. Where a window's hash **differs** from the pattern's, the window cannot match. Move on, without comparing any characters.
+4. Where the hashes are **equal**, compare the actual characters to make sure.
+
+Step 4 is needed because different strings can share a hash. That is called a **spurious hit**.
+
+## The problem, and the trick
+
+There is an obvious flaw. Hashing a window means reading all m of its characters. Doing that at every position is O(n × m), no better than comparing the strings directly.
+
+The solution is a **rolling hash**: a hash designed so that when the window slides one place, the new hash can be computed from the old one in **constant time**, by accounting for the one character that left and the one that arrived.
+
+### A rolling hash you already know
+
+Treat a string of digits as a number. The window `31415` is the number 31,415. To slide it one place right over the text `314152`:
+
+```text
+31415                      the current window
+ 1415      31415 − 3 × 10000        remove the leading digit
+ 14150     1415 × 10                shift everything left
+ 14152     14150 + 2                add the new digit
+```
+
+Three arithmetic operations, whatever the length of the window. That is the entire trick.
+
+Real windows are too long to keep as whole numbers, so everything is done **modulo** some number q, which keeps the values small. [Modular arithmetic](/foundations/modular-arithmetic/#arithmetic-that-respects-the-wrap) allows the remainder to be taken at every step without changing the result.
+
+## Watch it run
+
+Searching for `31415`, with every hash taken modulo 13. The pattern's hash is 31415 mod 13 = **7**.
+
+<MatchDemo algorithm="rabin-karp" text="2359023141526739921" pattern="31415" />
+
+Things to notice:
+
+- Most windows are rejected on the hash alone, with no character comparisons.
+- At index 6 the hash is 7 and the characters match. Found.
+- At index 12 the window is `67399`, whose hash is **also 7**. The characters are checked and do not match. That is a spurious hit. With a modulus as small as 13, about one window in thirteen will collide by chance.
+
+A real implementation uses a large prime for the modulus, close to the size of a machine word, which makes spurious hits extremely rare.
+
+## The code
+
+For general text, treat each character as a digit in some base, such as 256.
+
+```python
+def rabin_karp(text, pattern, base=256, modulus=1_000_000_007):
+    n, m = len(text), len(pattern)
+    if m > n:
+        return -1
+
+    high = pow(base, m - 1, modulus)        # weight of the leading character
+    target = window = 0
+    for i in range(m):
+        target = (target * base + ord(pattern[i])) % modulus
+        window = (window * base + ord(text[i])) % modulus
+
+    for i in range(n - m + 1):
+        if window == target and text[i:i + m] == pattern:    # verify
+            return i
+        if i < n - m:                                        # roll the window
+            window = (window - ord(text[i]) * high) % modulus
+            window = (window * base + ord(text[i + m])) % modulus
+    return -1
+```
+
+This is a **polynomial hash**: the string is read as a number in the given base, reduced modulo a prime.
+
+## The cost
+
+<Ops
+  items={[
+    ['Average case', 'O(n + m)'],
+    ['Worst case', 'O(n × m)', 'every window is a hit'],
+    ['Extra memory', 'O(1)'],
+  ]}
+/>
+
+The worst case happens when many windows have the right hash and each must be verified. That is genuine for a search like `AAAA` in `AAAAAAAA`, where every window really does match. It can also be forced by an adversary who knows the hash function and crafts collisions.
+
+Choosing the modulus or base **at random** each time the program runs removes that risk: no fixed input can be bad for every choice.
+
+| | Naive | [KMP](/algorithms/knuth-morris-pratt/) | Rabin-Karp |
+| --- | --- | --- | --- |
+| Worst case | O(n × m) | O(n + m) | O(n × m) |
+| Typical | fast | O(n + m) | O(n + m) |
+| Extra memory | O(1) | O(m) | O(1) |
+| Many patterns at once | no | not directly | **yes** |
+
+For a single pattern, KMP has the better guarantee. Rabin-Karp's strength is elsewhere.
+
+## Where rolling hashes shine
+
+The value of the idea is that it reduces "are these two strings equal?" to comparing two numbers. That opens up problems where direct comparison is hopeless.
+
+### Many patterns at once
+
+To search for a thousand patterns of the same length, put their hashes in a [hash set](/data-structures/sets/). Slide one window along the text and look up each window's hash. The cost per position is still O(1), not a thousand comparisons.
+
+### Plagiarism and duplicate detection
+
+Hash every run of, say, 50 characters in each of a set of documents. Documents that share long passages will share hashes. This is how tools that compare student submissions, or find near-duplicate web pages, are able to scale.
+
+### Splitting files for synchronisation
+
+Tools such as `rsync`, and deduplicating backup systems, need to find matching blocks between two versions of a large file, even when an insertion near the start has shifted everything after it. A rolling hash over a sliding window finds identical blocks at *any* offset, which fixed-position chunks cannot.
+
+### Longest repeated substring
+
+Combine a rolling hash with [binary search](/algorithms/binary-search/) on the length: is there any substring of length L that appears twice? Hash all windows of length L and look for a repeat.
+
+## Key takeaways
+
+- Rabin-Karp compares hashes of the pattern and of each window of the text, checking characters only when the hashes agree.
+- A rolling hash updates in O(1) as the window slides, by removing one character's contribution and adding another's.
+- Equal hashes do not prove equal strings, so a match must be verified.
+- It averages O(n + m), with a poor worst case that randomising the hash guards against.
+- Its real strength is searching for many patterns at once and detecting shared content.
