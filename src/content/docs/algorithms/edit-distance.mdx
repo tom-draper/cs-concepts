@@ -1,0 +1,152 @@
+---
+description: The smallest number of single-character changes needed to turn one string into another. A classic dynamic programming problem, behind spell checkers, diff tools and DNA comparison.
+difficulty: advanced
+---
+
+How different are two strings? "kitten" and "sitting" are clearly similar; "kitten" and "banana" are not. The **edit distance** puts a number on it: the fewest single-character edits that turn one string into the other.
+
+The usual version, called the Levenshtein distance, allows three kinds of edit.
+
+- **Insert** a character.
+- **Delete** a character.
+- **Replace** one character with another.
+
+## Try it
+
+<EditDistanceDemo />
+
+The number in the bottom-right corner is the answer. Turning `kitten` into `sitting` takes 3 edits: replace `k` with `s`, replace `e` with `i`, and insert `g`.
+
+Things to try:
+
+- Make the two words the same. The distance is 0 and the highlighted route runs straight down the diagonal.
+- Empty one box. The distance is the length of the other word: all insertions, or all deletions.
+- Swap two neighbouring letters, as in `form` and `from`. The distance is 2, not 1, because a swap is not one of the allowed edits.
+
+## Why this needs a clever algorithm
+
+There are a great many sequences of edits that turn one string into another, and trying them all is exponential. But the problem has exactly the structure that [dynamic programming](/algorithms/dynamic-programming/) needs: the answer for two strings can be built from the answers for shorter ones, and the same shorter problems come up again and again.
+
+## The subproblem
+
+Define `d(i, j)` as the edit distance between the **first i characters** of the source and the **first j characters** of the target. Every cell in the table above is one such value. The row gives i and the column gives j.
+
+The answer to the whole problem is the last cell, `d(m, n)`.
+
+### The edges of the table
+
+Turning a string of i characters into an empty string takes i deletions, so the first column counts 0, 1, 2, and so on. Turning an empty string into j characters takes j insertions, so the first row does the same.
+
+### Every other cell
+
+Look at the **last character** of each prefix. There are two cases.
+
+**They are the same.** Nothing needs doing to them. The cost is whatever it took to match everything before:
+
+```text
+d(i, j)  =  d(i − 1, j − 1)
+```
+
+**They differ.** One edit must happen here, and there are three choices for it.
+
+| Edit | Then solve | Comes from the cell |
+| --- | --- | --- |
+| Replace the last character | the prefixes without their last characters | diagonally up-left |
+| Delete the source's last character | a shorter source, the same target | above |
+| Insert the target's last character | the same source, a shorter target | to the left |
+
+Take the cheapest of the three and add 1 for the edit:
+
+```text
+d(i, j)  =  1 + the smallest of  d(i − 1, j − 1),  d(i − 1, j),  d(i, j − 1)
+```
+
+So each cell depends only on three neighbours: above, left, and diagonally up-left. Filling the table row by row guarantees those are ready.
+
+## The code
+
+```python
+def edit_distance(a, b):
+    m, n = len(a), len(b)
+    d = [[0] * (n + 1) for _ in range(m + 1)]
+    for i in range(m + 1):
+        d[i][0] = i
+    for j in range(n + 1):
+        d[0][j] = j
+
+    for i in range(1, m + 1):
+        for j in range(1, n + 1):
+            if a[i - 1] == b[j - 1]:
+                d[i][j] = d[i - 1][j - 1]
+            else:
+                d[i][j] = 1 + min(d[i - 1][j - 1],    # replace
+                                  d[i - 1][j],        # delete
+                                  d[i][j - 1])        # insert
+    return d[m][n]
+```
+
+<Ops
+  items={[
+    ['Time', 'O(m × n)'],
+    ['Memory, full table', 'O(m × n)'],
+    ['Memory, distance only', 'O(min(m, n))', 'keep two rows'],
+  ]}
+/>
+
+Each row depends only on the row above it. If you only want the number, two rows are enough. If you want the edits themselves, you need the whole table.
+
+## Recovering the edits
+
+The table holds more than the distance. The highlighted cells in the demo trace **one cheapest route** from the top-left corner to the bottom-right, and each step along it is an edit.
+
+| Move | Meaning |
+| --- | --- |
+| Diagonal, the number stays the same | the characters matched: keep it |
+| Diagonal, the number goes up by 1 | replace |
+| Down | delete from the source |
+| Right | insert from the target |
+
+The route is found by starting at the bottom-right and walking backwards, at each cell stepping to whichever neighbour the value came from. There are often several equally cheap routes.
+
+This is what a `diff` tool shows: the lines that are kept, added and removed are a route through exactly this kind of table, with lines in place of characters.
+
+## Variations
+
+Changing the allowed edits or their costs gives a family of related measures.
+
+| Name | Allows | Used for |
+| --- | --- | --- |
+| Levenshtein | insert, delete, replace | general purpose |
+| Damerau-Levenshtein | also swapping two neighbours | typing errors, where swaps are common |
+| Longest common subsequence | insert and delete only | `diff`, version control |
+| Hamming | replace only, equal lengths | error-correcting codes |
+| Weighted | different costs per edit | keyboards (near keys are cheap), DNA |
+
+In **bioinformatics**, comparing two DNA or protein sequences is this same table with costs chosen to reflect how likely each mutation is. The Needleman-Wunsch and Smith-Waterman algorithms are edit distance by another name.
+
+## Making it fast enough
+
+O(m × n) is fine for words and painful for long inputs. Two documents of 100,000 characters need ten billion cells.
+
+- **Stop early.** Often you only care whether the distance is at most some small k. Then only a band of cells near the diagonal can matter, and the cost drops to O(k × n).
+- **Do not compare against everything.** A spell checker cannot run this against every word in the dictionary for every typo. It first narrows the candidates, using a [trie](/data-structures/tries/), an index of letter groups, or by generating every string within one or two edits and looking those up in a [hash set](/data-structures/sets/).
+- **Use bit tricks.** Processing a whole row of the table inside one machine word, with [bitwise operations](/foundations/bitwise-operations/), gives a large constant-factor speed-up.
+
+Line-based `diff` uses a specialised algorithm that runs in time proportional to the size of the *difference*, since two versions of a file are usually nearly identical.
+
+## Where it shows up
+
+- **Spell checking and autocorrect**: suggest dictionary words within a small distance.
+- **"Did you mean…?"** in search engines and command-line tools.
+- **Fuzzy matching**: finding records that refer to the same person despite typos.
+- **`diff` and version control**: showing what changed between two files.
+- **DNA and protein alignment.**
+- **Speech and handwriting recognition**: scoring how close a guess is to the truth.
+
+## Key takeaways
+
+- Edit distance is the minimum number of insertions, deletions and replacements to turn one string into another.
+- It is solved with a table in which each cell compares a prefix of one string with a prefix of the other.
+- Each cell is computed from three neighbours, depending on whether the last characters match.
+- It takes O(m × n) time. Walking back through the table recovers the edits.
+- The same table, with different costs, powers diff tools and DNA sequence alignment.
