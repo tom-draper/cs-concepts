@@ -1,0 +1,140 @@
+---
+description: A pointer is a value that holds the address of another value. It is how programs share data without copying it, and how linked structures are built.
+difficulty: intermediate
+---
+
+Memory is a long row of numbered cells. The number of a cell is its **address**. A **pointer** is simply a variable whose value is an address: instead of holding a piece of data, it says where the data is.
+
+That one idea is behind every [linked list](/data-structures/linked-lists/), [tree](/data-structures/binary-trees/) and graph, and behind how any language passes an object to a function.
+
+## The picture
+
+Here are five memory cells. The cell at address `0x1010` holds the ordinary value 42. The cell at `0x1000` holds a pointer: its *contents* are the address `0x1010`.
+
+<ArrayViz
+  values={['1010', null, null, null, 42]}
+  addr={{ base: 0x1000, size: 4 }}
+  highlight={[0]}
+  alt={[4]}
+  indices={false}
+  caption="The first cell holds a pointer. Its value is the address of the last cell, which holds 42."
+/>
+
+A pointer supports two basic operations.
+
+- **Take the address** of a value, to make a pointer to it.
+- **Dereference** a pointer: go to the address it holds and read or write what is there.
+
+```c
+int value = 42;
+int *p = &value;     // & means "address of": p now holds value's address
+*p = 99;             // * means "follow the pointer": value is now 99
+```
+
+On a 64-bit machine every pointer is 8 bytes, whatever it points at. A pointer to a single byte and a pointer to a gigabyte of data are the same size.
+
+## Why bother?
+
+**To share instead of copy.** Handing a function a pointer to a million-element array costs 8 bytes. Copying the array would cost millions.
+
+**To let a function change the caller's data.** With a pointer, the function works on the original rather than on its own copy.
+
+**To build linked structures.** A list node holds a pointer to the next node. A tree node holds pointers to its children. Without pointers, data can only sit side by side in arrays.
+
+**To refer to data on the [heap](/foundations/stack-and-heap/).** Heap memory has no variable name. The address is the only way to reach it.
+
+## You use them even if your language hides them
+
+Languages such as Python, Java and JavaScript have no pointer syntax. They have **references**, which are pointers with the dangerous parts removed: you cannot do arithmetic on them or point them at arbitrary memory. But the underlying idea is identical, and not knowing it causes one of the most common surprises in programming.
+
+```python
+a = [1, 2, 3]
+b = a              # copies the reference, not the list
+b.append(4)
+print(a)           # [1, 2, 3, 4]
+```
+
+There is only one list. `a` and `b` are two names referring to it. This is called **aliasing**.
+
+<Steps>
+<Step title="a = [1, 2, 3] creates a list and makes a refer to it">
+
+</Step>
+<Step title="b = a copies the reference. Both names now point at the same list">
+
+</Step>
+<Step title="Changing the list through b is visible through a, because there is nothing else to change">
+
+</Step>
+</Steps>
+
+To get an independent list, you have to ask for a copy explicitly: `b = a.copy()`.
+
+### Passing arguments
+
+The same thing happens when calling a function.
+
+```python
+def add_item(items):
+    items.append('new')         # changes the caller's list
+
+def replace(items):
+    items = ['different']       # rebinds the local name only; the caller sees nothing
+```
+
+The function receives a copy of the *reference*. Through it, the function can modify the object the caller is also looking at. But assigning to the parameter just points the local name somewhere else. Keeping "changing the object" and "changing which object a name refers to" separate clears up most confusion about argument passing.
+
+## Equal or the same?
+
+Two references raise a question that plain values do not: do they refer to **equal** things, or to the **same** thing?
+
+```python
+a = [1, 2, 3]
+b = [1, 2, 3]
+a == b        # True:  the contents are equal
+a is b        # False: they are two separate lists
+```
+
+Most languages have both comparisons. Using the wrong one is a classic bug, particularly `==` on strings or objects in Java, which compares identity.
+
+## Null
+
+A pointer does not have to point at anything. The special value **null** (`None`, `nil`, `nullptr`) means "nothing here". It is useful as an end marker: the last node of a linked list has a null `next`.
+
+The trouble comes from dereferencing it. Following a null pointer is an error in every language, known variously as a null pointer exception, a segmentation fault, or "cannot read properties of undefined".
+
+Its inventor, Tony Hoare, later called the null reference his "billion-dollar mistake", for the crashes it has caused. Newer languages respond by making the possibility explicit. In Rust, Swift and Kotlin, a value that might be absent has a different type from one that cannot be, and the compiler refuses to let you use it without checking.
+
+## What goes wrong with raw pointers
+
+In languages with unrestricted pointers, such as C and C++, there are further hazards.
+
+| Bug | What happens |
+| --- | --- |
+| **Dangling pointer** | points at memory that has been freed, or at a local variable of a function that has returned |
+| **Wild pointer** | was never initialised, and points somewhere arbitrary |
+| **Out of bounds** | arithmetic has moved it past the end of its array |
+| **Double free** | the same block is released twice, corrupting the allocator |
+
+None of these necessarily crashes at once. The program may carry on with corrupted data and fail much later, which is what makes them so hard to track down, and so useful to attackers.
+
+### Pointer arithmetic
+
+In C, adding 1 to a pointer moves it forward by one *element*, not one byte. That is exactly how [array](/data-structures/arrays/) indexing works: `a[i]` means "start at the address of `a`, move forward `i` elements, and dereference". It is powerful, and it is the source of the out-of-bounds bugs above, because nothing checks that you stayed inside the array.
+
+## How languages make pointers safer
+
+| Approach | Used by | Idea |
+| --- | --- | --- |
+| References only | Java, Python, JavaScript, Go | no arithmetic; memory is freed by a [garbage collector](/languages/garbage-collection/), so nothing dangles |
+| Bounds checking | most modern languages | every array access is checked |
+| No null by default | Rust, Swift, Kotlin | absence must be declared in the type and handled |
+| [Ownership](/languages/ownership-and-borrowing/) | Rust | the compiler proves that no reference outlives its data |
+
+## Key takeaways
+
+- A pointer is a value that holds the address of another value. Dereferencing follows it.
+- References in high-level languages are restricted pointers. Assigning one copies the reference, not the object.
+- Two names can refer to one object. A change through either is visible through both.
+- Null means "points at nothing", and following it is an error.
+- Raw pointers allow dangling, out-of-bounds and double-free bugs, which safer languages rule out by design.
