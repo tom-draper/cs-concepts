@@ -1,0 +1,93 @@
+---
+import { getCollection, render } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import { allPages, pagesById } from '../outline';
+import { url } from '../lib/url';
+import { components } from '../components/mdx';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('docs');
+  for (const entry of entries) {
+    if (!pagesById.has(entry.id)) {
+      throw new Error(
+        `src/content/docs/${entry.id}.mdx is not listed in src/outline.ts. Add it there to give it a place in the book.`,
+      );
+    }
+  }
+  const ids = new Set(entries.map((entry) => entry.id));
+  const written = allPages.filter((page) => ids.has(page.id));
+  return entries.map((entry) => {
+    const index = written.findIndex((page) => page.id === entry.id);
+    return {
+      params: { id: entry.id },
+      props: { entry, prev: written[index - 1], next: written[index + 1] },
+    };
+  });
+}
+
+const { entry, prev, next } = Astro.props;
+const page = pagesById.get(entry.id)!;
+const title = entry.data.title ?? page.title;
+const { Content, headings } = await render(entry);
+const toc = headings.filter((heading) => heading.depth === 2);
+const editUrl = `https://github.com/tom-draper/cs-concepts/edit/main/src/content/docs/${entry.id}.mdx`;
+---
+
+<Base title={title} description={entry.data.description} currentId={entry.id}>
+  <div class="page">
+    <article class="prose" data-pagefind-body>
+      <p class="eyebrow">
+        <span>{page.part}</span>
+        <span aria-hidden="true">›</span>
+        <span>{page.chapter}</span>
+        {
+          entry.data.difficulty && (
+            <span class={`difficulty ${entry.data.difficulty}`}>{entry.data.difficulty}</span>
+          )
+        }
+      </p>
+      <h1>{title}</h1>
+      <p class="lede">{entry.data.description}</p>
+      <Content components={components} />
+    </article>
+
+    {
+      toc.length > 1 && (
+        <aside class="toc" aria-label="On this page">
+          <h2>On this page</h2>
+          <ul>
+            {toc.map((heading) => (
+              <li>
+                <a href={`#${heading.slug}`}>{heading.text}</a>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )
+    }
+
+    <footer class="page-footer">
+      <nav class="pager" aria-label="Previous and next page">
+        {
+          prev ? (
+            <a rel="prev" href={url(prev.id)}>
+              <small>Previous</small>
+              <span>{prev.title}</span>
+            </a>
+          ) : (
+            <span />
+          )
+        }
+        {
+          next && (
+            <a rel="next" href={url(next.id)}>
+              <small>Next</small>
+              <span>{next.title}</span>
+            </a>
+          )
+        }
+      </nav>
+      <a class="edit" href={editUrl}>Edit this page on GitHub</a>
+    </footer>
+  </div>
+</Base>
