@@ -1,0 +1,106 @@
+---
+description: A way to describe how the work an algorithm does grows as its input grows, ignoring everything that does not matter at scale.
+difficulty: beginner
+---
+
+Timing code with a stopwatch tells you how fast it ran *today*, on *your* machine, for *that* input. Big-O answers a more durable question: **if the input gets ten times bigger, how much more work is there?**
+
+## A tale of two searches
+
+You have a sorted list of names and want to find one. Two obvious strategies:
+
+- **Scan** from the start until you hit it.
+- **Halve**: open the middle, decide which half the name must be in, and repeat.
+
+Count the names each one has to look at in the worst case:
+
+| Names in the list | Scan | Halve |
+| --- | --- | --- |
+| 1,000 | 1,000 | 10 |
+| 1,000,000 | 1,000,000 | 20 |
+| 1,000,000,000 | 1,000,000,000 | 30 |
+
+The list grew a million-fold. Scanning did a million times more work. Halving did three times more. That difference in *shape* is what Big-O captures: scanning is **O(n)**, halving is **O(log n)**. (Halving is [binary search](/algorithms/binary-search/), and it has its own page.)
+
+## The common shapes
+
+Almost every algorithm you meet falls into one of a handful of growth classes.
+
+<GrowthChart caption="Operations needed as the input grows. The two steepest curves have left the chart by n = 10." />
+
+The chart only reaches n = 20, and the gaps are already large. At realistic sizes they are enormous:
+
+| Class | Name | n = 10 | n = 1,000 | n = 1,000,000 |
+| --- | --- | --- | --- | --- |
+| O(1) | constant | 1 | 1 | 1 |
+| O(log n) | logarithmic | 3 | 10 | 20 |
+| O(n) | linear | 10 | 1,000 | 1,000,000 |
+| O(n log n) | linearithmic | 33 | 10,000 | 20,000,000 |
+| O(n²) | quadratic | 100 | 1,000,000 | 10¹² |
+| O(2ⁿ) | exponential | 1,024 | about 10³⁰¹ | beyond writing down |
+
+To make that concrete, suppose a computer does a billion simple operations per second. For a million items, an O(n log n) sort finishes in about **0.02 seconds**. An O(n²) sort takes about **17 minutes**. Same machine, same data.
+
+## Reading Big-O off code
+
+You rarely need maths. Look for how many times the innermost line runs.
+
+```python
+def first(items):
+    return items[0]              # one step, however long the list: O(1)
+
+
+def total(items):
+    result = 0
+    for x in items:              # runs n times: O(n)
+        result += x
+    return result
+
+
+def has_duplicate(items):
+    for i in range(len(items)):          # n times...
+        for j in range(i + 1, len(items)):   # ...times roughly n more: O(n²)
+            if items[i] == items[j]:
+                return True
+    return False
+```
+
+A few patterns cover most cases:
+
+- One loop over the input is **O(n)**.
+- A loop inside a loop over the same input is **O(n²)**.
+- Throwing away half the remaining input each step is **O(log n)**.
+- Doing O(log n) work for each of n items, or splitting in half and doing O(n) work per level, is **O(n log n)**. Good sorting algorithms live here.
+- Trying every subset of the input is **O(2ⁿ)**.
+
+## The two simplification rules
+
+Big-O deliberately throws detail away. An algorithm that takes `3n² + 50n + 400` steps is simply O(n²).
+
+**Drop constant factors.** `3n²` and `n²` are both O(n²). A constant changes how fast the curve climbs, not its shape, and it varies with hardware and language anyway.
+
+**Keep only the fastest-growing term.** At n = 1,000 the `3n²` part is 3,000,000 while `50n + 400` is about 50,000, less than 2% of the total. The bigger n gets, the less the small terms matter.
+
+<Aside title="The formal version">
+
+f(n) is O(g(n)) if there are constants c and n₀ such that f(n) ≤ c · g(n) for every n ≥ n₀. In words: beyond some size, f never grows faster than a constant multiple of g.
+
+Strictly, that makes Big-O an *upper bound*, so an O(n) algorithm is technically also O(n²). In everyday use people quote the tightest bound they know, which is properly written Θ (theta).
+
+</Aside>
+
+## What Big-O does not tell you
+
+Big-O is a tool for comparing shapes at scale. It is silent about a lot.
+
+- **Small inputs.** For 20 items an O(n²) insertion sort often beats an O(n log n) merge sort, because its constant factors are tiny. Real sort implementations switch between them.
+- **Constant factors.** Two O(n) algorithms can differ by 100× in practice. Walking an [array](/data-structures/arrays/) is far faster than walking a [linked list](/data-structures/linked-lists/) of the same length because of how CPU caches work.
+- **Which case you mean.** A [hash table](/data-structures/hash-tables/) lookup is O(1) on average and O(n) in the worst case. Always ask which one is being quoted.
+- **Memory.** The same notation describes space. An algorithm can be fast because it uses O(n) extra memory, and that trade is not always available.
+
+## Key takeaways
+
+- Big-O describes **growth**, not speed: how the work scales as the input does.
+- Drop constants and lower-order terms; what is left is the class.
+- From best to worst: O(1), O(log n), O(n), O(n log n), O(n²), O(2ⁿ).
+- It is the first question to ask about an algorithm, not the last. Measure before you optimise.
