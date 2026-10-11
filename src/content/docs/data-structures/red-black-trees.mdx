@@ -1,0 +1,140 @@
+---
+description: A self-balancing binary search tree that colours each node red or black, and uses a few colour rules to keep the tree roughly balanced with very little rearranging.
+difficulty: advanced
+---
+
+The red-black tree is the self-balancing tree you are most likely to be using without knowing it. It is behind `TreeMap` in Java, `std::map` in the major C++ standard libraries, and parts of the Linux kernel, including its scheduler.
+
+Like the [AVL tree](/data-structures/avl-trees/), it is a [binary search tree](/data-structures/binary-search-trees/) that repairs its own shape. The difference is in how strict it is. An AVL tree insists on being nearly perfectly balanced. A red-black tree settles for "no path is more than twice as long as any other", which is enough for O(log n) and takes less work to maintain.
+
+## The rules
+
+Every node carries one extra bit: its colour. The colours must obey four rules.
+
+1. The **root is black**.
+2. A **red node never has a red child**. (No two reds in a row.)
+3. Every path from a node down to an empty position passes through the **same number of black nodes**.
+4. Empty positions (missing children) count as black.
+
+<Tree
+  root={{ k: 13, c: [{ k: 8, c: [{ k: 1, c: [null, 6] }, 11] }, { k: 17, c: [15, { k: 25, c: [22, 27] }] }] }}
+  red={[8, 17, 6, 22, 27]}
+  black={[13, 1, 11, 15, 25]}
+  caption="A valid red-black tree. Follow any path from the root to the bottom: it passes exactly two black nodes."
+/>
+
+## Why the rules mean balance
+
+Rule 3 says every root-to-bottom path has the same number of black nodes; call it *b*.
+
+- The **shortest** possible path is all black: *b* nodes.
+- The **longest** possible path alternates black and red, since rule 2 forbids two reds in a row: 2*b* nodes.
+
+So the longest path is at most twice the shortest. The tree can be lopsided, but only within that limit, which bounds the height at about 2 × log₂ n. Search is therefore always O(log n).
+
+You can think of the black nodes as the tree's real skeleton, which is perfectly balanced, and the red nodes as slack that lets it absorb insertions without restructuring every time.
+
+## Inserting
+
+A new key is inserted as in any BST, and the new node is coloured **red**. Red is chosen because it cannot break rule 3: adding a red node changes no black counts.
+
+It can break rule 2, if the new node's parent is also red. The repair depends on the colour of the **uncle**, the parent's sibling.
+
+### Red uncle: recolour
+
+If the parent and uncle are both red, no rotation is needed. Paint both black and the grandparent red. The black count of every path through the grandparent is unchanged.
+
+<Steps>
+<Step title="Insert 1: its parent 5 is red, and so is the uncle, 15">
+
+<Tree root={{ k: 10, c: [{ k: 5, c: [1, null] }, 15] }} red={[5, 15, 1]} black={[10]} highlight={[1]} />
+
+</Step>
+<Step title="Recolour: parent and uncle become black">
+
+The grandparent would become red, which may clash with *its* parent, so the check repeats two levels up. Here the grandparent is the root, which is simply painted black again.
+
+<Tree root={{ k: 10, c: [{ k: 5, c: [1, null] }, 15] }} red={[1]} black={[10, 5, 15]} highlight={[1]} />
+
+</Step>
+</Steps>
+
+### Black uncle: rotate
+
+If the uncle is black (or missing, which counts as black), recolouring alone cannot work. A [rotation](/data-structures/avl-trees/#rotations) moves the parent up into the grandparent's place, and the two swap colours.
+
+<Steps>
+<Step title="Insert 1: its parent 5 is red, and there is no uncle">
+
+<Tree root={{ k: 10, c: [{ k: 5, c: [1, null] }, null] }} red={[5, 1]} black={[10]} highlight={[1]} />
+
+</Step>
+<Step title="Rotate right at 10, and swap the colours of 5 and 10">
+
+<Tree root={{ k: 5, c: [1, 10] }} red={[1, 10]} black={[5]} highlight={[1]} />
+
+</Step>
+</Steps>
+
+If the new node is on the *inside* (a zig-zag: left child's right, or right child's left), one extra rotation straightens it first, exactly as in an AVL tree's double rotation.
+
+### The cases in one table
+
+| Parent | Uncle | Action | Then |
+| --- | --- | --- | --- |
+| Black | any | Nothing: no rule is broken | Done |
+| Red | Red | Recolour parent, uncle and grandparent | Repeat from the grandparent |
+| Red | Black, node on the outside | Rotate at the grandparent, swap colours | Done |
+| Red | Black, node on the inside | Rotate at the parent, then as above | Done |
+
+The recolouring case can repeat up the tree, but it only changes colour bits. Any insertion needs **at most two rotations**. Deletion has more cases and is notoriously fiddly to implement, but it follows the same pattern and needs at most three rotations.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Search', 'O(log n)'],
+    ['Insert', 'O(log n)'],
+    ['Delete', 'O(log n)'],
+    ['Rotations per update', 'O(1)'],
+  ]}
+/>
+
+All worst-case. The constant bound on rotations is the red-black tree's practical advantage: restructuring the tree is the expensive part of an update, particularly when other threads may be reading it.
+
+## The connection to B-trees
+
+Red-black trees were not invented from nothing. They are a binary encoding of a [B-tree](/data-structures/b-trees/) in which each node holds up to three keys.
+
+Take any black node and pull its red children up beside it. The group forms one B-tree node with one, two or three keys:
+
+<Tree
+  btree
+  root={{ k: [8, 13, 17], c: [[1, 6], [11], [15], [22, 25, 27]] }}
+  caption="The red-black tree from the top of this page, with each red node merged into its black parent. Ten nodes become five, and every leaf is at the same depth."
+/>
+
+Seen this way, the rules stop looking arbitrary:
+
+- "Same number of black nodes on every path" is the B-tree rule that **all leaves are at the same depth**.
+- "No two reds in a row" says a B-tree node cannot hold more than three keys.
+- Recolouring on a red uncle is a B-tree **node split** pushing a key upward.
+
+This is no coincidence. Rudolf Bayer, co-inventor of the B-tree, devised the structure in 1972. Leonidas Guibas and Robert Sedgewick gave it the red and black colouring in 1978.
+
+## When to use which tree
+
+| Need | Reach for |
+| --- | --- |
+| A general in-memory ordered map | Red-black tree (it is probably what your library provides) |
+| Lookups far outnumber updates | [AVL tree](/data-structures/avl-trees/) |
+| Data on disk, or very large in memory | [B-tree](/data-structures/b-trees/) |
+| No need for ordering at all | [Hash table](/data-structures/hash-tables/) |
+
+## Key takeaways
+
+- A red-black tree is a BST with a colour per node and rules that keep the longest path within twice the shortest.
+- Its height is at most about 2 log₂ n, so search, insert and delete are O(log n) in the worst case.
+- New nodes are red; a red-red clash is fixed by recolouring (red uncle) or rotating (black uncle).
+- It does a constant number of rotations per update, which is why libraries favour it for general-purpose maps.
+- It is a B-tree in disguise: black nodes with their red children correspond to B-tree nodes.
