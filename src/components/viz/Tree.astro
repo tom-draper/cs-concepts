@@ -10,7 +10,9 @@ type Key = string | number;
 type Input = Key | Key[] | null | { k: Key | Key[]; c?: Input[] };
 
 interface Props {
-  root: Input;
+  root?: Input;
+  /** Several trees side by side, for a forest. */
+  roots?: Input[];
   highlight?: Key[];
   alt?: Key[];
   dim?: Key[];
@@ -25,6 +27,10 @@ interface Props {
   linkLeaves?: boolean;
   /** Apply `highlight`, `alt` and `dim` to leaf nodes only (B+ trees repeat keys). */
   leafOnly?: boolean;
+  /** Draw these nodes with a double outline, e.g. the ends of words in a trie. */
+  terminal?: Key[];
+  /** `last` shows only the final character of each key, so trie nodes can be keyed by prefix. */
+  show?: 'key' | 'last';
   caption?: string;
   label?: string;
 }
@@ -42,6 +48,7 @@ interface Node {
 
 const {
   root,
+  roots,
   highlight = [],
   alt = [],
   dim = [],
@@ -51,6 +58,8 @@ const {
   notes = {},
   linkLeaves = false,
   leafOnly = false,
+  terminal = [],
+  show = 'key',
   caption,
   label,
 } = Astro.props;
@@ -106,11 +115,17 @@ function place(node: Node, left: number, level: number) {
   node.x = (node.slots[0] + node.slots[node.slots.length - 1]) / 2;
 }
 
-const tree = build(root)!;
-measure(tree);
-place(tree, PAD, 0);
+const trees = (roots ?? [root ?? null]).map(build).filter((t): t is Node => t !== null);
+const TREE_GAP = 14;
+let cursor = PAD;
+for (const tree of trees) {
+  measure(tree);
+  place(tree, cursor, 0);
+  cursor += tree.span + TREE_GAP;
+}
 
-const width = tree.span + PAD * 2;
+const width = cursor - TREE_GAP + PAD;
+const text = (key: Key) => (show === 'last' ? String(key).slice(-1) || '·' : key);
 const height = PAD * 2 + depth * LEVEL + NH;
 
 const keyState = (node: Node, key: Key) => {
@@ -160,7 +175,7 @@ const edges = nodes.flatMap((node) =>
     viewBox={`0 0 ${width} ${height}`}
     style={fit(width)}
     role="img"
-    aria-label={label ?? `Tree with root ${tree.keys.join(', ')}`}
+    aria-label={label ?? `Tree with root ${trees.map((t) => t.keys.join(', ')).join('; ')}`}
   >
     {
       edges
@@ -195,8 +210,18 @@ const edges = nodes.flatMap((node) =>
               height={NH}
               rx={cells(node) ? 4 : NH / 2}
             />
+            {terminal.includes(key) && (
+              <rect
+                class="inner"
+                x={node.x - node.w / 2 + i * KW + 4}
+                y={node.y + 4}
+                width={KW - 8}
+                height={NH - 8}
+                rx={(NH - 8) / 2}
+              />
+            )}
             <text class="v-text" x={node.x - node.w / 2 + i * KW + KW / 2} y={node.y + NH / 2}>
-              {key}
+              {text(key)}
             </text>
           </g>
         )),

@@ -1,0 +1,103 @@
+---
+import Figure from './Figure.astro';
+import { arrowHead, fit } from './geom';
+
+interface Props {
+  /** Vertex name to `[column, row]` on a grid; fractions are fine. */
+  nodes: Record<string, [number, number]>;
+  /** `[from, to]` or `[from, to, weight]`. */
+  edges: [string | number, string | number, (string | number)?][];
+  directed?: boolean;
+  highlight?: (string | number)[];
+  alt?: (string | number)[];
+  /** Edges to emphasise, as `[from, to]` pairs. */
+  path?: [string | number, string | number][];
+  caption?: string;
+  label?: string;
+}
+
+const {
+  nodes,
+  edges,
+  directed = false,
+  highlight = [],
+  alt = [],
+  path = [],
+  caption,
+  label,
+} = Astro.props;
+
+const UNIT = 84;
+const R = 19;
+const PAD = 14;
+const has = (list: (string | number)[], name: string) => list.map(String).includes(name);
+const points = Object.fromEntries(
+  Object.entries(nodes).map(([name, [col, row]]) => [
+    name,
+    { x: PAD + R + col * UNIT, y: PAD + R + row * UNIT },
+  ]),
+);
+const width = Math.max(...Object.values(points).map((p) => p.x)) + R + PAD;
+const height = Math.max(...Object.values(points).map((p) => p.y)) + R + PAD;
+
+const onPath = (a: string, b: string) =>
+  path.some(
+    ([from, to]) =>
+      (String(from) === a && String(to) === b) ||
+      (!directed && String(from) === b && String(to) === a),
+  );
+
+const lines = edges.map(([from, to, weight]) => {
+  const a = points[String(from)];
+  const b = points[String(to)];
+  const length = Math.hypot(b.x - a.x, b.y - a.y);
+  const ux = (b.x - a.x) / length;
+  const uy = (b.y - a.y) / length;
+  const tip = { x: b.x - ux * (R + 2), y: b.y - uy * (R + 2) };
+  return {
+    x1: a.x + ux * R,
+    y1: a.y + uy * R,
+    // Stop the line short of the arrowhead so the tip stays sharp.
+    x2: directed ? tip.x - ux * 6 : b.x - ux * R,
+    y2: directed ? tip.y - uy * 6 : b.y - uy * R,
+    tip,
+    weight,
+    // Sit the weight just off the midpoint, on the line's normal.
+    wx: (a.x + b.x) / 2 - uy * 11,
+    wy: (a.y + b.y) / 2 + ux * 11,
+    on: onPath(String(from), String(to)),
+  };
+});
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `${directed ? 'Directed graph' : 'Graph'} with ${Object.keys(nodes).length} vertices and ${edges.length} edges`}
+  >
+    {
+      lines
+        .sort((a, b) => Number(a.on) - Number(b.on))
+        .map((l) => (
+          <g class={`v-gedge ${l.on ? 'on' : ''}`}>
+            <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />
+            {directed && <polygon points={arrowHead(l.x1, l.y1, l.tip.x, l.tip.y, 9)} />}
+            {l.weight !== undefined && (
+              <text class="v-small" x={l.wx} y={l.wy}>{l.weight}</text>
+            )}
+          </g>
+        ))
+    }
+    {
+      Object.entries(points).map(([name, p]) => (
+        <g class={`v-node ${has(highlight, name) ? 'hl' : has(alt, name) ? 'alt' : ''}`}>
+          <rect x={p.x - R} y={p.y - R} width={R * 2} height={R * 2} rx={R} />
+          <text class="v-text" x={p.x} y={p.y}>{name}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
