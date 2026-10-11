@@ -1,0 +1,89 @@
+---
+description: Check each item in turn until you find the one you want. The simplest search there is, and often the right one.
+difficulty: beginner
+---
+
+Linear search is what you do when looking for your keys: check one place, then the next, until they turn up or you run out of places. It makes no assumptions about the data, which is both its weakness and its strength.
+
+## How it works
+
+Start at the first element and compare each one with the target. Stop on a match, or when the end is reached.
+
+Step through a search for **38**:
+
+export const data = [16, 2, 91, 23, 38, 5, 72, 8];
+export const targetIndex = 4;
+
+<Player>
+  {data.slice(0, targetIndex + 1).map((value, i) => (
+    <Frame caption={i === targetIndex ? `Index ${i} holds <strong>${value}</strong>. Found it, after ${i + 1} comparisons.` : `Index ${i} holds ${value}. Not a match, so move on.`}>
+      <ArrayViz
+        values={data}
+        dim={data.map((_, n) => n).filter((n) => n < i)}
+        highlight={i === targetIndex ? [] : [i]}
+        alt={i === targetIndex ? [i] : []}
+        pointers={{ i }}
+      />
+    </Frame>
+  ))}
+</Player>
+
+```python
+def linear_search(items, target):
+    for i, value in enumerate(items):
+        if value == target:
+            return i
+    return -1
+```
+
+You rarely write this by hand. It is what `in`, `index`, `find`, `includes` and `contains` do on an ordinary list or array.
+
+## The cost
+
+<Ops
+  items={[
+    ['Best case', 'O(1)', 'target is first'],
+    ['Average case', 'O(n)', 'about n / 2 checks'],
+    ['Worst case', 'O(n)', 'target is last or absent'],
+    ['Extra memory', 'O(1)'],
+  ]}
+/>
+
+Searching for something that is **not there** is always the worst case: every element must be checked before you can say so. Double the data and the search takes twice as long. See [Big-O notation](/foundations/big-o-notation/).
+
+## Linear or binary search?
+
+[Binary search](/algorithms/binary-search/) needs about 20 comparisons to search a million items. Linear search needs up to a million. So why ever use it?
+
+| | Linear search | Binary search |
+| --- | --- | --- |
+| Data must be sorted | no | yes |
+| Works on a linked list | yes | not usefully |
+| Works with any "does this match?" test | yes | only tests that follow the sort order |
+| Comparisons for 1,000,000 items | up to 1,000,000 | about 20 |
+
+Linear search is the right choice more often than its Big-O suggests.
+
+- **The data is unsorted.** Sorting first costs O(n log n), which is more than a single O(n) scan. Sorting only pays off if you will search many times.
+- **The data is small.** For a few dozen elements, a straight scan through contiguous memory is often *faster* than binary search. The processor predicts the simple loop perfectly and the whole array sits in cache, while binary search jumps around unpredictably. Many library routines switch to a linear scan below a size threshold.
+- **You can only read in order.** A [linked list](/data-structures/linked-lists/), a file being streamed, or lines arriving over a network have no "middle" to jump to.
+- **The condition is not about order.** "Find the first user whose email ends in `.org`" cannot be answered by halving, however the users are sorted.
+
+## When you are searching a lot
+
+One linear search is fine. A linear search inside a loop is how accidentally quadratic code gets written:
+
+```python
+for order in orders:                  # n orders
+    if order.user_id in banned_ids:   # a list: scans all m ids
+        ...
+```
+
+If `banned_ids` is a list, this does up to n × m comparisons. The fix is not a cleverer search, but a better data structure. A [set](/data-structures/sets/) or [hash table](/data-structures/hash-tables/) answers each lookup in O(1), and a sorted array gives O(log n).
+
+## Key takeaways
+
+- Linear search checks elements one by one: O(n) time, no extra memory, no requirements.
+- It is the only option for unsorted or sequential-access data and for arbitrary match conditions.
+- For small arrays it is often the fastest choice in practice.
+- If you find yourself searching the same collection repeatedly, change the data structure.
