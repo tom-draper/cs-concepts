@@ -1,0 +1,116 @@
+---
+description: Put the vertices of a dependency graph in an order where everything comes after the things it depends on.
+difficulty: intermediate
+---
+
+Many problems come as a list of tasks with dependencies between them. You cannot compile a file before the files it imports. You cannot take a course before its prerequisites. You cannot put on your shoes before your socks.
+
+A **topological sort** takes such a set of dependencies and produces an order in which everything can be done: a line-up in which every task appears after all the tasks it depends on.
+
+## The setting
+
+Draw each task as a vertex, and an arrow from A to B when A must come before B. The result is a **directed acyclic graph**, or DAG: *directed* because the arrows have a direction, *acyclic* because there are no loops.
+
+Here is getting dressed, as a graph.
+
+export const nodes = { shirt: [0, 0], tie: [1.6, 0], jacket: [3.2, 0], trousers: [0, 1], belt: [1.6, 1], socks: [0, 2], shoes: [1.6, 2] };
+export const edges = [['shirt', 'tie'], ['tie', 'jacket'], ['shirt', 'belt'], ['belt', 'jacket'], ['trousers', 'belt'], ['trousers', 'shoes'], ['socks', 'shoes']];
+
+<Graph
+  directed
+  nodes={nodes}
+  edges={edges}
+  caption="An arrow means “must come before”. The shirt goes on before the tie; the belt needs both shirt and trousers."
+/>
+
+A topological order is any arrangement of these seven items in a row such that **every arrow points forwards**.
+
+## Kahn's algorithm
+
+The idea is the one you would use in real life: do something that has nothing left to wait for, cross it off, and see what that frees up.
+
+1. Count the arrows pointing *into* each vertex. This is its number of unmet dependencies.
+2. Everything with a count of zero is ready.
+3. Take a ready vertex and output it. Remove its outgoing arrows, reducing the count of each vertex they pointed to. Any that drop to zero become ready.
+4. Repeat until nothing is ready.
+
+<GraphDemo algorithm="topo" directed nodes={nodes} edges={edges} />
+
+The number above each vertex is how many of its dependencies are still outstanding.
+
+```python
+from collections import deque
+
+def topological_sort(graph):
+    waiting = {node: 0 for node in graph}
+    for node in graph:
+        for after in graph[node]:
+            waiting[after] += 1
+
+    ready = deque(node for node in graph if waiting[node] == 0)
+    order = []
+    while ready:
+        node = ready.popleft()
+        order.append(node)
+        for after in graph[node]:
+            waiting[after] -= 1
+            if waiting[after] == 0:
+                ready.append(after)
+
+    if len(order) != len(graph):
+        raise ValueError('the graph has a cycle')
+    return order
+```
+
+## There is usually more than one answer
+
+The demo produces: shirt, trousers, socks, tie, belt, shoes, jacket. But socks could just as well come first, or last-but-one. Whenever several vertices are ready at once, any of them may go next, and each choice leads to a different valid order.
+
+A topological sort promises *a* correct order, not *the* order. If you need a predictable one, break ties by some rule, such as alphabetically, by using a [priority queue](/data-structures/heaps/) for the ready set.
+
+## Cycles make it impossible
+
+Suppose the belt needed the jacket and the jacket needed the belt. Neither could ever go first. A graph with a cycle has **no** topological order.
+
+Kahn's algorithm detects this for free. The vertices in a cycle each wait on another, so their counts never reach zero and they are never output. If the result is shorter than the number of vertices, there is a cycle. This is how a package manager reports "circular dependency detected".
+
+## The other method: depth-first search
+
+A [depth-first search](/algorithms/depth-first-search/) gives a topological order too. Run DFS, and record each vertex at the moment it **finishes**, that is, after everything reachable from it has been explored. Then reverse the list.
+
+It works because a vertex cannot finish until all the things that depend on it, directly or indirectly, have finished. So it lands before all of them once the list is reversed.
+
+| | Kahn's algorithm | DFS-based |
+| --- | --- | --- |
+| Works by | repeatedly removing vertices with no dependencies | reversing the order in which DFS finishes vertices |
+| Detects cycles | output is too short | finds an edge back to the current path |
+| Good for | scheduling in rounds, parallel work | when you are doing a DFS anyway |
+
+Kahn's version has a useful extra property: everything that is ready at the same moment can be done **in parallel**. A build system uses exactly that to decide which files it can compile at once.
+
+## The cost
+
+<Ops
+  items={[
+    ['Time', 'O(V + E)'],
+    ['Memory', 'O(V)'],
+  ]}
+/>
+
+Each vertex is output once and each arrow is removed once.
+
+## Where it shows up
+
+- **Build systems** such as Make and Bazel decide the order to compile things in.
+- **Package managers** install dependencies before the packages that need them.
+- **Spreadsheets** recalculate cells in dependency order, so that a formula is evaluated after the cells it refers to.
+- **Task schedulers and data pipelines** run jobs once their inputs are ready.
+- **Course planning**, given prerequisites.
+- **Compilers** order the initialisation of modules, and the instructions in a block of code, by what depends on what.
+
+## Key takeaways
+
+- A topological sort orders the vertices of a directed acyclic graph so that every edge points forwards.
+- Kahn's algorithm repeatedly outputs a vertex with no remaining dependencies; a DFS-based method reverses the finishing order.
+- Both run in O(V + E).
+- There are usually many valid orders, and none at all if the graph has a cycle.
