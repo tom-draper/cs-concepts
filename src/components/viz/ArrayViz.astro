@@ -1,0 +1,115 @@
+---
+import Figure from './Figure.astro';
+import { arrowHead, fit } from './geom';
+
+interface Props {
+  /** `null` draws an empty, unused slot. */
+  values: (string | number | null)[];
+  highlight?: number[];
+  alt?: number[];
+  dim?: number[];
+  /** Named markers under cells, e.g. `{ lo: 0, hi: 9 }`. */
+  pointers?: Record<string, number>;
+  indices?: boolean;
+  /** Show a memory address above each cell. */
+  addr?: { base: number; size: number };
+  caption?: string;
+  label?: string;
+}
+
+const {
+  values,
+  highlight = [],
+  alt = [],
+  dim = [],
+  pointers = {},
+  indices = true,
+  addr,
+  caption,
+  label,
+} = Astro.props;
+
+const W = 52;
+const H = 46;
+const PAD = 10;
+const top = addr ? 24 : 6;
+
+const pointersAt = new Map<number, string[]>();
+for (const [name, index] of Object.entries(pointers)) {
+  pointersAt.set(index, [...(pointersAt.get(index) ?? []), name]);
+}
+const stack = Math.max(0, ...[...pointersAt.values()].map((names) => names.length));
+const indexH = indices ? 20 : 0;
+const pointerH = stack ? 16 + stack * 15 : 0;
+const width = values.length * W + PAD * 2;
+const height = top + H + indexH + pointerH + 6;
+
+const state = (i: number) =>
+  highlight.includes(i)
+    ? 'hl'
+    : alt.includes(i)
+      ? 'alt'
+      : values[i] === null
+        ? 'empty'
+        : dim.includes(i)
+          ? 'dim'
+          : '';
+// Marked cells are drawn last so their outline sits on top of their neighbours'.
+const order = values
+  .map((_, i) => i)
+  .sort((a, b) => Number(/hl|alt/.test(state(a))) - Number(/hl|alt/.test(state(b))));
+const pointerTop = top + H + indexH + 3;
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `Array of ${values.length} slots: ${values.map((v) => v ?? 'empty').join(', ')}`}
+  >
+    {
+      order.map((i) => (
+        <g class={`v-node ${state(i)}`}>
+          <rect x={PAD + i * W} y={top} width={W} height={H} rx="3" />
+          <text class="v-text" x={PAD + i * W + W / 2} y={top + H / 2}>
+            {values[i]}
+          </text>
+        </g>
+      ))
+    }
+    {
+      values.map((_, i) => (
+        <>
+          {addr && (
+            <text class="v-small" x={PAD + i * W + W / 2} y={12}>
+              0x{(addr.base + i * addr.size).toString(16)}
+            </text>
+          )}
+          {indices && (
+            <text class="v-small" x={PAD + i * W + W / 2} y={top + H + 12}>
+              {i}
+            </text>
+          )}
+        </>
+      ))
+    }
+    {
+      [...pointersAt].map(([index, names]) => {
+        const x = PAD + index * W + W / 2;
+        return (
+          <g class="v-pointer">
+            <line x1={x} y1={pointerTop + 14} x2={x} y2={pointerTop + 6} />
+            <polygon points={arrowHead(x, pointerTop + 14, x, pointerTop)} />
+            {names.map((name, n) => (
+              <text class="v-label" x={x} y={pointerTop + 23 + n * 15}>
+                {name}
+              </text>
+            ))}
+          </g>
+        );
+      })
+    }
+  </svg>
+</Figure>

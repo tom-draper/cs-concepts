@@ -1,0 +1,94 @@
+---
+import Figure from './Figure.astro';
+import { arrowHead, fit } from './geom';
+
+interface Props {
+  /** One chain of entries per bucket; an empty array is an empty bucket. */
+  buckets: string[][];
+  /** Bucket index to mark. */
+  highlight?: number;
+  /** Entries to mark. */
+  alt?: string[];
+  /** A key being hashed into the `highlight` bucket, with an optional note under it. */
+  input?: { key: string; note?: string };
+  caption?: string;
+  label?: string;
+}
+
+const { buckets, highlight, alt = [], input, caption, label } = Astro.props;
+
+const ROW = 38;
+const SLOT = 44;
+const EH = 28;
+const GAP = 28;
+const PAD = 10;
+const KEYW = 96;
+const left = (input ? PAD + KEYW + 62 : PAD) + 22;
+const entryW = (entry: string) => Math.max(46, entry.length * 8.5 + 20);
+const chainW = (chain: string[]) => chain.reduce((sum, e) => sum + GAP + entryW(e), 0);
+const width = left + SLOT + Math.max(0, ...buckets.map(chainW)) + PAD;
+const height = PAD * 2 + buckets.length * ROW + (input?.note ? 8 : 0);
+const rowY = (i: number) => PAD + i * ROW;
+const target = highlight ?? 0;
+const keyY = rowY(target) + ROW / 2;
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `Hash table with ${buckets.length} buckets`}
+  >
+    {
+      input && (
+        <>
+          <g class="v-node alt">
+            <rect x={PAD} y={keyY - EH / 2} width={KEYW} height={EH} rx="4" />
+            <text class="v-text" x={PAD + KEYW / 2} y={keyY}>"{input.key}"</text>
+          </g>
+          {input.note && (
+            <text class="v-small" x={PAD + KEYW / 2} y={keyY + EH / 2 + 12}>{input.note}</text>
+          )}
+          <g class="v-pointer">
+            <line x1={PAD + KEYW + 4} y1={keyY} x2={left - 30} y2={keyY} />
+            <polygon points={arrowHead(PAD, keyY, left - 22, keyY)} />
+          </g>
+        </>
+      )
+    }
+    {
+      buckets.map((chain, i) => {
+        const cy = rowY(i) + ROW / 2;
+        let x = left + SLOT;
+        return (
+          <>
+            <text class="v-small" x={left - 12} y={cy}>{i}</text>
+            <g class={`v-node ${i === highlight ? 'hl' : ''}`}>
+              <rect x={left} y={rowY(i)} width={SLOT} height={ROW} rx="3" />
+            </g>
+            {chain.length > 0 && <circle class="v-dot" cx={left + SLOT / 2} cy={cy} r="3" />}
+            {chain.map((entry, n) => {
+              const from = n === 0 ? left + SLOT / 2 : x;
+              const ex = x + GAP;
+              x = ex + entryW(entry);
+              return (
+                <>
+                  <g class="v-pointer">
+                    <line x1={from} y1={cy} x2={ex - 7} y2={cy} />
+                    <polygon points={arrowHead(from, cy, ex - 1, cy)} />
+                  </g>
+                  <g class={`v-node ${alt.includes(entry) ? 'alt' : ''}`}>
+                    <rect x={ex} y={cy - EH / 2} width={entryW(entry)} height={EH} rx="4" />
+                    <text class="v-text" x={ex + entryW(entry) / 2} y={cy}>{entry}</text>
+                  </g>
+                </>
+              );
+            })}
+          </>
+        );
+      })
+    }
+  </svg>
+</Figure>

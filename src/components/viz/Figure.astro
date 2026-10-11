@@ -1,0 +1,13 @@
+---
+interface Props {
+  /** Trusted HTML, so captions can use <code> and <em>. */
+  caption?: string;
+}
+
+const { caption } = Astro.props;
+---
+
+<figure class="viz">
+  <div class="viz-scroll"><slot /></div>
+  {caption && <figcaption set:html={caption} />}
+</figure>

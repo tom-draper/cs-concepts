@@ -1,0 +1,33 @@
+---
+// Replaces every markdown link in content pages.
+//
+// Site-absolute links such as `/data-structures/arrays/` are checked against
+// the outline: a written page gets a real link, a planned page renders as
+// plain text (and lights up by itself once the page exists), and anything
+// not in the outline fails the build.
+import { getCollection } from 'astro:content';
+import { pagesById } from '../outline';
+import { url } from '../lib/url';
+
+const { href = '', ...rest } = Astro.props;
+const internal = href.startsWith('/');
+const [path, hash] = href.split('#');
+const id = path.replace(/^\/|\/$/g, '');
+const page = internal ? pagesById.get(id) : undefined;
+
+if (internal && !page) {
+  throw new Error(`Link to "${href}" does not match any page in src/outline.ts`);
+}
+
+const written = internal && (await getCollection('docs')).some((entry) => entry.id === id);
+---
+
+{
+  !internal ? (
+    <a href={href} {...rest}><slot /></a>
+  ) : written ? (
+    <a href={url(id) + (hash ? `#${hash}` : '')} {...rest}><slot /></a>
+  ) : (
+    <span class="planned-link" title={`${page!.title} has not been written yet`}><slot /></span>
+  )
+}

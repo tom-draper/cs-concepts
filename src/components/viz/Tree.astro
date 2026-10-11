@@ -1,0 +1,148 @@
+---
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+type Key = string | number;
+/**
+ * A node is a key, a list of keys (one multi-key node), `null` (an empty child
+ * slot) or `{ k, c }` for a node with children.
+ */
+type Input = Key | Key[] | null | { k: Key | Key[]; c?: Input[] };
+
+interface Props {
+  root: Input;
+  highlight?: Key[];
+  alt?: Key[];
+  dim?: Key[];
+  /** Draw every node as a row of key cells with edges leaving between the keys. */
+  btree?: boolean;
+  caption?: string;
+  label?: string;
+}
+
+interface Node {
+  keys: Key[];
+  children: (Node | null)[];
+  /** x of each child slot, including empty ones. */
+  slots: number[];
+  w: number;
+  span: number;
+  x: number;
+  y: number;
+}
+
+const { root, highlight = [], alt = [], dim = [], btree = false, caption, label } = Astro.props;
+
+const KW = btree ? 36 : 40;
+const NH = 36;
+const GAP = btree ? 20 : 12;
+const LEVEL = 68;
+const PAD = 10;
+const EMPTY = KW * 0.6 + GAP;
+
+function build(input: Input): Node | null {
+  if (input === null) return null;
+  const node = typeof input === 'object' && !Array.isArray(input) ? input : { k: input };
+  const keys = Array.isArray(node.k) ? node.k : [node.k];
+  return {
+    keys,
+    children: (node.c ?? []).map(build),
+    slots: [],
+    w: keys.length * KW,
+    span: 0,
+    x: 0,
+    y: 0,
+  };
+}
+
+function measure(node: Node): number {
+  const below = node.children.reduce((sum, c) => sum + (c ? measure(c) : EMPTY), 0);
+  node.span = Math.max(node.w + GAP, below);
+  return node.span;
+}
+
+let depth = 0;
+const nodes: Node[] = [];
+
+function place(node: Node, left: number, level: number) {
+  nodes.push(node);
+  depth = Math.max(depth, level);
+  node.y = PAD + level * LEVEL;
+  if (!node.children.length) {
+    node.x = left + node.span / 2;
+    return;
+  }
+  const below = node.children.reduce((sum, c) => sum + (c ? c.span : EMPTY), 0);
+  let cursor = left + (node.span - below) / 2;
+  node.slots = node.children.map((child) => {
+    const w = child ? child.span : EMPTY;
+    if (child) place(child, cursor, level + 1);
+    const x = child ? child.x : cursor + w / 2;
+    cursor += w;
+    return x;
+  });
+  node.x = (node.slots[0] + node.slots[node.slots.length - 1]) / 2;
+}
+
+const tree = build(root)!;
+measure(tree);
+place(tree, PAD, 0);
+
+const width = tree.span + PAD * 2;
+const height = PAD * 2 + depth * LEVEL + NH;
+
+const keyState = (key: Key) =>
+  highlight.includes(key) ? 'hl' : alt.includes(key) ? 'alt' : dim.includes(key) ? 'dim' : '';
+const marked = (node: Node) => node.keys.some((key) => /hl|alt/.test(keyState(key)));
+const cells = (node: Node) => btree || node.keys.length > 1;
+
+const edges = nodes.flatMap((node) =>
+  node.children.flatMap((child, i) =>
+    child
+      ? [
+          {
+            x1: cells(node) ? node.x - node.w / 2 + i * KW : node.x,
+            y1: cells(node) ? node.y + NH : node.y + NH / 2,
+            x2: child.x,
+            y2: child.y,
+            on: marked(node) && marked(child),
+          },
+        ]
+      : [],
+  ),
+);
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `Tree with root ${tree.keys.join(', ')}`}
+  >
+    {
+      edges
+        .sort((a, b) => Number(a.on) - Number(b.on))
+        .map((e) => <line class={`v-edge ${e.on ? 'on' : ''}`} x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} />)
+    }
+    {
+      nodes.map((node) =>
+        node.keys.map((key, i) => (
+          <g class={`v-node ${keyState(key)}`}>
+            <rect
+              x={node.x - node.w / 2 + i * KW}
+              y={node.y}
+              width={KW}
+              height={NH}
+              rx={cells(node) ? 4 : NH / 2}
+            />
+            <text class="v-text" x={node.x - node.w / 2 + i * KW + KW / 2} y={node.y + NH / 2}>
+              {key}
+            </text>
+          </g>
+        )),
+      )
+    }
+  </svg>
+</Figure>

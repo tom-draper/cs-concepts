@@ -1,0 +1,95 @@
+---
+// How the common complexity classes grow. A schematic plot rather than data,
+// so it is drawn at build time with no script.
+import Figure from './Figure.astro';
+
+interface Props {
+  caption?: string;
+}
+
+const { caption } = Astro.props;
+
+const W = 640;
+const H = 360;
+const M = { left: 54, right: 92, top: 18, bottom: 44 };
+const N_MAX = 20;
+const Y_MAX = 100;
+const plotW = W - M.left - M.right;
+const plotH = H - M.top - M.bottom;
+const fx = (n: number) => M.left + ((n - 1) / (N_MAX - 1)) * plotW;
+const fy = (v: number) => H - M.bottom - (v / Y_MAX) * plotH;
+
+// Order is fixed: each class keeps its colour slot.
+const classes: { name: string; f: (n: number) => number; dy?: number }[] = [
+  { name: 'O(1)', f: () => 1, dy: 8 },
+  { name: 'O(log n)', f: Math.log2, dy: -6 },
+  { name: 'O(n)', f: (n) => n },
+  { name: 'O(n log n)', f: (n) => n * Math.log2(n) },
+  { name: 'O(n²)', f: (n) => n * n },
+  { name: 'O(2ⁿ)', f: (n) => 2 ** n },
+];
+
+const series = classes.map(({ name, f, dy = 0 }, slot) => {
+  const points: [number, number][] = [];
+  let escaped = false;
+  for (let n = 1; n <= N_MAX + 1e-9; n += 0.05) {
+    const v = f(n);
+    if (v > Y_MAX) {
+      // Finish exactly on the top edge instead of overshooting it.
+      const prev = f(n - 0.05);
+      points.push([n - 0.05 + (0.05 * (Y_MAX - prev)) / (v - prev), Y_MAX]);
+      escaped = true;
+      break;
+    }
+    points.push([n, v]);
+  }
+  const [endN, endV] = points[points.length - 1];
+  return {
+    name,
+    slot: slot + 1,
+    d: points.map(([n, v], i) => `${i ? 'L' : 'M'}${fx(n).toFixed(1)},${fy(v).toFixed(1)}`).join(''),
+    end: { x: fx(endN), y: fy(endV) },
+    text: escaped
+      ? { x: fx(endN) + 10, y: fy(endV) + 8 }
+      : { x: fx(endN) + 10, y: fy(endV) + dy },
+  };
+});
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg chart"
+    viewBox={`0 0 ${W} ${H}`}
+    width={W}
+    height={H}
+    role="img"
+    aria-label="Line chart of operations against input size for six complexity classes. Exponential and quadratic growth leave the top of the chart almost immediately, while logarithmic and constant stay flat along the bottom."
+  >
+    {
+      [0, 25, 50, 75, 100].map((v) => (
+        <>
+          <line class="c-grid" x1={M.left} y1={fy(v)} x2={W - M.right} y2={fy(v)} />
+          <text class="c-tick end" x={M.left - 8} y={fy(v)}>{v}</text>
+        </>
+      ))
+    }
+    {
+      [1, 5, 10, 15, 20].map((n) => (
+        <text class="c-tick" x={fx(n)} y={H - M.bottom + 16}>{n}</text>
+      ))
+    }
+    <text class="c-title" x={M.left + plotW / 2} y={H - 8}>input size (n)</text>
+    <text class="c-title" transform={`translate(14 ${M.top + plotH / 2}) rotate(-90)`}>operations</text>
+    {
+      series.map((s) => (
+        <g>
+          <path class={`c-line s${s.slot}`} d={s.d}>
+            <title>{s.name}</title>
+          </path>
+          <circle class={`c-end s${s.slot}`} cx={s.end.x} cy={s.end.y} r="4" />
+          <text class="c-label" x={s.text.x} y={s.text.y}>{s.name}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
