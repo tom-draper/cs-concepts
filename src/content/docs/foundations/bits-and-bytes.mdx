@@ -1,0 +1,85 @@
+---
+description: Everything a computer stores is made of bits, each a single 0 or 1. What a group of bits means depends entirely on how you choose to read it.
+difficulty: beginner
+---
+
+A **bit** is the smallest possible piece of information: one choice between two options. On or off, yes or no, 1 or 0.
+
+Computers are built from bits because two states are easy to build reliably. A wire carries a high voltage or a low one; a spot on a disk is magnetised one way or the other; a tiny capacitor holds a charge or does not. Telling two states apart is far more robust than telling ten apart.
+
+Every number, letter, photo, song and program on a computer is, underneath, a long row of bits.
+
+## Counting patterns
+
+One bit has two possible values. Add a second bit and each of those can be paired with a 0 or a 1, giving four patterns. Each extra bit **doubles** the count.
+
+| Bits | Patterns | Enough for |
+| --- | --- | --- |
+| 1 | 2 | yes or no |
+| 2 | 4 | the four suits in a deck of cards |
+| 3 | 8 | the days of the week |
+| 8 | 256 | every letter, digit and symbol on a keyboard |
+| 16 | 65,536 | |
+| 32 | about 4.3 billion | |
+| 64 | about 18 billion billion | |
+
+With n bits there are 2ⁿ patterns. That doubling is why a handful of extra bits goes a very long way, and why powers of two turn up everywhere in computing.
+
+## The byte
+
+Bits are handled in groups of eight, called a **byte**. One byte has 256 possible patterns.
+
+Flip the bits below to make different patterns. The small number above each bit is its place value, and the same eight bits are shown read three ways.
+
+<BitsDemo value={65} />
+
+Things to try:
+
+- Turn every bit off, then turn on only the rightmost. Each position is worth twice the one to its right.
+- Make 72 (64 + 8). As text, that is the letter `H`.
+- Turn everything on. The largest value a byte can hold is 255.
+
+## Bits have no meaning of their own
+
+The pattern `01000001` is the number 65. It is also the letter `A`. In a picture, it might be a fairly dark shade of red. In a program, it might be an instruction to the processor.
+
+Nothing in the bits says which. **Meaning comes from how the bits are interpreted**, and that is decided by the program reading them.
+
+This single idea explains a great deal:
+
+- A file's type is a convention about how to read its bytes. Open an image in a text editor and you see nonsense, because the editor is reading picture data as letters.
+- Many bugs and security holes are one piece of code reading bytes in a different way from the code that wrote them.
+- The rest of this chapter is a tour of the common conventions: [whole numbers](/foundations/number-systems/), [negative numbers](/foundations/twos-complement/), [fractions](/foundations/floating-point/) and [text](/foundations/character-encodings/).
+
+## Bigger units
+
+| Unit | Size | Roughly |
+| --- | --- | --- |
+| Byte (B) | 8 bits | one letter of plain text |
+| Kilobyte (kB) | 1,000 bytes | a short email |
+| Megabyte (MB) | 1,000,000 bytes | a minute of compressed music |
+| Gigabyte (GB) | 10⁹ bytes | a film in standard definition |
+| Terabyte (TB) | 10¹² bytes | a few hundred films |
+
+<Aside type="warning" title="Two meanings of “kilo”">
+
+Memory comes in powers of two, so for a long time "kilobyte" also meant 1,024 bytes (2¹⁰), and "megabyte" 1,048,576. To remove the ambiguity, the power-of-two units have their own names: **kibibyte** (KiB), **mebibyte** (MiB), **gibibyte** (GiB).
+
+The two have not been tidily separated. Disk manufacturers use powers of ten, and some operating systems report sizes in powers of two under the old names. That is why a "500 GB" drive can show up as about 465 "GB".
+
+</Aside>
+
+Note also the capital letter: **B** is bytes, **b** is bits. Network speeds are quoted in bits per second, so a 100 Mb/s connection downloads at most 12.5 megabytes each second.
+
+## Words
+
+A processor works with a fixed number of bits at a time, called its **word size**. On a 64-bit machine a word is 64 bits, or 8 bytes. That is the natural size of a whole number and of a memory address, which is why a 64-bit program can address vastly more memory than a 32-bit one, whose addresses run out at about 4 GB.
+
+Fixed sizes have consequences. A number that needs more bits than it has been given does not fit, and the result is [overflow](/foundations/twos-complement/).
+
+## Key takeaways
+
+- A bit is one binary choice. n bits can represent 2ⁿ different patterns.
+- A byte is 8 bits, with 256 patterns.
+- Bits carry no meaning in themselves. The same pattern can be a number, a letter or a colour, depending on how it is read.
+- Units come in powers of ten (kB, MB) and powers of two (KiB, MiB), and the names are often confused.
