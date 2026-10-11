@@ -1,0 +1,80 @@
+---
+// Feed random items into a HyperLogLog counter and compare its estimate with the truth.
+---
+
+<hll-demo class="playground hll-demo">
+  <p class="tries" role="group" aria-label="Number of registers">
+    Registers:
+    {[16, 64, 256, 1024].map((m) => <button type="button" data-registers={m} aria-pressed={m === 64 ? 'true' : 'false'}>{m}</button>)}
+  </p>
+  <p class="tries">
+    Add distinct items:
+    {[100, 1000, 10000].map((n) => <button type="button" data-add={n}>+ {n.toLocaleString('en')}</button>)}
+    <button type="button" data-reset>Reset</button>
+  </p>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Distinct items added</dt><dd data-out="truth">0</dd></div>
+    <div><dt>Estimate</dt><dd data-out="estimate">0</dd></div>
+    <div><dt>Error</dt><dd data-out="error">none yet</dd></div>
+    <div><dt>Memory used</dt><dd data-out="memory">64 registers, about 48 bytes</dd></div>
+  </dl>
+  <div class="registers" aria-hidden="true"></div>
+</hll-demo>
+
+<script>
+  import { HyperLogLog } from '../lib/sketches';
+
+  class HllDemo extends HTMLElement {
+    connectedCallback() {
+      let bits = 6;
+      let counter = new HyperLogLog(bits);
+      let truth = 0;
+      const grid = this.querySelector('.registers')!;
+      const out = (name: string, text: string) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = text);
+
+      const render = () => {
+        const m = counter.registers.length;
+        const estimate = counter.estimate();
+        out('truth', truth.toLocaleString('en'));
+        out('estimate', estimate.toLocaleString('en'));
+        out('error', truth ? `${(((estimate - truth) / truth) * 100).toFixed(1)}%` : 'none yet');
+        out('memory', `${m} registers, about ${Math.ceil((m * 6) / 8)} bytes`);
+        grid.replaceChildren(
+          ...(m > 256 ? [] : counter.registers).map((value) => {
+            const cell = document.createElement('i');
+            cell.textContent = String(value);
+            cell.style.setProperty('--level', String(Math.min(1, value / 14)));
+            return cell;
+          }),
+        );
+        if (m > 256) grid.textContent = 'Too many registers to draw.';
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.registers) {
+          bits = Math.log2(Number(button.dataset.registers));
+          for (const b of this.querySelectorAll('[data-registers]')) {
+            b.setAttribute('aria-pressed', String(b === button));
+          }
+          // Replay the same items into a counter of the new size.
+          counter = new HyperLogLog(bits);
+          for (let i = 0; i < truth; i++) counter.add(`item-${i}`);
+        } else if (button.dataset.add) {
+          const n = Number(button.dataset.add);
+          for (let i = truth; i < truth + n; i++) counter.add(`item-${i}`);
+          truth += n;
+        } else if ('reset' in button.dataset) {
+          counter = new HyperLogLog(bits);
+          truth = 0;
+        }
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('hll-demo', HllDemo);
+</script>

@@ -1806,3 +1806,86 @@ main {
 .viz-svg .queen {
   font-size: 24px;
 }
+
+/* ---------- Probabilistic structure widgets ---------- */
+
+.bit-row.small {
+  gap: 2px;
+  margin-top: 0.8rem;
+}
+
+.bit-row.small .bit {
+  width: 1.5rem;
+  padding: 0.15rem 0;
+  border-width: 1px;
+  border-radius: 3px;
+}
+
+.bit-row.small .bit b {
+  font-size: 0.85rem;
+}
+
+.playground .bit[data-probe] {
+  outline: 2px solid var(--alt);
+  outline-offset: 1px;
+}
+
+.count-min table {
+  width: auto;
+}
+
+.count-min .counters th,
+.count-min .counters td {
+  width: 2.4rem;
+  height: 2.1rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  font: 0.9rem var(--mono);
+  text-align: center;
+}
+
+.count-min .counters th {
+  width: 4.5rem;
+  border-color: transparent;
+  color: var(--text-2);
+  font: 0.78rem var(--font);
+  text-align: left;
+}
+
+.count-min .counters td.on {
+  border-color: var(--alt);
+  background: var(--alt-soft);
+  font-weight: 700;
+}
+
+.count-min .estimates th,
+.count-min .estimates td {
+  padding: 0.3rem 1.25rem 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.88rem;
+  text-align: left;
+}
+
+.count-min .estimates th {
+  color: var(--text-2);
+  font-size: 0.78rem;
+}
+
+.hll-demo .registers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 0.9rem;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+.hll-demo .registers i {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) calc(var(--level) * 100%), var(--viz-fill));
+  color: var(--text);
+  font: 0.72rem/1.5rem var(--mono);
+  text-align: center;
+}

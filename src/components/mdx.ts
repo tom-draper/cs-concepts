@@ -2,14 +2,17 @@
 import Aside from './Aside.astro';
 import BirthdayDemo from './BirthdayDemo.astro';
 import BitsDemo from './BitsDemo.astro';
+import BloomDemo from './BloomDemo.astro';
 import BitwiseDemo from './BitwiseDemo.astro';
 import CountingDemo from './CountingDemo.astro';
+import CountMinDemo from './CountMinDemo.astro';
 import EditDistanceDemo from './EditDistanceDemo.astro';
 import FloatDemo from './FloatDemo.astro';
 import Frame from './Frame.astro';
 import GraphDemo from './GraphDemo.astro';
 import GridSearch from './GridSearch.astro';
 import HashPlayground from './HashPlayground.astro';
+import HllDemo from './HllDemo.astro';
 import Link from './Link.astro';
 import LogicDemo from './LogicDemo.astro';
 import MatchDemo from './MatchDemo.astro';
@@ -28,6 +31,7 @@ import GrowthChart from './viz/GrowthChart.astro';
 import HashTable from './viz/HashTable.astro';
 import Intervals from './viz/Intervals.astro';
 import LinkedList from './viz/LinkedList.astro';
+import SkipList from './viz/SkipList.astro';
 import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
@@ -36,6 +40,10 @@ export const components = {
   Aside,
   BirthdayDemo,
   BitsDemo,
+  BloomDemo,
+  CountMinDemo,
+  HllDemo,
+  SkipList,
   CountingDemo,
   LogicDemo,
   ModClock,

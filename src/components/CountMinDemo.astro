@@ -1,0 +1,99 @@
+---
+// A small count-min sketch: add items and compare its estimates with the true counts.
+const WIDTH = 8;
+const DEPTH = 3;
+const items = ['apple', 'pear', 'plum', 'fig', 'kiwi', 'lime', 'peach', 'mango', 'grape', 'melon'];
+---
+
+<count-min class="playground count-min" data-width={WIDTH} data-depth={DEPTH}>
+  <p class="tries">
+    Add one:
+    {items.map((item) => <button type="button" data-item={item}>{item}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-bulk>Add 50 at random</button>
+    <button type="button" data-reset>Reset</button>
+  </p>
+  <table class="counters" aria-hidden="true">
+    <tbody>
+      {
+        Array.from({ length: DEPTH }, (_, row) => (
+          <tr>
+            <th>hash {row + 1}</th>
+            {Array.from({ length: WIDTH }, () => <td>0</td>)}
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+  <table class="estimates" aria-live="polite">
+    <thead><tr><th>Item</th><th>True count</th><th>Estimate</th><th>Over by</th></tr></thead>
+    <tbody><tr><td colspan="4">Add some items to see the estimates.</td></tr></tbody>
+  </table>
+</count-min>
+
+<script>
+  import { sketchColumns } from '../lib/sketches';
+
+  class CountMin extends HTMLElement {
+    connectedCallback() {
+      const width = Number(this.dataset.width);
+      const depth = Number(this.dataset.depth);
+      const names = [...this.querySelectorAll<HTMLElement>('[data-item]')].map((b) => b.dataset.item!);
+      const cells = [...this.querySelectorAll('.counters tr')].map((tr) => [...tr.querySelectorAll('td')]);
+      const body = this.querySelector('.estimates tbody')!;
+      let counters = Array.from({ length: depth }, () => new Array(width).fill(0));
+      let truth = new Map<string, number>();
+      let last: number[] = [];
+
+      const add = (item: string) => {
+        last = sketchColumns(item, width, depth);
+        last.forEach((col, row) => counters[row][col]++);
+        truth.set(item, (truth.get(item) ?? 0) + 1);
+      };
+      const render = () => {
+        cells.forEach((row, r) =>
+          row.forEach((cell, c) => {
+            cell.textContent = String(counters[r][c]);
+            cell.classList.toggle('on', last[r] === c);
+          }),
+        );
+        const rows = [...truth].sort((a, b) => b[1] - a[1]);
+        if (!rows.length) return;
+        body.replaceChildren(
+          ...rows.map(([item, count]) => {
+            const estimate = Math.min(...sketchColumns(item, width, depth).map((col, row) => counters[row][col]));
+            const tr = document.createElement('tr');
+            for (const text of [item, count, estimate, estimate - count || 'exact']) {
+              tr.appendChild(document.createElement('td')).textContent = String(text);
+            }
+            return tr;
+          }),
+        );
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.item) add(button.dataset.item);
+        else if ('bulk' in button.dataset) {
+          // Skewed on purpose: the first few items are far more common.
+          for (let i = 0; i < 50; i++) add(names[Math.floor(Math.random() ** 2.5 * names.length)]);
+          last = [];
+        } else if ('reset' in button.dataset) {
+          counters = counters.map((row) => row.map(() => 0));
+          truth = new Map();
+          last = [];
+          const tr = document.createElement('tr');
+          const td = tr.appendChild(document.createElement('td'));
+          td.colSpan = 4;
+          td.textContent = 'Add some items to see the estimates.';
+          body.replaceChildren(tr);
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('count-min', CountMin);
+</script>
