@@ -1,0 +1,143 @@
+---
+description: Find a value in sorted data by repeatedly halving the range it could be in. Twenty steps is enough for a million items.
+difficulty: beginner
+---
+
+Think of a number between 1 and 100, and let someone guess it while you answer "higher" or "lower". A good guesser never starts at 1 and counts up. They say 50, then 25 or 75, and have it within seven guesses. That strategy is binary search.
+
+It needs one thing: the data must be **sorted**. Sorted order is what lets a single comparison rule out half of what remains.
+
+## How it works
+
+Keep two markers, `lo` and `hi`, around the part of the array that could still contain the target. Look at the middle element, `mid`:
+
+- If it is the target, you are done.
+- If it is too small, the target can only be to the right. Move `lo` past `mid`.
+- If it is too big, the target can only be to the left. Move `hi` before `mid`.
+
+Here is a search for **23** in a sorted array of ten numbers.
+
+<Steps>
+<Step title="Look at the middle: 16 is too small">
+
+Everything from index 0 to 4 is at most 16, so none of it can be 23.
+
+<ArrayViz
+  values={[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]}
+  highlight={[4]}
+  pointers={{ lo: 0, mid: 4, hi: 9 }}
+/>
+
+</Step>
+<Step title="Middle of what is left: 56 is too big">
+
+Five candidates remain. This comparison rules out 56 and everything after it.
+
+<ArrayViz
+  values={[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]}
+  highlight={[7]}
+  dim={[0, 1, 2, 3, 4]}
+  pointers={{ lo: 5, mid: 7, hi: 9 }}
+/>
+
+</Step>
+<Step title="Two candidates left: found it">
+
+`lo` and `mid` now point at the same element, and it is 23.
+
+<ArrayViz
+  values={[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]}
+  alt={[5]}
+  dim={[0, 1, 2, 3, 4, 7, 8, 9]}
+  pointers={{ lo: 5, mid: 5, hi: 6 }}
+/>
+
+</Step>
+</Steps>
+
+Three comparisons instead of the six a left-to-right scan would need. The gap widens quickly as the array grows.
+
+## Why it is O(log n)
+
+Each comparison halves the candidates. So the question "how many steps?" is really "how many times can you halve n before reaching 1?" The answer is log₂ n.
+
+| Items | Worst-case comparisons |
+| --- | --- |
+| 100 | 7 |
+| 1,000 | 10 |
+| 1,000,000 | 20 |
+| 1,000,000,000 | 30 |
+
+Doubling the data adds **one** step. See [Big-O notation](/foundations/big-o-notation/) for how this compares with other growth rates.
+
+<Ops
+  items={[
+    ['Search', 'O(log n)'],
+    ['Extra memory', 'O(1)'],
+    ['Linear scan, for comparison', 'O(n)'],
+  ]}
+/>
+
+## The code
+
+```python
+def binary_search(items, target):
+    lo, hi = 0, len(items) - 1
+    while lo <= hi:
+        mid = lo + (hi - lo) // 2
+        if items[mid] == target:
+            return mid
+        if items[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid - 1
+    return -1   # lo passed hi: the target is not here
+```
+
+It is ten lines, and famously easy to get wrong. Three details matter.
+
+**`lo <= hi`, not `lo < hi`.** When `lo == hi` there is still one candidate left to check. Stop early and you miss it.
+
+**`mid + 1` and `mid - 1`, not `mid`.** You have already checked `mid`, so exclude it. If you write `lo = mid`, a two-element range can stop shrinking and the loop never ends.
+
+**`lo + (hi - lo) // 2`, not `(lo + hi) // 2`.** The two are mathematically equal, but in languages with fixed-size integers `lo + hi` can overflow on a very large array. This exact bug sat in Java's standard library for about nine years before it was noticed.
+
+<Aside type="warning" title="Unsorted input fails silently">
+
+Binary search on unsorted data does not crash. It confidently returns "not found" for values that are there, because it threw away the half that contained them. If you cannot guarantee the order, sort first or use a linear scan.
+
+</Aside>
+
+## Finding a position instead of a match
+
+Often the more useful question is not "is 23 here?" but "where would 23 go?" A small change makes binary search return the first index whose value is not less than the target, known as the **lower bound**.
+
+```python
+def lower_bound(items, target):
+    lo, hi = 0, len(items)
+    while lo < hi:
+        mid = lo + (hi - lo) // 2
+        if items[mid] < target:
+            lo = mid + 1
+        else:
+            hi = mid
+    return lo
+```
+
+This one function answers a family of questions: the first occurrence among duplicates, the insertion point that keeps the array sorted, how many elements are smaller than a value, and (called twice) every element in a range. It is what Python's `bisect_left` and C++'s `std::lower_bound` do.
+
+## Beyond arrays
+
+The idea is more general than "search a sorted array". It works whenever a yes/no question flips from "no" to "yes" exactly once as you move along a range.
+
+- **`git bisect`** finds the commit that introduced a bug by binary searching history: is the bug present at this commit?
+- **Database indexes** search within each node of a [B-tree](/data-structures/b-trees/) this way.
+- **A [binary search tree](/data-structures/binary-search-trees/)** is binary search turned into a data structure, so that inserting does not require shifting an array.
+- **Optimisation problems**, such as "what is the smallest server count that handles this load?", can search the answer space directly if you can test whether a given answer is enough.
+
+## Key takeaways
+
+- Binary search needs sorted data, and repays it with O(log n) lookups.
+- Every comparison discards half of the remaining candidates.
+- The loop boundaries are where the bugs live: `lo <= hi`, and always move past `mid`.
+- The lower-bound variant is the more general tool, and the halving idea applies well beyond arrays.
