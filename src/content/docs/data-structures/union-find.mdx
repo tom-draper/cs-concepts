@@ -1,0 +1,163 @@
+---
+description: A structure that tracks which items belong to the same group as groups are merged, answering "are these two connected?" in almost constant time.
+difficulty: intermediate
+---
+
+Imagine building a network one cable at a time, and being asked along the way: "can computer A reach computer B yet?" Re-exploring the network for every question would be slow. Union-find, also called a **disjoint-set** structure, is designed for exactly this. It keeps track of a collection of groups and supports two operations:
+
+- **find(x)**: which group is x in?
+- **union(a, b)**: merge the groups containing a and b.
+
+Two items are connected if `find` gives the same answer for both.
+
+## The representation
+
+Each group is stored as a tree, but an unusual one: every item points **up** to a parent rather than down to children. The item at the top, which points to itself, is the group's **representative**. `find(x)` follows parent pointers from x until it reaches the top.
+
+The whole structure is a single array, `parent`, where `parent[x]` is x's parent.
+
+<Tree
+  roots={[{ k: 0, c: [1, { k: 2, c: [3] }] }, { k: 4, c: [5] }]}
+  caption="Two groups: {0, 1, 2, 3} with representative 0, and {4, 5} with representative 4. Every edge points upward."
+/>
+
+<ArrayViz
+  values={[0, 0, 0, 2, 4, 4]}
+  highlight={[0, 4]}
+  caption="The same forest as a parent array. Items 0 and 4 are their own parents, which marks them as representatives."
+/>
+
+To ask whether 3 and 1 are connected: `find(3)` climbs 3 → 2 → 0, and `find(1)` climbs 1 → 0. Both reach 0, so yes.
+
+## Union
+
+To merge two groups, find both representatives and make one the parent of the other. That is a single pointer change, however large the groups are.
+
+Step through six items being joined:
+
+<Player>
+<Frame caption="Six items, each in a group of its own. Every item is its own representative.">
+<Tree roots={[0, 1, 2, 3, 4, 5]} />
+</Frame>
+<Frame caption="<code>union(0, 1)</code>: 1 now points to 0.">
+<Tree roots={[{ k: 0, c: [1] }, 2, 3, 4, 5]} alt={[1]} highlight={[0]} />
+</Frame>
+<Frame caption="<code>union(2, 3)</code>: 3 now points to 2.">
+<Tree roots={[{ k: 0, c: [1] }, { k: 2, c: [3] }, 4, 5]} alt={[3]} highlight={[2]} />
+</Frame>
+<Frame caption="<code>union(1, 3)</code>: the representatives are 0 and 2, so one tree is attached beneath the other. All four are now connected.">
+<Tree roots={[{ k: 0, c: [1, { k: 2, c: [3] }] }, 4, 5]} alt={[2]} highlight={[0]} />
+</Frame>
+<Frame caption="<code>union(4, 5)</code>: 5 now points to 4.">
+<Tree roots={[{ k: 0, c: [1, { k: 2, c: [3] }] }, { k: 4, c: [5] }]} alt={[5]} highlight={[4]} />
+</Frame>
+<Frame caption="<code>union(5, 3)</code>: the representatives are 4 and 0. The smaller tree goes under the larger. Everything is one group.">
+<Tree roots={[{ k: 0, c: [1, { k: 2, c: [3] }, { k: 4, c: [5] }] }]} alt={[4]} highlight={[0]} />
+</Frame>
+</Player>
+
+Notice that `union(1, 3)` did not link 1 to 3 directly. It linked their *representatives*. The structure does not remember which pairs were joined, only which groups result.
+
+## The problem, and two fixes
+
+`find` costs as much as the tree is tall. Done carelessly, unions can build a tall, thin tree, and `find` degrades to O(n):
+
+<Tree
+  root={{ k: 0, c: [{ k: 1, c: [{ k: 2, c: [{ k: 3, c: [4] }] }] }] }}
+  caption="A valid but badly shaped group. find(4) has to climb four links."
+/>
+
+Two simple optimisations prevent this. Used together, they make the structure astonishingly fast.
+
+### Union by size
+
+When merging, always attach the **smaller** tree beneath the representative of the **larger** one. An item's depth only increases when its tree is the smaller one in a merge, which means its group at least doubles in size. A group can only double log₂ n times, so no tree can be taller than log₂ n.
+
+The last step of the walkthrough did this: the two-item tree went under the four-item tree, not the other way round.
+
+### Path compression
+
+`find` has to walk up to the representative anyway. On the way, it can re-point every item it passes **directly at the representative**, so the next lookup for any of them takes one step.
+
+<Steps>
+<Step title="Before: find(3) climbs three links to reach 0">
+
+<Tree root={{ k: 0, c: [{ k: 1, c: [{ k: 2, c: [3] }] }] }} alt={[3]} highlight={[0, 1, 2]} />
+
+</Step>
+<Step title="After: everything on that path points straight at 0">
+
+The tree flattens itself as a side effect of being used.
+
+<Tree root={{ k: 0, c: [1, 2, 3] }} alt={[3]} highlight={[0]} />
+
+</Step>
+</Steps>
+
+## The code
+
+```python
+class UnionFind:
+    def __init__(self, n):
+        self.parent = list(range(n))    # everyone starts as their own parent
+        self.size = [1] * n
+
+    def find(self, x):
+        root = x
+        while self.parent[root] != root:
+            root = self.parent[root]
+        while self.parent[x] != root:   # path compression
+            self.parent[x], x = root, self.parent[x]
+        return root
+
+    def union(self, a, b):
+        a, b = self.find(a), self.find(b)
+        if a == b:
+            return False                # already in the same group
+        if self.size[a] < self.size[b]:
+            a, b = b, a
+        self.parent[b] = a              # smaller tree goes under larger
+        self.size[a] += self.size[b]
+        return True
+
+    def connected(self, a, b):
+        return self.find(a) == self.find(b)
+```
+
+`union` returning `False` when the two were already connected turns out to be useful: it is how the structure detects a cycle.
+
+## How fast?
+
+<Ops
+  items={[
+    ['find', 'O(α(n))', 'amortized'],
+    ['union', 'O(α(n))', 'amortized'],
+    ['Memory', 'O(n)'],
+  ]}
+/>
+
+With both optimisations, the [amortized](/foundations/amortized-analysis/) cost per operation is O(α(n)), where α is the **inverse Ackermann function**. It grows so slowly that for any n that could exist in the physical universe, α(n) is at most 4.
+
+So it is not *technically* constant, but for every practical purpose each operation takes a handful of steps. It has been proved that no structure for this problem can do better.
+
+## What it cannot do
+
+- **Split a group.** There is no "un-union". Merges are permanent, and removing a connection requires a different structure or rebuilding.
+- **List a group's members.** Pointers only go upward, so the representative does not know who is beneath it. Track membership separately if you need it.
+- **Find a path.** It knows *that* two items are connected, not *how*. For the route, use a graph search such as [breadth-first search](/algorithms/breadth-first-search/).
+
+## Where it shows up
+
+- **[Kruskal's algorithm](/algorithms/minimum-spanning-trees/)** for minimum spanning trees. Take edges from cheapest to most expensive, and add each one unless its endpoints are already connected. That check is `union` returning `False`.
+- **Cycle detection** in an undirected graph: an edge between two already-connected vertices closes a cycle.
+- **Connected components**, particularly when edges arrive over time: network connectivity, friend groups, clusters.
+- **Image processing.** Labelling connected regions of pixels in one pass.
+- **Compilers.** Type inference merges types that must be equal, and uses union-find to do it.
+
+## Key takeaways
+
+- Union-find tracks a set of groups under merging, answering "same group?" almost instantly.
+- Each group is a tree of upward pointers stored in one array; the root is the group's representative.
+- Union by size keeps trees shallow, and path compression flattens them further every time they are used.
+- Together they give O(α(n)) amortized per operation, which is effectively constant.
+- It can merge but never split, and it knows that items are connected, not by what path.
