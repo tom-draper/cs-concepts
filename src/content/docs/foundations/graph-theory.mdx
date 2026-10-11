@@ -1,0 +1,147 @@
+---
+description: The study of things and the connections between them. A small vocabulary of vertices, edges, paths and cycles describes road maps, social networks, the web and software dependencies alike.
+difficulty: intermediate
+---
+
+A **graph** is a set of things, called **vertices** (or nodes), together with a set of connections between them, called **edges**. That is the whole definition.
+
+Its power is in how much fits that description. Cities and roads. People and friendships. Web pages and links. Tasks and their dependencies. Once a problem is recognised as a graph, a large body of ready-made [algorithms](/algorithms/breadth-first-search/) applies to it.
+
+This page covers the vocabulary. For how to store a graph in memory, see [graph representations](/data-structures/graph-representations/).
+
+## The basic picture
+
+<Graph
+  nodes={{ A: [0, 0.5], B: [1, 0], C: [1, 1], D: [2, 0], E: [3, 0] }}
+  edges={[['A', 'B'], ['A', 'C'], ['B', 'C'], ['B', 'D'], ['D', 'E']]}
+  highlight={['B']}
+  caption="Five vertices and five edges. B has three edges, so its degree is 3."
+/>
+
+- Two vertices joined by an edge are **adjacent**, or **neighbours**.
+- The **degree** of a vertex is the number of edges at it.
+- Where the vertices are drawn does not matter. Only which ones are connected does.
+
+### A first theorem
+
+Add up the degrees of every vertex and you always get **twice the number of edges**, because each edge contributes to the degree of both its ends. Above, the degrees are 2, 3, 2, 2 and 1, which sum to 10, and there are 5 edges.
+
+One consequence: the number of vertices with odd degree is always even. This is called the *handshake lemma*, since at any gathering the number of people who shake an odd number of hands must be even.
+
+## Kinds of graph
+
+**Directed or undirected.** In an undirected graph an edge works both ways, like a friendship. In a **directed** graph each edge has a direction, like a one-way street or "follows" on social media. A directed vertex has an *in-degree* and an *out-degree*.
+
+**Weighted or unweighted.** A **weighted** graph attaches a number to each edge: a distance, a cost, a capacity.
+
+<Graph
+  directed
+  nodes={{ A: [0, 0.5], B: [1.2, 0], C: [1.2, 1], D: [2.4, 0.5] }}
+  edges={[['A', 'B', 4], ['A', 'C', 1], ['C', 'B', 2], ['B', 'D', 5]]}
+  caption="A directed, weighted graph."
+/>
+
+**Sparse or dense.** A graph with n vertices can have at most n(n − 1)/2 edges, which is the **complete graph** where everything is connected to everything. A *dense* graph has close to that many; a *sparse* one has far fewer. Almost every large real-world graph is sparse.
+
+## Paths, cycles and connectivity
+
+- A **path** is a sequence of vertices in which each is adjacent to the next. Its **length** is the number of edges.
+- A **cycle** is a path that returns to where it started.
+- A graph is **connected** if there is a path between every pair of vertices. Otherwise it falls into separate **connected components**.
+- A graph with no cycles is **acyclic**.
+
+<Graph
+  nodes={{ A: [0, 0.5], B: [1, 0], C: [1, 1], D: [2, 0], E: [3, 0] }}
+  edges={[['A', 'B'], ['A', 'C'], ['B', 'C'], ['B', 'D'], ['D', 'E']]}
+  path={[['A', 'C'], ['C', 'B'], ['B', 'D'], ['D', 'E']]}
+  highlight={['A', 'E']}
+  caption="A path of length 4 from A to E. It is not the shortest: A, B, D, E has length 3. The edges A–B, B–C, C–A form a cycle."
+/>
+
+Finding paths is the most common thing done with graphs. [Breadth-first search](/algorithms/breadth-first-search/) finds the shortest path by number of edges, and [Dijkstra's algorithm](/algorithms/dijkstras-algorithm/) finds the cheapest when edges have weights.
+
+## Special graphs
+
+### Trees
+
+A **tree** is a connected graph with no cycles.
+
+<Graph
+  nodes={{ A: [1.5, 0], B: [0.5, 1], C: [2.5, 1], D: [0, 2], E: [1, 2], F: [2.5, 2] }}
+  edges={[['A', 'B'], ['A', 'C'], ['B', 'D'], ['B', 'E'], ['C', 'F']]}
+  caption="A tree with 6 vertices and 5 edges."
+/>
+
+These statements all describe the same thing:
+
+- It is connected and has no cycles.
+- There is **exactly one path** between any two vertices.
+- It is connected and has exactly **n − 1 edges**.
+- Removing any edge disconnects it; adding any edge creates a cycle.
+
+A tree is the cheapest possible way to keep n things connected. The trees used as data structures, such as [binary trees](/data-structures/binary-trees/), are trees in this sense with one vertex singled out as the root. A [minimum spanning tree](/algorithms/minimum-spanning-trees/) is the cheapest tree connecting all the vertices of a weighted graph.
+
+### Directed acyclic graphs
+
+A **DAG** is a directed graph with no cycles. It is the natural shape of anything involving dependencies or precedence: build steps, course prerequisites, spreadsheet formulas, the commit history in Git. Because there are no cycles, the vertices can always be lined up so that every edge points forwards, which is a [topological sort](/algorithms/topological-sort/).
+
+### Bipartite graphs
+
+A graph is **bipartite** if its vertices can be split into two groups so that every edge goes from one group to the other, never within a group.
+
+<Graph
+  nodes={{ Ana: [0, 0], Ben: [0, 1], Cy: [0, 2], Java: [2.4, 0.5], Rust: [2.4, 1.5] }}
+  edges={[['Ana', 'Java'], ['Ben', 'Java'], ['Ben', 'Rust'], ['Cy', 'Rust']]}
+  caption="People and the languages they know. Every edge joins a person to a language."
+/>
+
+They model relationships between two different kinds of thing: applicants and jobs, students and courses, users and the films they have watched. A graph is bipartite exactly when it has no cycle of odd length.
+
+## Two classic problems
+
+Graph theory began in 1736, when Leonhard Euler was asked about the city of Königsberg. It had seven bridges joining two river banks and two islands. Could you take a walk crossing every bridge exactly once?
+
+Euler drew the land masses as vertices and the bridges as edges, and showed it was impossible. A walk that uses every edge once must enter and leave each vertex in pairs, so at most two vertices (the start and the end) may have odd degree. In Königsberg all four did.
+
+That gives a simple test for an **Eulerian path**, one that uses every *edge* once: count the vertices of odd degree.
+
+Now change one word. A **Hamiltonian path** visits every *vertex* exactly once. It sounds almost the same. Yet nobody knows an efficient way to decide whether one exists, and the problem is [NP-complete](/theory/np-completeness/). The travelling salesman problem is its weighted cousin.
+
+| | Uses each | Efficient test? |
+| --- | --- | --- |
+| Eulerian path | edge once | yes: count odd-degree vertices |
+| Hamiltonian path | vertex once | none known |
+
+Graph theory is full of pairs like this, where a small change in the question moves it from easy to intractable.
+
+## Colouring
+
+A **colouring** assigns a colour to each vertex so that no two adjacent vertices share one. The question is how few colours are needed.
+
+It models any problem of assigning limited resources to things that conflict.
+
+- **Scheduling.** Exams are vertices, with an edge between two exams that share a student. Colours are time slots.
+- **Compilers.** Variables are vertices, with an edge between two that are in use at the same time. Colours are processor registers.
+- **Maps.** Any map can be coloured with four colours so that no neighbouring regions match. This is the four colour theorem, proved in 1976 with the help of a computer.
+
+A graph is bipartite exactly when it can be coloured with two colours. Deciding whether three are enough is already NP-complete.
+
+## What graphs model
+
+| Graph | Vertices | Edges |
+| --- | --- | --- |
+| Road network | junctions | roads, weighted by distance or time |
+| Social network | people | friendships or follows |
+| The web | pages | links |
+| The internet | routers | cables |
+| Dependencies | packages or tasks | "requires" |
+| State machine | states | transitions |
+| Program | functions | calls |
+
+## Key takeaways
+
+- A graph is a set of vertices and a set of edges between them.
+- Graphs can be directed or undirected, weighted or unweighted, sparse or dense.
+- The degrees of all vertices sum to twice the number of edges.
+- A tree is a connected graph with no cycles, and always has n − 1 edges. A DAG is a directed graph with no cycles.
+- Similar-sounding graph problems can differ enormously in difficulty.
