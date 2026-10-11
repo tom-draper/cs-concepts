@@ -1,0 +1,126 @@
+---
+description: The groups of vertices in a directed graph where every vertex can reach every other. Finding them reveals the cycles in a graph and reduces it to a simpler, cycle-free skeleton.
+difficulty: advanced
+---
+
+In an undirected graph, "connected" is simple: two vertices are connected if there is a path between them. In a **directed** graph it is subtler, because being able to get from A to B does not mean you can get back.
+
+Two vertices are **strongly connected** if each can reach the other. A **strongly connected component** (SCC) is a largest possible group of vertices that are all strongly connected to one another.
+
+## The picture
+
+<Graph
+  directed
+  nodes={{ A: [0, 0], B: [1.2, 0], C: [0.6, 1], D: [2.6, 0], E: [3.8, 0], F: [3.2, 1], G: [5, 0.5] }}
+  edges={[['A', 'B'], ['B', 'C'], ['C', 'A'], ['B', 'D'], ['D', 'E'], ['E', 'F'], ['F', 'D'], ['E', 'G']]}
+  highlight={['A', 'B', 'C']}
+  alt={['D', 'E', 'F']}
+  caption="Three components: A, B, C; then D, E, F; then G alone. Within a component you can get from anywhere to anywhere."
+/>
+
+A, B and C form a cycle, so each can reach the other two. The same is true of D, E and F. But the edge from B to D is one-way: nothing in the second group can get back to the first. And G can be reached but leads nowhere, so it is a component of one.
+
+Every vertex belongs to exactly one component. Being strongly connected is an [equivalence relation](/foundations/sets-and-relations/#equivalence-relations), and the components are its classes.
+
+A useful way to think about it: **a component with more than one vertex is a tangle of cycles**. A directed graph has no cycles at all exactly when every component is a single vertex.
+
+## Collapsing the graph
+
+Shrink each component to a single vertex. What is left is called the **condensation** of the graph.
+
+<Graph
+  directed
+  nodes={{ ABC: [0, 0], DEF: [1.8, 0], G: [3.4, 0] }}
+  edges={[['ABC', 'DEF'], ['DEF', 'G']]}
+  caption="The condensation. Each component has become one vertex."
+/>
+
+The condensation is always a **DAG**, a directed graph with no cycles. If it had a cycle, the components on that cycle could all reach one another and would have been a single component.
+
+This is why SCCs matter. They split any directed graph into two layers: tangled groups, and a clean cycle-free structure connecting those groups. Many problems that are awkward on a graph with cycles become easy once the cycles are collapsed, because a DAG can be [topologically sorted](/algorithms/topological-sort/) and processed in order.
+
+## Finding them: Kosaraju's algorithm
+
+There are two classic linear-time algorithms. Kosaraju's is the easier one to understand. It uses two [depth-first searches](/algorithms/depth-first-search/).
+
+1. Run a DFS over the whole graph, recording each vertex at the moment it **finishes** (when everything reachable from it has been explored).
+2. **Reverse** every edge in the graph.
+3. Take the vertices in reverse order of finishing, latest first. From each one not yet assigned, run a DFS on the reversed graph. Everything that search reaches is one component.
+
+```python
+def strongly_connected_components(graph):
+    order, seen = [], set()
+
+    def visit(node):                    # pass 1: record finishing order
+        seen.add(node)
+        for nxt in graph[node]:
+            if nxt not in seen:
+                visit(nxt)
+        order.append(node)
+
+    for node in graph:
+        if node not in seen:
+            visit(node)
+
+    reverse = {node: [] for node in graph}
+    for node in graph:
+        for nxt in graph[node]:
+            reverse[nxt].append(node)
+
+    components, assigned = [], set()
+
+    def collect(node, component):       # pass 2: search the reversed graph
+        assigned.add(node)
+        component.append(node)
+        for nxt in reverse[node]:
+            if nxt not in assigned:
+                collect(nxt, component)
+
+    for node in reversed(order):
+        if node not in assigned:
+            component = []
+            collect(node, component)
+            components.append(component)
+    return components
+```
+
+### Why it works
+
+Two observations do the job.
+
+**Reversing the edges does not change the components.** If A and B can reach each other, they still can when every arrow is flipped.
+
+**The first pass finds a safe place to start.** The vertex that finishes *last* must lie in a component with no edges coming into it from other components, a "source" of the condensation. In the reversed graph that component has no edges *leaving* it. So a search started there cannot escape, and collects exactly that component. Remove it, and the same argument applies to what remains.
+
+In the example, a first pass starting at A finishes C first, then F, G, E and D, then B, and A last. The second pass starts from A on the reversed graph and collects A, C and B, unable to follow the reversed B → D edge because it now points the wrong way. Then from D it collects D, F and E. Then G.
+
+## Tarjan's algorithm
+
+Tarjan's algorithm finds the same components in a **single** depth-first search, without reversing the graph. It keeps a stack of the vertices on the current search path and tracks, for each vertex, the earliest vertex on the stack it can get back to. When a vertex turns out not to reach anything earlier than itself, it is the root of a component, and everything above it on the stack belongs to that component.
+
+It is harder to follow and about twice as fast in practice, and it is the one usually found in libraries.
+
+<Ops
+  items={[
+    ['Kosaraju', 'O(V + E)', 'two passes'],
+    ['Tarjan', 'O(V + E)', 'one pass'],
+    ['Memory', 'O(V)'],
+  ]}
+/>
+
+## Where it shows up
+
+- **Dependency cycles.** Modules that import each other in a loop form a component. Build tools and compilers find these to report circular dependencies, or to compile mutually dependent pieces as a unit. Once collapsed, the rest can be built in topological order.
+- **Compilers and program analysis.** The functions that call each other recursively are the components of the call graph. Analysing a program one component at a time, in dependency order, is a standard technique.
+- **The 2-SAT problem.** Deciding whether a logical formula with two options per clause can be satisfied reduces to computing SCCs, giving a linear-time solution to a problem whose three-option version is [NP-complete](/theory/np-completeness/).
+- **The structure of the web.** A famous study found that the web's link graph has one giant strongly connected core, with large regions that link into it and large regions that it links out to.
+- **Deadlock detection.** Processes waiting on each other in a cycle form a component in the "waits for" graph.
+- **Model checking.** Verifying that a system can always make progress involves searching its state graph for components with particular properties.
+
+## Key takeaways
+
+- A strongly connected component is a largest group of vertices in a directed graph that can all reach one another.
+- Collapsing each component to one vertex always gives a DAG.
+- Components with more than one vertex are where the cycles are.
+- Kosaraju's algorithm uses two depth-first searches, the second on the reversed graph in reverse finishing order.
+- Tarjan's algorithm does it in one pass. Both are O(V + E).
