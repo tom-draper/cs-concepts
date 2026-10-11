@@ -1,0 +1,71 @@
+---
+// Type a number and see the 32 bits a single-precision float stores for it.
+import { floatParts } from '../lib/bits';
+
+const initial = '0.1';
+const parts = floatParts(Number(initial));
+const groups = [
+  { name: 'sign', from: 0, to: 1 },
+  { name: 'exponent', from: 1, to: 9 },
+  { name: 'fraction', from: 9, to: 32 },
+];
+---
+
+<float-demo class="playground float-demo">
+  <label>
+    <span>Number</span>
+    <input type="text" inputmode="decimal" value={initial} maxlength="24" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries">
+    Try:
+    {['0.1', '0.5', '1', '-2.5', '16777217', '1e39', '0'].map((n) => <button type="button" data-key={n}>{n}</button>)}
+  </p>
+  <div class="float-bits" aria-hidden="true">
+    {
+      groups.map((group) => (
+        <div class={`float-group ${group.name}`}>
+          <span class="cells">
+            {[...parts.bits.slice(group.from, group.to)].map((bit) => <i>{bit}</i>)}
+          </span>
+          <small>{group.name}</small>
+        </div>
+      ))
+    }
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Sign</dt><dd data-out="sign">{parts.sign}</dd></div>
+    <div><dt>Exponent</dt><dd data-out="exponent">{parts.exponent}</dd></div>
+    <div><dt>Kind</dt><dd data-out="kind">{parts.kind}</dd></div>
+    <div><dt>Actually stored</dt><dd data-out="stored">{parts.stored}</dd></div>
+    <div><dt>Error</dt><dd data-out="error">{parts.error}</dd></div>
+  </dl>
+</float-demo>
+
+<script>
+  import { floatParts } from '../lib/bits';
+
+  class FloatDemo extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const cells = [...this.querySelectorAll('.cells i')];
+      const update = () => {
+        const text = input.value.trim();
+        const parts = floatParts(text === '' ? NaN : Number(text));
+        cells.forEach((cell, i) => (cell.textContent = parts.bits[i]));
+        for (const [name, value] of Object.entries(parts)) {
+          const out = this.querySelector(`[data-out="${name}"]`);
+          if (out) out.textContent = value;
+        }
+      };
+      input.addEventListener('input', update);
+      this.addEventListener('click', (event) => {
+        const key = (event.target as HTMLElement).closest('button')?.dataset.key;
+        if (key === undefined) return;
+        input.value = key;
+        update();
+      });
+    }
+  }
+
+  customElements.define('float-demo', FloatDemo);
+</script>

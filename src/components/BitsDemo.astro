@@ -1,0 +1,90 @@
+---
+// A row of bits you can flip, with the number they represent.
+import { toSigned } from '../lib/bits';
+
+interface Props {
+  value?: number;
+  bits?: number;
+  /** Also read the pattern as a two's complement number. */
+  signed?: boolean;
+  /** Show buttons to add and subtract one, to watch it wrap around. */
+  step?: boolean;
+}
+
+const { value = 65, bits = 8, signed = false, step = false } = Astro.props;
+const weights = Array.from({ length: bits }, (_, i) => 2 ** (bits - 1 - i));
+const pattern = value.toString(2).padStart(bits, '0');
+const printable = value >= 32 && value <= 126;
+---
+
+<bits-demo class="playground bits-demo" data-bits={bits} data-value={value}>
+  <div class="bit-row" role="group" aria-label="Bits. Press one to flip it.">
+    {
+      weights.map((weight, i) => (
+        <button type="button" class="bit" data-weight={weight} aria-pressed={pattern[i] === '1' ? 'true' : 'false'}>
+          <small>{signed && i === 0 ? `−${weight}` : weight}</small>
+          <b>{pattern[i]}</b>
+        </button>
+      ))
+    }
+  </div>
+  <dl class="readouts">
+    <div><dt>{signed ? 'Unsigned' : 'Decimal'}</dt><dd data-out="unsigned">{value}</dd></div>
+    {signed && <div><dt>Signed</dt><dd data-out="signed">{toSigned(value, bits)}</dd></div>}
+    <div><dt>Hex</dt><dd data-out="hex">0x{value.toString(16).toUpperCase().padStart(bits / 4, '0')}</dd></div>
+    {!signed && bits === 8 && <div><dt>As text</dt><dd data-out="char">{printable ? String.fromCharCode(value) : '—'}</dd></div>}
+  </dl>
+  {
+    step && (
+      <p class="tries">
+        <button type="button" data-add="-1">− 1</button>
+        <button type="button" data-add="1">+ 1</button>
+        <button type="button" data-set="0">Clear</button>
+      </p>
+    )
+  }
+</bits-demo>
+
+<script>
+  import { toSigned } from '../lib/bits';
+
+  class BitsDemo extends HTMLElement {
+    connectedCallback() {
+      const bits = Number(this.dataset.bits);
+      const size = 2 ** bits;
+      const cells = [...this.querySelectorAll<HTMLButtonElement>('.bit')];
+      let value = Number(this.dataset.value);
+      const out = (name: string, text: string) => {
+        const el = this.querySelector(`[data-out="${name}"]`);
+        if (el) el.textContent = text;
+      };
+      const render = () => {
+        for (const cell of cells) {
+          const on = Math.floor(value / Number(cell.dataset.weight)) % 2 === 1;
+          cell.setAttribute('aria-pressed', String(on));
+          cell.querySelector('b')!.textContent = on ? '1' : '0';
+        }
+        out('unsigned', String(value));
+        out('signed', String(toSigned(value, bits)));
+        out('hex', '0x' + value.toString(16).toUpperCase().padStart(bits / 4, '0'));
+        out('char', value >= 32 && value <= 126 ? String.fromCharCode(value) : '—');
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.weight) {
+          const weight = Number(button.dataset.weight);
+          value += button.getAttribute('aria-pressed') === 'true' ? -weight : weight;
+        } else if (button.dataset.add) {
+          // Wrap around at both ends, as fixed-width arithmetic does.
+          value = (value + Number(button.dataset.add) + size) % size;
+        } else if (button.dataset.set) {
+          value = Number(button.dataset.set);
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('bits-demo', BitsDemo);
+</script>
