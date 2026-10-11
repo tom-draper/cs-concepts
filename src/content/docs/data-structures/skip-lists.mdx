@@ -1,0 +1,153 @@
+---
+description: A sorted linked list with extra layers of shortcut pointers, chosen at random. It gives the speed of a balanced tree with far simpler code.
+difficulty: intermediate
+---
+
+A sorted [linked list](/data-structures/linked-lists/) is easy to insert into and slow to search: finding anything means walking from the front, O(n). A [balanced tree](/data-structures/avl-trees/) searches in O(log n), but keeping it balanced takes intricate rotation logic.
+
+A skip list gets tree-like speed out of a linked list by adding **express lanes**, and it stays balanced by flipping coins.
+
+## The idea
+
+Start with an ordinary sorted linked list. Add a second list above it that includes only some of the nodes, so it skips over the rest. Add a third above that, skipping more. To search, travel along the top lane as far as you can, then drop down a level and continue.
+
+<SkipList
+  nodes={[[3, 1], [6, 2], [7, 1], [9, 3], [12, 1], [17, 2], [19, 1], [21, 1], [25, 3], [26, 1]]}
+  caption="Ten keys on three levels. Every key is in the bottom list. A taller tower appears in more lanes."
+/>
+
+Each key is a **tower** of one or more nodes. The bottom level is the complete sorted list. Each level up is a sparser version of the one below.
+
+## Searching
+
+Start at the top-left. At each step, look at the next node on the current level.
+
+- If it is **not past** the target, move forward to it.
+- If it **is** past the target (or the lane has ended), **drop down** one level.
+
+Here is the search for **19**.
+
+<Player>
+<Frame caption="Start at the head, on the top level. The next node is 9, which is not past 19. Move to it.">
+<SkipList nodes={[[3, 1], [6, 2], [7, 1], [9, 3], [12, 1], [17, 2], [19, 1], [21, 1], [25, 3], [26, 1]]} path={[[-1, 2], [9, 2]]} />
+</Frame>
+<Frame caption="From 9, the next node on the top level is 25. That is past 19, so drop down a level.">
+<SkipList nodes={[[3, 1], [6, 2], [7, 1], [9, 3], [12, 1], [17, 2], [19, 1], [21, 1], [25, 3], [26, 1]]} path={[[-1, 2], [9, 2], [9, 1]]} />
+</Frame>
+<Frame caption="On the middle level the next node is 17. Move to it. After 17 comes 25, which is past, so drop down again.">
+<SkipList nodes={[[3, 1], [6, 2], [7, 1], [9, 3], [12, 1], [17, 2], [19, 1], [21, 1], [25, 3], [26, 1]]} path={[[-1, 2], [9, 2], [9, 1], [17, 1], [17, 0]]} />
+</Frame>
+<Frame caption="On the bottom level the next node is 19. Found, having visited 3 towers instead of 7.">
+<SkipList nodes={[[3, 1], [6, 2], [7, 1], [9, 3], [12, 1], [17, 2], [19, 1], [21, 1], [25, 3], [26, 1]]} path={[[-1, 2], [9, 2], [9, 1], [17, 1], [17, 0], [19, 0]]} target={19} />
+</Frame>
+</Player>
+
+The search moves only right and down, in a staircase.
+
+## Where the randomness comes in
+
+The express lanes work best if each level has about half the nodes of the level below, evenly spread. Maintaining that exactly would mean reorganising on every insertion, which is the complexity we were trying to avoid.
+
+So a skip list does not try. When a key is inserted, its height is chosen by **flipping a coin**: keep adding a level for as long as it comes up heads.
+
+| Height | Probability | Out of 1,000 keys |
+| --- | --- | --- |
+| at least 1 | 1 | 1,000 |
+| at least 2 | 1/2 | about 500 |
+| at least 3 | 1/4 | about 250 |
+| at least 4 | 1/8 | about 125 |
+
+About half the keys reach level 2, a quarter reach level 3, and so on. On average that is exactly the halving structure wanted, with no bookkeeping at all. Nothing ever needs rebalancing, because the balance comes from probability and not from the order the keys arrive in.
+
+That last point matters. A plain [binary search tree](/data-structures/binary-search-trees/) fed sorted input degenerates into a list. A skip list's shape does not depend on its input, so there is **no bad input**. There is only bad luck, and with many keys seriously bad luck is vanishingly unlikely.
+
+## The code
+
+```python
+import random
+
+class Node:
+    def __init__(self, key, height):
+        self.key = key
+        self.next = [None] * height        # one forward pointer per level
+
+
+class SkipList:
+    MAX_HEIGHT = 16
+
+    def __init__(self):
+        self.head = Node(None, self.MAX_HEIGHT)
+        self.height = 1
+
+    def contains(self, key):
+        node = self.head
+        for level in range(self.height - 1, -1, -1):
+            while node.next[level] and node.next[level].key < key:
+                node = node.next[level]
+        node = node.next[0]
+        return node is not None and node.key == key
+
+    def insert(self, key):
+        # Remember the last node visited on each level: the new node goes after it.
+        before = [self.head] * self.MAX_HEIGHT
+        node = self.head
+        for level in range(self.height - 1, -1, -1):
+            while node.next[level] and node.next[level].key < key:
+                node = node.next[level]
+            before[level] = node
+
+        height = 1
+        while height < self.MAX_HEIGHT and random.random() < 0.5:
+            height += 1
+        self.height = max(self.height, height)
+
+        new = Node(key, height)
+        for level in range(height):
+            new.next[level] = before[level].next[level]
+            before[level].next[level] = new
+```
+
+Insertion is a search that remembers where it dropped down, followed by an ordinary linked-list splice on each level of the new tower. Deletion is the same in reverse. There are no rotations and no special cases.
+
+<Ops
+  items={[
+    ['Search', 'O(log n)', 'expected'],
+    ['Insert', 'O(log n)', 'expected'],
+    ['Delete', 'O(log n)', 'expected'],
+    ['Memory', 'O(n)', 'about 2 pointers per key'],
+  ]}
+/>
+
+"Expected" here means averaged over the coin flips, not over the inputs. A tower of height h has h pointers, and the average height is 2, so the extra layers only double the pointer count.
+
+## Skip lists and balanced trees
+
+| | Skip list | Balanced tree |
+| --- | --- | --- |
+| Search, insert, delete | O(log n) expected | O(log n) guaranteed |
+| Code | short, no rotations | long and intricate |
+| Keys in order | walk the bottom list | in-order traversal |
+| Range scans | very natural | more involved |
+| Concurrent access | changes are local, so it is comparatively easy | rebalancing touches distant nodes, so it is hard |
+| Memory layout | scattered nodes | scattered nodes |
+
+The last two rows explain where skip lists are used. An insert changes only a few neighbouring pointers, each of which can be updated independently. That makes a skip list one of the easier ordered structures to share safely between many threads, with or without locks.
+
+For data on disk, neither is the right choice. A [B-tree](/data-structures/b-trees/) packs many keys per node and reads far fewer blocks.
+
+## Where it shows up
+
+- **Redis** implements its sorted sets with a skip list.
+- **LevelDB and RocksDB** keep recent writes in a skip list in memory, before flushing them to disk. See [LSM trees](/data-structures/lsm-trees/).
+- **Java** provides `ConcurrentSkipListMap`, its ordered map for concurrent use.
+- **Search engines** use skip pointers inside posting lists to jump ahead when intersecting them.
+
+The structure was invented by William Pugh and published in 1990.
+
+## Key takeaways
+
+- A skip list is a sorted linked list with extra levels of pointers that skip ahead.
+- A search moves right while it can and drops down when it must, taking O(log n) expected time.
+- Each key's height is chosen by coin flips, which keeps the structure balanced on average with no rebalancing code.
+- Its performance does not depend on the order of the input.
+- It is simpler than a balanced tree and well suited to concurrent use.
