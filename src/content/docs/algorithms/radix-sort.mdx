@@ -1,0 +1,109 @@
+---
+description: Sort numbers one digit at a time, from the last digit to the first, using a stable sort for each pass. Linear time for fixed-size keys.
+difficulty: intermediate
+---
+
+[Counting sort](/algorithms/counting-sort/) is linear, but only when the range of values is small. It cannot sort 32-bit integers, because that would need a four-billion-entry table. Radix sort removes the restriction with one idea: do not sort by the whole number at once. Sort by **one digit at a time**. A single digit has only ten possible values, and counting sort handles that easily.
+
+## How it works
+
+Sort the numbers by their last digit. Then sort the result by the second-to-last digit. Then the next, until you run out of digits. This is the **least significant digit** (LSD) version.
+
+<Player>
+<Frame caption="The input. The longest number has three digits, so there will be three passes.">
+<ArrayViz values={[170, 45, 75, 90, 802, 24, 2, 66]} indices={false} />
+</Frame>
+<Frame caption="Sort by the <strong>ones</strong> digit: 0, 0, 2, 2, 4, 5, 5, 6. Only that digit is looked at.">
+<ArrayViz values={[170, 90, 802, 2, 24, 45, 75, 66]} indices={false} />
+</Frame>
+<Frame caption="Sort by the <strong>tens</strong> digit: 0, 0, 2, 4, 6, 7, 7, 9. Notice 802 comes before 2, and 170 before 75. Each pair ties on this digit and keeps its order from the previous pass.">
+<ArrayViz values={[802, 2, 24, 45, 66, 170, 75, 90]} highlight={[0, 1]} alt={[5, 6]} indices={false} />
+</Frame>
+<Frame caption="Sort by the <strong>hundreds</strong> digit: 0, 0, 0, 0, 0, 0, 1, 8. Numbers with fewer digits count as having a leading zero. The array is sorted.">
+<ArrayViz values={[2, 24, 45, 66, 75, 90, 170, 802]} indices={false} />
+</Frame>
+</Player>
+
+## Why sorting backwards works
+
+It seems wrong to start with the *least* important digit. It works for one reason: each pass must be **[stable](/algorithms/sorting-stability/)**. Elements that tie on the current digit must stay in the order the earlier passes left them.
+
+Look at 170 and 75 in the walkthrough. After the ones pass, 170 is ahead of 75, because 0 comes before 5. In the tens pass both have the digit 7. They tie, so a stable sort leaves 170 ahead of 75. The earlier, less significant digit has acted as the tie-breaker, which is exactly what it should be.
+
+By the time the most significant digit is processed, everything below it has already been put in order *within* each group. If a pass were not stable, it would scramble the work of the passes before it.
+
+## The code
+
+Each pass distributes the numbers into ten buckets by one digit and reads them back in order. Appending to a bucket preserves arrival order, so the pass is stable.
+
+```python
+def radix_sort(items, base=10):
+    place = 1
+    while items and max(items) // place > 0:
+        buckets = [[] for _ in range(base)]
+        for x in items:
+            buckets[(x // place) % base].append(x)
+        items = [x for bucket in buckets for x in bucket]
+        place *= base
+    return items
+```
+
+## The cost
+
+With n numbers of d digits each, in base k:
+
+<Ops
+  items={[
+    ['Time', 'O(d × (n + k))'],
+    ['Extra memory', 'O(n + k)'],
+  ]}
+/>
+
+There are d passes, each a linear-time counting sort.
+
+For keys of a fixed size, d is a constant, and radix sort is **O(n)**. Sorting 32-bit integers one byte at a time (base 256) takes four passes however many integers there are.
+
+### Is that really better than O(n log n)?
+
+It depends on how d compares with log n.
+
+| Sorting | Passes | log₂ n | Radix sort wins? |
+| --- | --- | --- | --- |
+| 1,000,000 32-bit integers, by byte | 4 | 20 | yes, comfortably |
+| 100 64-bit integers, by byte | 8 | 7 | no: too few items to repay the passes |
+| Long strings of varying length | many | | usually no |
+
+The subtle point is that d is not really independent of n. To have n *distinct* keys, each needs at least log n digits. So for arbitrary keys radix sort does not escape n log n in theory. It wins in practice when keys are short and fixed-width and there are many of them.
+
+## Choosing the base
+
+Decimal digits are for explaining. Real implementations work on the bits directly, typically a byte at a time (base 256), extracting each "digit" with a shift and a mask rather than division.
+
+A larger base means fewer passes but a bigger table of counts. Base 256 is a common sweet spot, because a 256-entry table fits easily in the CPU cache.
+
+## Strengths and limits
+
+| Property | |
+| --- | --- |
+| Stable | yes |
+| In place | no |
+| Comparison-based | no |
+
+**Good fit:** large numbers of integers, fixed-length strings, dates, IP addresses, anything that breaks into a fixed number of small digits.
+
+**Poor fit:** small inputs; long or variable-length keys; data that can only be compared, not split into digits; cases where the extra O(n) memory is unaffordable.
+
+Negative numbers and floating-point values need a small transformation of their bits first so that the byte order matches numeric order.
+
+<Aside title="Older than the computer">
+
+Radix sort predates electronic computing. Herman Hollerith's tabulating machines, built to process the 1890 United States census, sorted punched cards one column at a time into bins. Operators learned to start with the last column, for exactly the reason above.
+
+</Aside>
+
+## Key takeaways
+
+- Radix sort sorts by one digit at a time, least significant first, using a stable sort for each pass.
+- Stability is essential: it lets earlier passes act as tie-breakers for later ones.
+- It runs in O(d × (n + k)), which is linear for fixed-size keys.
+- It beats comparison sorts for large numbers of short, fixed-width keys, and loses for small inputs or long keys.
