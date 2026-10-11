@@ -1,0 +1,197 @@
+---
+description: A binary search tree that measures its own lopsidedness after every change and rotates nodes to fix it, guaranteeing O(log n) operations.
+difficulty: advanced
+---
+
+A plain [binary search tree](/data-structures/binary-search-trees/) is only fast if it happens to be well-shaped. Feed it sorted keys and it degrades into a linked list with O(n) operations. The AVL tree was the first structure to fix this, in 1962. It is named after its inventors, Georgy Adelson-Velsky and Evgenii Landis.
+
+The idea: after every insert or delete, check whether any node has become lopsided, and if so, repair it locally with a **rotation**.
+
+## The balance rule
+
+Define the **height** of a node as the number of nodes on the longest path from it down to a leaf, and its **balance factor** as:
+
+```text
+balance factor = height of left subtree − height of right subtree
+```
+
+An AVL tree is a binary search tree in which **every node's balance factor is −1, 0 or +1**. The two sides of any node may differ in height by at most one.
+
+<Tree
+  root={{ k: 30, c: [{ k: 20, c: [10, 25] }, { k: 40, c: [null, 50] }] }}
+  notes={{ 30: '0', 20: '0', 40: '-1', 10: '0', 25: '0', 50: '0' }}
+  caption="A valid AVL tree, with each node's balance factor. Negative means right-heavy."
+/>
+
+This is a strict rule. It keeps the height of a tree with n keys below about 1.44 × log₂ n, so even the worst-shaped AVL tree is only modestly taller than a perfect one. A million keys never need more than about 29 levels.
+
+## Rotations
+
+A rotation rearranges three links to change which of two nodes is the parent, **without breaking the search tree ordering**. It is the basic move behind every self-balancing binary tree.
+
+Here is a tree that has just had `5` inserted. That made the left side of `30` two levels deeper than the right, so its balance factor is +2.
+
+<Steps>
+<Step title="30 is out of balance: its left side is too tall">
+
+<Tree
+  root={{ k: 30, c: [{ k: 20, c: [{ k: 10, c: [5, null] }, 25] }, 40] }}
+  notes={{ 30: '+2', 20: '+1' }}
+  alt={[30]}
+  highlight={[20]}
+/>
+
+</Step>
+<Step title="Rotate right at 30: its left child, 20, moves up to take its place">
+
+30 becomes the right child of 20. But 20 already had a right child, `25`, which now has nowhere to go.
+
+</Step>
+<Step title="25 is re-attached as the left child of 30">
+
+25 is larger than 20 and smaller than 30, so that is exactly where the ordering rule wants it.
+
+<Tree
+  root={{ k: 20, c: [{ k: 10, c: [5, null] }, { k: 30, c: [25, 40] }] }}
+  notes={{ 20: '0', 30: '0' }}
+  highlight={[20]}
+  alt={[30, 25]}
+/>
+
+</Step>
+</Steps>
+
+Read the keys left to right before and after: `5 10 20 25 30 40` both times. The rotation changed the shape and nothing else. It also touched only a constant number of pointers, so it is O(1).
+
+A **left rotation** is the mirror image, used when the right side is too tall.
+
+```python
+def rotate_right(y):
+    x = y.left
+    y.left = x.right    # x's right subtree changes parent
+    x.right = y
+    update(y)           # recompute heights, lower node first
+    update(x)
+    return x            # x is the new root of this subtree
+```
+
+## The four cases
+
+When a node goes out of balance, the fix depends on *where* the extra height is. There are four shapes, in two mirrored pairs.
+
+### Outside cases: one rotation
+
+The extra height is on the outer edge: the left child's left side, or the right child's right side. A single rotation fixes it. Inserting `10, 20, 30` in order produces the simplest example:
+
+<Steps>
+<Step title="Right-right: a straight line leaning right">
+
+<Tree root={{ k: 10, c: [null, { k: 20, c: [null, 30] }] }} notes={{ 10: '-2', 20: '-1' }} alt={[10]} />
+
+</Step>
+<Step title="One left rotation at 10">
+
+<Tree root={{ k: 20, c: [10, 30] }} highlight={[20]} />
+
+</Step>
+</Steps>
+
+### Inside cases: two rotations
+
+The extra height is on the inner side, forming a zig-zag. A single rotation would just flip the zig-zag to lean the other way. So first rotate the child to straighten it into an outside case, then rotate the parent. Inserting `30, 10, 20`:
+
+<Steps>
+<Step title="Left-right: a zig-zag">
+
+<Tree root={{ k: 30, c: [{ k: 10, c: [null, 20] }, null] }} notes={{ 30: '+2', 10: '-1' }} alt={[30]} />
+
+</Step>
+<Step title="Rotate left at the child, 10, to straighten the line">
+
+<Tree root={{ k: 30, c: [{ k: 20, c: [10, null] }, null] }} notes={{ 30: '+2', 20: '+1' }} alt={[30]} />
+
+</Step>
+<Step title="Now rotate right at 30">
+
+<Tree root={{ k: 20, c: [10, 30] }} highlight={[20]} />
+
+</Step>
+</Steps>
+
+| Unbalanced node is | Child leans | Case | Fix |
+| --- | --- | --- | --- |
+| Left-heavy (+2) | left or level | Left-left | Rotate right |
+| Left-heavy (+2) | right | Left-right | Rotate child left, then rotate right |
+| Right-heavy (−2) | right or level | Right-right | Rotate left |
+| Right-heavy (−2) | left | Right-left | Rotate child right, then rotate left |
+
+## Putting it together
+
+Each node stores its height. An insert is an ordinary BST insert, followed by a rebalance at every node on the way back up to the root.
+
+```python
+def height(node):
+    return node.height if node else 0
+
+def update(node):
+    node.height = 1 + max(height(node.left), height(node.right))
+
+def balance(node):
+    return height(node.left) - height(node.right)
+
+def rebalance(node):
+    update(node)
+    if balance(node) > 1:                    # left-heavy
+        if balance(node.left) < 0:           # left-right case
+            node.left = rotate_left(node.left)
+        return rotate_right(node)
+    if balance(node) < -1:                   # right-heavy
+        if balance(node.right) > 0:          # right-left case
+            node.right = rotate_right(node.right)
+        return rotate_left(node)
+    return node
+
+def insert(node, key):
+    if node is None:
+        return Node(key)                     # a new node has height 1
+    if key < node.key:
+        node.left = insert(node.left, key)
+    elif key > node.key:
+        node.right = insert(node.right, key)
+    return rebalance(node)
+```
+
+An insertion needs at most one fix (a single or double rotation); once the lowest unbalanced node is repaired, everything above it is back in balance too. A deletion can need a rotation at every level on the way up, which is still only O(log n).
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Search', 'O(log n)'],
+    ['Insert', 'O(log n)'],
+    ['Delete', 'O(log n)'],
+    ['One rotation', 'O(1)'],
+  ]}
+/>
+
+Unlike a plain BST, these are **worst-case** guarantees. No sequence of operations can make an AVL tree slow.
+
+## AVL or red-black?
+
+The main alternative is the [red-black tree](/data-structures/red-black-trees/), which enforces a looser balance rule.
+
+| | AVL tree | Red-black tree |
+| --- | --- | --- |
+| Maximum height | about 1.44 log₂ n | about 2 log₂ n |
+| Lookups | slightly faster (shallower) | slightly slower |
+| Inserts and deletes | more rotations | fewer rotations |
+| Typical use | read-heavy workloads | general-purpose library maps |
+
+The difference is a constant factor either way. Most standard libraries chose red-black trees; AVL trees are a good fit when lookups heavily outnumber updates. For data that lives on disk, both lose to the [B-tree](/data-structures/b-trees/).
+
+## Key takeaways
+
+- An AVL tree is a BST in which the two subtrees of every node differ in height by at most one.
+- That rule caps the height at about 1.44 log₂ n, making search, insert and delete O(log n) in the worst case.
+- Balance is restored with rotations, which reshape the tree in O(1) while preserving key order.
+- Outside cases need one rotation; inside (zig-zag) cases need two.
