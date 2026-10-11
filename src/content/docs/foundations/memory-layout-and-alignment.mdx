@@ -1,0 +1,121 @@
+---
+description: How the fields of a record are arranged in memory. Processors want values at particular addresses, so compilers insert padding, and the order you declare fields in changes the size.
+difficulty: advanced
+---
+
+A record with a one-byte field, a four-byte field and another one-byte field ought to take six bytes. In C, it takes twelve. The other six are **padding**: unused bytes the compiler inserted to satisfy a rule called **alignment**.
+
+Understanding the rule lets you predict the size of your data, shrink it for free, and avoid a subtle class of performance problems.
+
+## The alignment rule
+
+Processors read memory most efficiently when a value starts at an address that is a multiple of its own size.
+
+| Type (typical 64-bit system) | Size | Must start at a multiple of |
+| --- | --- | --- |
+| `char`, `bool`, `int8` | 1 | 1 (anywhere) |
+| `int16` | 2 | 2 |
+| `int32`, `float` | 4 | 4 |
+| `int64`, `double`, pointers | 8 | 8 |
+
+A value placed otherwise is *misaligned*. Depending on the processor, reading it is slower, may need two memory accesses instead of one, or may simply fault. So compilers arrange for it never to happen.
+
+## Padding inside a struct
+
+A compiler for C lays out a struct's fields in the order you wrote them. Whenever the next field would land on a misaligned address, it skips forward.
+
+```c
+struct Example {
+    char a;     // 1 byte
+    int  b;     // 4 bytes
+    char c;     // 1 byte
+};
+```
+
+<ArrayViz
+  values={['a', '·', '·', '·', 'b', 'b', 'b', 'b', 'c', '·', '·', '·']}
+  highlight={[0, 8]}
+  alt={[4, 5, 6, 7]}
+  dim={[1, 2, 3, 9, 10, 11]}
+  caption="Twelve bytes for six bytes of data. The faded cells are padding."
+/>
+
+Two things happened.
+
+- After `a` at offset 0, the next free byte is offset 1. But `b` is an `int` and needs a multiple of 4, so three padding bytes are inserted and `b` starts at offset 4.
+- After `c` at offset 8, there are three more padding bytes at the **end**. The whole struct must be a multiple of its largest alignment (4), so that in an array of these structs, every element's `b` is still aligned.
+
+## Reordering to save space
+
+Now declare the same fields in a different order.
+
+```c
+struct Better {
+    int  b;     // 4 bytes
+    char a;     // 1 byte
+    char c;     // 1 byte
+};
+```
+
+<ArrayViz
+  values={['b', 'b', 'b', 'b', 'a', 'c', '·', '·']}
+  highlight={[4, 5]}
+  alt={[0, 1, 2, 3]}
+  dim={[6, 7]}
+  caption="The same three fields in eight bytes. The two small fields now share what was padding."
+/>
+
+Eight bytes instead of twelve, a third smaller, with no change in what the struct holds.
+
+**The rule of thumb: order fields from largest to smallest.** Then each field lands on an address that is already aligned for it, and the only padding is at the end.
+
+A third of the memory may sound minor for one struct. For an array of ten million of them it is 40 megabytes, and smaller elements mean more of them fit in each cache line, which makes loops over the array faster.
+
+## What your language does
+
+| Language | Field order | |
+| --- | --- | --- |
+| C, C++ | as declared | reordering is up to you |
+| Go | as declared | linters can suggest a better order |
+| Rust | chosen by the compiler | fields are reordered automatically to minimise padding, unless you ask for C layout with `#[repr(C)]` |
+| Java, C# | chosen by the runtime | |
+| Python, JavaScript | not applicable | objects are far larger, with per-object overhead and references to separately stored values |
+
+C preserves the declared order because programs rely on it to match hardware registers, file formats and network packets byte for byte.
+
+<Aside type="warning" title="Do not write structs straight to disk">
+
+The exact layout of a struct depends on the compiler, the processor and the padding rules, and its multi-byte fields depend on [endianness](/foundations/endianness/). Dumping the raw bytes of a struct into a file or onto a network makes a format that only your exact build can read. The padding bytes may also contain leftover data from memory, which has leaked secrets in real systems. Write each field explicitly instead.
+
+</Aside>
+
+### Packed structs
+
+Most compilers let you switch padding off for a struct, giving the six-byte layout. The fields are then misaligned, and every access to them is slower or needs special handling. Packing is for matching an externally defined byte layout, not a general way to save space.
+
+## Layout and the cache
+
+Alignment is one part of a larger subject: arranging data so the processor can get at it quickly.
+
+Processors fetch memory in blocks called **cache lines**, normally 64 bytes. Data that sits together is fetched together. That makes the arrangement of a large collection matter as much as the arrangement of one record.
+
+Suppose a program has a million particles, each with a position, a velocity and a colour, and a loop that only updates positions.
+
+| Layout | In memory | The position loop |
+| --- | --- | --- |
+| **Array of structs** | `pos vel colour pos vel colour …` | drags every particle's velocity and colour into the cache for nothing |
+| **Struct of arrays** | `pos pos pos …` `vel vel vel …` `colour colour …` | reads only positions, densely packed |
+
+The second layout can be several times faster for that loop. It is the standard arrangement in game engines, scientific computing and column-oriented databases, and it is why [arrays](/data-structures/arrays/) of plain values beat collections of separately allocated objects.
+
+### False sharing
+
+Cache lines also explain a strange slowdown in multi-threaded programs. If two threads each update their *own* variable, and those two variables happen to sit in the same 64-byte cache line, the processors' cores keep taking the line away from each other. The threads share no data and still slow each other down badly. The cure is to space such variables at least a cache line apart, deliberately adding padding.
+
+## Key takeaways
+
+- A value should start at an address that is a multiple of its size. That is alignment.
+- Compilers insert padding between fields and at the end of a struct to keep everything aligned.
+- Ordering fields from largest to smallest minimises padding. Some languages do this for you; C and Go do not.
+- Never treat a struct's in-memory bytes as a file or network format.
+- For large collections, layout decides how well the cache is used, often more than the algorithm does.
