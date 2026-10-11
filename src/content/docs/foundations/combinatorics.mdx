@@ -1,0 +1,129 @@
+---
+description: The mathematics of counting possibilities without listing them. It tells you how big a search space is, and so whether an algorithm that explores it can ever finish.
+difficulty: intermediate
+---
+
+How many passwords are there of length 8? How many ways can a delivery van visit 20 addresses? How many five-card hands can be dealt from a deck? Combinatorics answers questions like these by reasoning, not by listing every case.
+
+For a programmer its main use is practical. Before writing code that tries every possibility, count the possibilities. The answer decides whether the approach will take a millisecond or outlast the universe.
+
+## Two basic rules
+
+**The product rule.** If one choice can be made in m ways and a second, independent choice in n ways, the pair can be made in **m × n** ways.
+
+A menu with 3 starters and 4 mains offers 3 × 4 = 12 two-course meals. A 4-digit PIN has 10 × 10 × 10 × 10 = 10,000 possibilities.
+
+**The sum rule.** If a choice is made from one group *or* another, with no overlap, add: m + n.
+
+Nearly everything else is these two rules applied with care.
+
+## Four ways to choose
+
+Most counting problems are "choose k things from n". Two questions decide the formula.
+
+- Does the **order** matter? (Is A-then-B different from B-then-A?)
+- Can an item be **repeated**?
+
+<CountingDemo />
+
+The demo starts with n = 5 and k = 3. Here is what each row means for picking 3 letters from A, B, C, D, E.
+
+### Order matters, repeats allowed
+
+Each of the k positions can be any of the n items: **nᵏ**.
+
+This counts strings, codes and passwords: 5³ = 125 three-letter codes from five letters.
+
+### Order matters, no repeats
+
+The first position has n options, the second n − 1, and so on for k positions: **n × (n − 1) × … × (n − k + 1)**.
+
+This counts arrangements: gold, silver and bronze among 5 runners is 5 × 4 × 3 = 60.
+
+When k = n, you are arranging everything, and the count is **n!** ("n factorial"): n × (n − 1) × … × 1.
+
+### Order ignored, no repeats
+
+Start from the ordered count and divide by the number of ways to order each selection, k!, since those all count as the same choice. This is written **C(n, k)** or "n choose k".
+
+It counts committees, hands and subsets: C(5, 3) = 60 / 6 = 10 ways to pick a team of three from five.
+
+### Order ignored, repeats allowed
+
+The least common case: choosing 3 scoops of ice cream from 5 flavours, where two scoops can be the same. The count is C(n + k − 1, k).
+
+| | Repeats allowed | No repeats |
+| --- | --- | --- |
+| **Order matters** | nᵏ | n! / (n − k)! |
+| **Order ignored** | C(n + k − 1, k) | C(n, k) |
+
+## How fast these grow
+
+Try sliding n and k upward in the demo. The numbers get out of hand quickly, and that is the lesson.
+
+| Count | Value |
+| --- | --- |
+| 4-digit PINs | 10,000 |
+| 8-letter lowercase passwords, 26⁸ | about 209 billion |
+| 8-character passwords from letters and digits, 62⁸ | about 218 trillion |
+| Five-card hands from 52 cards, C(52, 5) | 2,598,960 |
+| Orderings of 20 items, 20! | about 2.4 × 10¹⁸ |
+| Orderings of a deck of cards, 52! | about 8 × 10⁶⁷ |
+
+52! is so large that every properly shuffled deck in history has almost certainly been in an order that never occurred before.
+
+**Factorial growth is worse than exponential.** A computer checking a billion orderings per second would need about 77 years to get through all the orderings of 20 items.
+
+## What this means for algorithms
+
+Counting tells you the cost of brute force, the strategy of trying everything.
+
+| The algorithm tries every | Count | Feasible up to roughly |
+| --- | --- | --- |
+| pair of items | n² / 2 | n in the tens of thousands |
+| subset | 2ⁿ | n ≈ 30 |
+| ordering | n! | n ≈ 11 |
+
+Every set of n items has **2ⁿ** subsets, because each item is independently in or out. That is why "try every subset" stops being possible at around 30 or 40 items.
+
+The travelling salesman problem, finding the shortest route through n cities, has about (n − 1)! / 2 possible routes. At 20 cities that is around 6 × 10¹⁶. Brute force is hopeless, which is why such problems need cleverer methods such as [dynamic programming](/algorithms/dynamic-programming/) or approximation. See [NP-completeness](/theory/np-completeness/).
+
+Counting also gives *lower* bounds. There are n! possible orderings of n items, and a sorting algorithm must be able to tell them all apart using yes/no comparisons. That takes at least log₂(n!) comparisons, about n log₂ n. So no comparison sort can beat O(n log n), as the [counting sort](/algorithms/counting-sort/#the-limit-it-sidesteps) page explains.
+
+## Combinations and Pascal's triangle
+
+The numbers C(n, k) are called **binomial coefficients**, and they satisfy a simple rule:
+
+```text
+C(n, k)  =  C(n − 1, k − 1)  +  C(n − 1, k)
+```
+
+The reasoning: pick one particular item. Every selection of k either includes it, leaving k − 1 to choose from the other n − 1, or does not, leaving k to choose from the other n − 1.
+
+Written out row by row, this gives Pascal's triangle, in which each number is the sum of the two above it.
+
+```text
+        1
+       1 1
+      1 2 1
+     1 3 3 1
+    1 4 6 4 1
+```
+
+Row n sums to 2ⁿ, which is the total number of subsets again, grouped by size.
+
+That rule is also a ready-made dynamic programming recurrence, and the safe way to compute C(n, k) in code. Calculating the factorials directly overflows quickly.
+
+## Two principles worth knowing
+
+**Inclusion and exclusion.** To count things that are in A or B, add the two counts and subtract the overlap, which was counted twice: |A ∪ B| = |A| + |B| − |A ∩ B|. How many numbers from 1 to 100 are divisible by 2 or 5? 50 + 20 − 10 = 60.
+
+**The pigeonhole principle.** Put more than n items into n boxes and some box holds at least two. It guarantees that [hash collisions](/data-structures/hash-functions/) exist and appears in many [proofs](/foundations/proof-techniques/).
+
+## Key takeaways
+
+- Multiply the options for independent choices; add the options for alternatives.
+- Choosing k from n has four cases, depending on whether order matters and whether repeats are allowed.
+- n items have n! orderings and 2ⁿ subsets. Both grow far too fast to enumerate beyond small n.
+- Count the search space before writing a brute-force algorithm.
+- The n! orderings of a list are why comparison sorting cannot beat O(n log n).
