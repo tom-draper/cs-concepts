@@ -1,0 +1,123 @@
+---
+description: A double-ended queue. Add and remove at both the front and the back in constant time.
+difficulty: beginner
+---
+
+A [stack](/data-structures/stacks/) works at one end. A [queue](/data-structures/queues/) adds at one end and removes from the other. A deque (pronounced "deck", short for **d**ouble-**e**nded **que**ue) does all four: push and pop at the front, push and pop at the back, each in O(1).
+
+It can stand in for either of the other two, and it enables a few algorithms that neither can do alone.
+
+<Ops
+  items={[
+    ['Push front', 'O(1)'],
+    ['Push back', 'O(1)'],
+    ['Pop front', 'O(1)'],
+    ['Pop back', 'O(1)'],
+    ['Read by index', 'O(1)', 'in array-based deques'],
+  ]}
+/>
+
+## How it works
+
+A [dynamic array](/data-structures/dynamic-arrays/) is fast at the back and slow at the front, because inserting at index 0 shifts everything. A deque avoids the shift with the same trick as a queue's circular buffer: treat the array as a ring, and let the **front** move as well as the back.
+
+Pushing at the back moves the back marker forward. Pushing at the front moves the front marker *backward*, wrapping from index 0 round to the last slot.
+
+<Player>
+<Frame caption="An empty deque with room for six items.">
+<ArrayViz values={[null, null, null, null, null, null]} />
+</Frame>
+<Frame caption="<code>push_back(A)</code>, then <code>push_back(B)</code>. The back moves right.">
+<ArrayViz values={['A', 'B', null, null, null, null]} highlight={[0, 1]} pointers={{ front: 0, back: 1 }} />
+</Frame>
+<Frame caption="<code>push_front(Z)</code>. There is nothing left of index 0, so the front wraps round to index 5.">
+<ArrayViz values={['A', 'B', null, null, null, 'Z']} highlight={[5]} pointers={{ front: 5, back: 1 }} />
+</Frame>
+<Frame caption="<code>push_front(Y)</code>. The front moves left again. In order, the deque now holds Y, Z, A, B.">
+<ArrayViz values={['A', 'B', null, null, 'Y', 'Z']} highlight={[4]} pointers={{ front: 4, back: 1 }} />
+</Frame>
+<Frame caption="<code>pop_back()</code> returns B. The back moves left.">
+<ArrayViz values={['A', null, null, null, 'Y', 'Z']} alt={[1]} pointers={{ front: 4, back: 0 }} />
+</Frame>
+<Frame caption="<code>pop_front()</code> returns Y. The front moves right. Nothing was ever shifted.">
+<ArrayViz values={['A', null, null, null, null, 'Z']} alt={[4]} pointers={{ front: 5, back: 0 }} />
+</Frame>
+</Player>
+
+The index arithmetic is the queue's, plus its mirror image:
+
+```text
+move forward:   (index + 1) % capacity
+move backward:  (index - 1 + capacity) % capacity
+```
+
+The `+ capacity` keeps the result from going negative, which matters in languages where `%` can return a negative number.
+
+When the ring fills up, it grows like a dynamic array: allocate a bigger one and copy the items across in logical order, starting from the front.
+
+## Other implementations
+
+| Approach | Used by | Trade-off |
+| --- | --- | --- |
+| Circular buffer | `VecDeque` in Rust, `ArrayDeque` in Java | One contiguous block, fast indexing, occasional resize |
+| Array of fixed-size blocks | `std::deque` in C++, `collections.deque` in Python | No big copies when growing; items never move |
+| [Doubly linked list](/data-structures/linked-lists/) | `LinkedList` in Java | Simple, but an allocation per item and poor cache behaviour |
+
+## Using one
+
+```python
+from collections import deque
+
+d = deque()
+d.append('A')        # push back
+d.appendleft('Z')    # push front
+d.pop()              # pop back  -> 'A'
+d.popleft()          # pop front -> 'Z'
+```
+
+In Python, `deque` is also the right type for a plain queue. A list's `pop(0)` is O(n).
+
+## What having both ends buys you
+
+### Sliding window maximum
+
+Given a stream of numbers, report the largest of the most recent *k* at every step. Rescanning the window each time costs O(k) per step. A deque gets it to O(1) amortized.
+
+The deque holds *candidates* for the maximum, largest at the front. Two rules keep it correct:
+
+- When a new value arrives, pop from the **back** everything smaller than it. Those values are older *and* smaller, so they can never be the maximum again.
+- When the value at the **front** slides out of the window, pop it.
+
+```python
+from collections import deque
+
+def sliding_max(values, k):
+    window = deque()    # indices; their values decrease front to back
+    result = []
+    for i, v in enumerate(values):
+        while window and values[window[-1]] <= v:
+            window.pop()
+        window.append(i)
+        if window[0] <= i - k:
+            window.popleft()
+        if i >= k - 1:
+            result.append(values[window[0]])
+    return result
+```
+
+Old candidates leave from the front and beaten candidates leave from the back. That needs both ends. See also [sliding window](/algorithms/sliding-window/).
+
+### Work stealing
+
+Parallel runtimes such as Java's fork/join pool and Rust's Rayon give each worker thread its own deque of tasks. A worker pushes and pops its own tasks at one end, like a stack, which keeps recently created work hot in its cache. An idle worker *steals* from the opposite end of someone else's deque. Because owner and thief work at different ends, they rarely get in each other's way.
+
+### Bounded history
+
+An undo history or "recent items" list with a size limit adds at one end and discards from the other when full. Python's `deque(maxlen=100)` does this automatically.
+
+## Key takeaways
+
+- A deque offers O(1) push and pop at both ends.
+- The usual implementation is a circular buffer whose front can move backward as well as forward.
+- It can replace both a stack and a queue, and is the right queue type in several languages.
+- Algorithms that discard from both ends, such as sliding window maximum and work stealing, need one.
