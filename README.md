@@ -142,6 +142,13 @@ step by step on a graph you describe, and lets the reader restart it from any
 vertex. Algorithms: `bfs`, `dfs`, `dijkstra`, `topo` (pass `directed` for a DAG).
 The traces live in `src/lib/graph-traces.ts`.
 
+`<GraphDemo>` also runs `bellman-ford`, `kruskal` and `prim`. Other algorithm
+demos: `<GridSearch />` (draw walls, compare Dijkstra with A*),
+`<MatchDemo algorithm="kmp" text="..." pattern="..." />` (also `naive` and
+`rabin-karp`), `<EditDistanceDemo />`, `<QueensPlayer n={4} />` and the static
+`<Intervals items={[['A', 1, 4]]} chosen={['A']} />`. Their logic is in
+`src/lib/grid-search.ts` and `src/lib/string-traces.ts`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
