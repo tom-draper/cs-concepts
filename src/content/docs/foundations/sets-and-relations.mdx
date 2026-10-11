@@ -1,0 +1,121 @@
+---
+description: Sets are collections of distinct things, and relations describe how things are connected. Between them they are the vocabulary for databases, types and most data structures.
+difficulty: intermediate
+---
+
+Much of computer science is described in the language of sets. A database table, the values of a type, the vertices of a graph and the states of a program are all sets. Knowing the basic vocabulary makes a great deal of documentation and theory readable.
+
+## Sets
+
+A **set** is a collection of distinct things, called its **elements**. Two rules define it.
+
+- **No duplicates.** An element is either in the set or not. `{1, 2, 2}` is the same set as `{1, 2}`.
+- **No order.** `{1, 2, 3}` and `{3, 1, 2}` are the same set.
+
+| Notation | Meaning |
+| --- | --- |
+| x ∈ A | x is an element of A |
+| x ∉ A | x is not an element of A |
+| A ⊆ B | A is a **subset** of B: everything in A is also in B |
+| ∅ | the **empty set**, with no elements |
+| \|A\| | the **cardinality** of A: how many elements it has |
+
+The [set](/data-structures/sets/) data structure is the direct implementation of this idea.
+
+## Combining sets
+
+<Venn caption="The four standard operations. The shaded region is the result." />
+
+| Operation | Symbol | Contains | Python |
+| --- | --- | --- | --- |
+| Union | A ∪ B | everything in A or B or both | `a \| b` |
+| Intersection | A ∩ B | everything in both | `a & b` |
+| Difference | A − B | everything in A that is not in B | `a - b` |
+| Symmetric difference | A △ B | everything in exactly one | `a ^ b` |
+
+With `A = {1, 2, 3, 4}` and `B = {3, 4, 5}`:
+
+```text
+A ∪ B  =  {1, 2, 3, 4, 5}
+A ∩ B  =  {3, 4}
+A − B  =  {1, 2}
+A △ B  =  {1, 2, 5}
+```
+
+These line up with [Boolean logic](/foundations/boolean-logic/): union is OR, intersection is AND, symmetric difference is XOR. An element is in A ∪ B exactly when it is in A **or** in B. The same laws apply, including De Morgan's.
+
+A useful counting rule follows from the picture. Adding the sizes of A and B counts the overlap twice, so:
+
+```text
+|A ∪ B|  =  |A| + |B| − |A ∩ B|
+```
+
+## Sets built from sets
+
+**The power set** of A is the set of all its subsets. For `{a, b}` it is `{∅, {a}, {b}, {a, b}}`. A set with n elements has **2ⁿ** subsets, because each element is independently in or out. That is why any algorithm that tries every subset is exponential.
+
+**The Cartesian product** A × B is the set of all ordered pairs with the first item from A and the second from B. If A has m elements and B has n, the product has m × n. A deck of cards is the product of 13 ranks and 4 suits. A grid of pixels is the product of the column numbers and the row numbers.
+
+## Relations
+
+A **relation** between two sets says which elements of one are connected to which elements of the other. Formally it is just a set of pairs: a subset of the Cartesian product.
+
+"Is a friend of", "is less than", "is enrolled in" and "links to" are all relations. So is a database table: the relational model, and the name "relational database", come directly from this definition. A table of enrolments is a set of (student, course) pairs.
+
+A relation on a single set is the same thing as a directed graph: draw an arrow from a to b whenever a is related to b. See [graph theory](/foundations/graph-theory/).
+
+### Properties of relations
+
+A relation on a set can have these properties, and the useful kinds of relation are defined by which ones they have.
+
+| Property | Meaning | "is the same age as" | "is less than or equal to" | "is the parent of" |
+| --- | --- | --- | --- | --- |
+| **Reflexive** | everything is related to itself | yes | yes | no |
+| **Symmetric** | if a relates to b, then b relates to a | yes | no | no |
+| **Antisymmetric** | if a relates to b and b to a, then a = b | no | yes | yes |
+| **Transitive** | if a relates to b and b to c, then a relates to c | yes | yes | no |
+
+### Equivalence relations
+
+A relation that is reflexive, symmetric and transitive is an **equivalence relation**. It behaves like "is the same as, in some respect".
+
+Every equivalence relation splits its set into non-overlapping groups, called **equivalence classes**, in which everything is related to everything else. "Has the same remainder when divided by 3" splits the integers into three classes. "Is connected to" splits a network into its connected pieces.
+
+That is exactly what the [union-find](/data-structures/union-find/) structure maintains. It is also what you are defining whenever you write a custom equality method, and why such a method must be reflexive, symmetric and transitive to behave sensibly as a hash table key.
+
+### Orders
+
+A relation that is reflexive, antisymmetric and transitive is a **partial order**. It ranks things, but allows some pairs to be incomparable.
+
+"Is a subset of" is a partial order: `{1}` and `{2}` are not subsets of each other. So is "must be done before" among a set of tasks. Arranging a partial order into a single line is a [topological sort](/algorithms/topological-sort/).
+
+If every pair is comparable, it is a **total order**, such as ≤ on numbers. A sorting algorithm needs a total order, or at least a comparison that behaves like one. A comparison function that is not transitive can make a sort return nonsense or even crash.
+
+## Functions
+
+A **function** from A to B is a relation in which every element of A is paired with **exactly one** element of B.
+
+| Kind | Meaning | Example |
+| --- | --- | --- |
+| **Injective** (one-to-one) | no two inputs share an output | a person to their passport number |
+| **Surjective** (onto) | every possible output is used | a person to their birth month, given enough people |
+| **Bijective** | both: a perfect pairing | a seat number to a seat |
+
+A bijection can be reversed, and it proves two sets are the same size.
+
+A [hash function](/data-structures/hash-functions/) maps a huge set of possible keys to a small set of buckets. It cannot be injective: with more inputs than outputs, some inputs must share an output. That observation is the **pigeonhole principle**, and it is why collisions are unavoidable.
+
+## Where this shows up
+
+- **Databases.** A table is a relation; a join combines relations; `UNION`, `INTERSECT` and `EXCEPT` are the set operations.
+- **Types.** A type is a set of values. A pair type is a Cartesian product; a type that is "one of several alternatives" is a union.
+- **Graphs.** A graph is a set of vertices and a relation on it.
+- **Equality and ordering.** The contracts for `equals`, `hash` and `compare` in every language are the properties above.
+
+## Key takeaways
+
+- A set is an unordered collection with no duplicates. Union, intersection and difference combine sets.
+- A set of n elements has 2ⁿ subsets.
+- A relation is a set of pairs. A database table and a graph are both relations.
+- An equivalence relation partitions a set into groups; a partial order ranks it, perhaps incompletely.
+- A function pairs each input with exactly one output. If there are more inputs than outputs, two must collide.
