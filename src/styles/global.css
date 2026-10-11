@@ -1699,3 +1699,110 @@ main {
   stroke: var(--viz-stroke);
   stroke-width: 1.5;
 }
+
+.v-gedge.active line {
+  stroke: var(--alt);
+  stroke-width: 3;
+}
+
+.v-gedge.active polygon {
+  fill: var(--alt);
+}
+
+/* ---------- Grid search, string matching, edit distance, queens ---------- */
+
+.grid-search .grid {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), 1fr);
+  gap: 2px;
+  max-width: 34rem;
+  margin-top: 0.8rem;
+}
+
+.playground .cell {
+  min-width: 0;
+  height: auto;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: var(--viz-fill);
+  color: var(--text);
+  font: 700 0.8rem var(--mono);
+}
+
+.playground .cell.wall {
+  background: var(--text-2);
+}
+
+.playground .cell.explored {
+  background: var(--accent-soft);
+}
+
+.playground .cell.path {
+  background: var(--accent);
+}
+
+.playground .cell.start,
+.playground .cell.goal {
+  background: var(--alt);
+  color: #fff;
+}
+
+.v-node.known rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-dasharray: 4 3;
+}
+
+.word-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.edit-distance table {
+  width: auto;
+}
+
+.edit-distance th,
+.edit-distance td {
+  width: 2.2rem;
+  height: 2.2rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  font: 0.9rem var(--mono);
+  text-align: center;
+}
+
+.edit-distance th {
+  border-color: transparent;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.edit-distance td.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.board .v-node rect {
+  stroke-width: 1;
+}
+
+.board .v-node.dark rect {
+  fill: var(--border);
+}
+
+.board .v-node.blocked rect {
+  fill: var(--alt-soft);
+}
+
+.viz-svg .queen {
+  font-size: 24px;
+}
