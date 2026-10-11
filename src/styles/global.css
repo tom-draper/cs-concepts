@@ -968,3 +968,215 @@ main {
     transition: none !important;
   }
 }
+
+/* ---------- Trie and graph marks ---------- */
+
+.v-node rect.inner {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.v-gedge line {
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}
+
+.v-gedge polygon {
+  fill: var(--viz-stroke);
+}
+
+.v-gedge.on line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.v-gedge.on polygon {
+  fill: var(--accent);
+}
+
+/* ---------- Step-through player ---------- */
+
+.player {
+  display: block;
+  margin: 0 0 1.4rem;
+  border-radius: 0.6rem;
+}
+
+.frame .viz {
+  margin-bottom: 0.5rem;
+}
+
+.frame-caption {
+  margin: 0 0 1rem !important;
+  color: var(--text-2);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.player[data-ready] .frames {
+  display: grid;
+}
+
+.player[data-ready] .frame {
+  grid-area: 1 / 1;
+  min-width: 0;
+  visibility: hidden;
+}
+
+.player[data-ready] .frame.on {
+  visibility: visible;
+}
+
+.player[data-ready] .frame-caption {
+  min-height: 3em;
+  margin-bottom: 0.5rem !important;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.controls[hidden] {
+  display: none;
+}
+
+.controls button,
+.playground button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.1rem;
+  height: 2.1rem;
+  padding: 0 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.controls button:hover,
+.playground button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.controls .play {
+  min-width: 4.5rem;
+  font-weight: 600;
+}
+
+.controls input {
+  flex: 1;
+  min-width: 3rem;
+  accent-color: var(--accent);
+}
+
+.controls .count {
+  min-width: 3.2rem;
+  color: var(--text-2);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---------- Hash playground ---------- */
+
+.playground {
+  display: block;
+  margin: 0 0 1.4rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-soft);
+}
+
+.playground label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.playground input {
+  flex: 1;
+  min-width: 0;
+  height: 2.4rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 1rem var(--mono);
+}
+
+.playground .tries {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.6rem 0 0.25rem;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+.playground .tries button {
+  height: 1.8rem;
+  font-family: var(--mono);
+}
+
+.hash-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.85rem;
+}
+
+.hash-meta {
+  display: flex;
+  flex-direction: column;
+  width: 8.5rem;
+  line-height: 1.4;
+}
+
+.hash-name {
+  color: var(--text-2);
+  font-size: 0.8rem;
+}
+
+.hash-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.hash-buckets {
+  display: flex;
+  margin: 0 !important;
+  padding: 0;
+  list-style: none;
+}
+
+.hash-buckets li {
+  width: 2.3rem;
+  height: 2.3rem;
+  margin: 0 0 0 -1.5px;
+  border: 1.5px solid var(--viz-stroke);
+  background: var(--viz-fill);
+  color: var(--text-3);
+  font: 0.8rem/2.1rem var(--mono);
+  text-align: center;
+}
+
+.hash-buckets li.on {
+  position: relative;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-weight: 700;
+}
