@@ -1,0 +1,34 @@
+---
+// A step-through of a string-matching algorithm, one alignment per frame.
+import Frame from './Frame.astro';
+import Player from './Player.astro';
+import MatchViz from './viz/MatchViz.astro';
+import { traceMatch, type MatchAlgorithm } from '../lib/string-traces';
+
+interface Props {
+  algorithm: MatchAlgorithm;
+  text: string;
+  pattern: string;
+}
+
+const { algorithm, text, pattern } = Astro.props;
+const steps = traceMatch(algorithm, text, pattern);
+---
+
+<Player>
+  {
+    steps.map((step) => (
+      <Frame caption={step.note}>
+        <MatchViz
+          text={text}
+          pattern={pattern}
+          offset={step.offset}
+          known={step.known}
+          matched={step.matched}
+          mismatch={step.mismatch}
+          tag={step.tag}
+        />
+      </Frame>
+    ))
+  }
+</Player>

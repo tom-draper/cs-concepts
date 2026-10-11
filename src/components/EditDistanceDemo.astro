@@ -1,0 +1,77 @@
+---
+// Type two words and see the table of edit distances between their prefixes.
+import { editDistance } from '../lib/string-traces';
+
+const a = 'kitten';
+const b = 'sitting';
+const result = editDistance(a, b);
+---
+
+<edit-distance class="playground edit-distance">
+  <div class="word-inputs">
+    <label><span>From</span><input type="text" name="a" value={a} maxlength="9" autocomplete="off" spellcheck="false" /></label>
+    <label><span>To</span><input type="text" name="b" value={b} maxlength="9" autocomplete="off" spellcheck="false" /></label>
+  </div>
+  <div class="table-scroll">
+    <table>
+      <tbody>
+        <tr>
+          <th></th><th>·</th>
+          {[...b].map((ch) => <th>{ch}</th>)}
+        </tr>
+        {
+          result.table.map((row, i) => (
+            <tr>
+              <th>{i === 0 ? '·' : a[i - 1]}</th>
+              {row.map((value, j) => <td class={result.route.includes(`${i},${j}`) ? 'on' : ''}>{value}</td>)}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Edit distance</dt><dd data-out="distance">{result.table[a.length][b.length]}</dd></div>
+    <div><dt>One way</dt><dd data-out="edits">{result.edits.join(', ') || 'no edits needed'}</dd></div>
+  </dl>
+</edit-distance>
+
+<script>
+  import { editDistance } from '../lib/string-traces';
+
+  class EditDistance extends HTMLElement {
+    connectedCallback() {
+      const input = (name: string) => this.querySelector<HTMLInputElement>(`input[name="${name}"]`)!;
+      const body = this.querySelector('tbody')!;
+      const cell = (tag: string, text: string, on = false) => {
+        const el = document.createElement(tag);
+        el.textContent = text;
+        if (on) el.className = 'on';
+        return el;
+      };
+      this.addEventListener('input', () => {
+        const a = input('a').value;
+        const b = input('b').value;
+        const { table, route, edits } = editDistance(a, b);
+        const marked = new Set(route);
+        const head = document.createElement('tr');
+        head.append(cell('th', ''), cell('th', '·'), ...[...b].map((ch) => cell('th', ch)));
+        body.replaceChildren(
+          head,
+          ...table.map((row, i) => {
+            const tr = document.createElement('tr');
+            tr.append(
+              cell('th', i === 0 ? '·' : a[i - 1]),
+              ...row.map((value, j) => cell('td', String(value), marked.has(`${i},${j}`))),
+            );
+            return tr;
+          }),
+        );
+        this.querySelector('[data-out="distance"]')!.textContent = String(table[a.length][b.length]);
+        this.querySelector('[data-out="edits"]')!.textContent = edits.join(', ') || 'no edits needed';
+      });
+    }
+  }
+
+  customElements.define('edit-distance', EditDistance);
+</script>

@@ -1,0 +1,58 @@
+---
+// A pattern lined up under a text, with matched and mismatched characters marked.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+interface Props {
+  text: string;
+  pattern: string;
+  offset: number;
+  /** Leading pattern characters known to match without being compared. */
+  known?: number;
+  /** Leading pattern characters that match at this alignment. */
+  matched?: number;
+  /** Pattern index that failed, or -1. */
+  mismatch?: number;
+  /** Text shown beside the pattern row. */
+  tag?: string;
+  caption?: string;
+}
+
+const { text, pattern, offset, known = 0, matched = 0, mismatch = -1, tag, caption } = Astro.props;
+
+const W = 30;
+const H = 34;
+const PAD = 10;
+const top = PAD + 14;
+const second = top + H + 12;
+const width = PAD * 2 + text.length * W + (tag ? 70 : 0);
+const height = second + H + PAD;
+const state = (j: number) => (j === mismatch ? 'alt' : j < known ? 'known' : j < matched ? 'hl' : '');
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`"${pattern}" lined up at index ${offset} of "${text}"`}>
+    {
+      [...text].map((ch, i) => {
+        const j = i - offset;
+        const inside = j >= 0 && j < pattern.length;
+        return (
+          <g class={`v-node ${inside ? state(j) : 'dim'}`}>
+            <text class="v-small" x={PAD + i * W + W / 2} y={PAD + 4}>{i}</text>
+            <rect x={PAD + i * W} y={top} width={W} height={H} rx="3" />
+            <text class="v-text" x={PAD + i * W + W / 2} y={top + H / 2}>{ch}</text>
+          </g>
+        );
+      })
+    }
+    {
+      [...pattern].map((ch, j) => (
+        <g class={`v-node ${state(j)}`}>
+          <rect x={PAD + (offset + j) * W} y={second} width={W} height={H} rx="3" />
+          <text class="v-text" x={PAD + (offset + j) * W + W / 2} y={second + H / 2}>{ch}</text>
+        </g>
+      ))
+    }
+    {tag && <text class="v-label note" x={PAD + (offset + pattern.length) * W + 8} y={second + H / 2}>{tag}</text>}
+  </svg>
+</Figure>
