@@ -1316,3 +1316,82 @@ main {
 .legend .k-pivot::before {
   background: var(--text-2);
 }
+
+/* ---------- Graph demo ---------- */
+
+.graph-demo {
+  display: block;
+  margin: 0 0 1.4rem;
+  border-radius: 0.6rem;
+}
+
+.viz-svg .tag {
+  text-anchor: start;
+  paint-order: stroke;
+  stroke: var(--bg-soft);
+  stroke-width: 4px;
+}
+
+.v-node.frontier rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+.v-gedge.gone {
+  opacity: 0.25;
+}
+
+.panels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 2rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.85rem;
+}
+
+.panels div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.panels dt {
+  color: var(--text-2);
+}
+
+.panels dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+
+.starts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.starts button {
+  min-width: 1.8rem;
+  height: 1.8rem;
+  padding: 0 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.8rem var(--mono);
+  cursor: pointer;
+}
+
+.starts button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.legend .k-frontier::before {
+  border: 1.5px dashed var(--accent);
+  background: none;
+}

@@ -1,6 +1,7 @@
 // Components available in every .mdx page without an import.
 import Aside from './Aside.astro';
 import Frame from './Frame.astro';
+import GraphDemo from './GraphDemo.astro';
 import HashPlayground from './HashPlayground.astro';
 import Link from './Link.astro';
 import Ops from './Ops.astro';
@@ -20,6 +21,7 @@ export const components = {
   a: Link,
   Aside,
   Frame,
+  GraphDemo,
   HashPlayground,
   Player,
   SortDemo,
