@@ -1,6 +1,13 @@
 // Runs a graph algorithm and records each step, for <GraphDemo>.
 
-export type GraphAlgorithm = 'bfs' | 'dfs' | 'dijkstra' | 'topo';
+export type GraphAlgorithm =
+  | 'bfs'
+  | 'dfs'
+  | 'dijkstra'
+  | 'topo'
+  | 'bellman-ford'
+  | 'kruskal'
+  | 'prim';
 
 export interface GraphSpec {
   nodes: string[];
@@ -19,6 +26,8 @@ export interface GraphStep {
   tree: [string, string][];
   /** Edges that no longer matter. */
   gone: [string, string][];
+  /** The edge being examined right now. */
+  active?: [string, string];
   /** Text shown above each vertex. */
   labels: Record<string, string>;
   note: string;
@@ -235,9 +244,156 @@ function topo(spec: GraphSpec): GraphStep[] {
   return steps;
 }
 
+function bellmanFord(spec: GraphSpec, start: string): GraphStep[] {
+  const steps: GraphStep[] = [];
+  const dist = new Map(spec.nodes.map((n) => [n, n === start ? 0 : Infinity]));
+  const prev = new Map<string, string>();
+  const show = (d: number) => (d === Infinity ? '∞' : String(d));
+  let round = 0;
+  const snap = (note: string, active?: [string, string]) =>
+    steps.push({
+      current: active?.[1],
+      done: [],
+      frontier: spec.nodes.filter((n) => dist.get(n)! < Infinity && n !== active?.[1]),
+      tree: [...prev].map(([to, from]) => [from, to]),
+      gone: [],
+      active,
+      labels: Object.fromEntries([...dist].map(([n, d]) => [n, show(d)])),
+      note,
+      panels: [['Round', round ? `${round} of at most ${spec.nodes.length - 1}` : 'not started']],
+    });
+  const relaxAll = (record: boolean) => {
+    let changed = false;
+    for (const [from, to, weight = 1] of spec.edges) {
+      const through = dist.get(from)! + weight;
+      if (through < dist.get(to)!) {
+        changed = true;
+        if (!record) return true;
+        const before = dist.get(to)!;
+        dist.set(to, through);
+        prev.set(to, from);
+        snap(
+          `Edge ${from} → ${to}: ${show(dist.get(from)!)} + ${weight < 0 ? `(${weight})` : weight} = ${through}, ` +
+            (before === Infinity ? `the first route to ${to}.` : `better than ${before}. Update ${to}.`),
+          [from, to],
+        );
+      }
+    }
+    return changed;
+  };
+
+  snap(`Every vertex starts at ∞ except ${start}. Each round tries every edge once, in a fixed order.`);
+  for (round = 1; round < spec.nodes.length; round++) {
+    if (!relaxAll(true)) {
+      snap(`Round ${round}: no edge improved anything, so the distances are final. Stop early.`);
+      return steps;
+    }
+    snap(`End of round ${round}.`);
+  }
+  round = spec.nodes.length - 1;
+  snap(
+    relaxAll(false)
+      ? 'An edge can still improve a distance after the last round. The graph has a negative cycle, so no shortest paths exist.'
+      : 'All rounds are done. The distances are final.',
+  );
+  return steps;
+}
+
+function kruskal(spec: GraphSpec): GraphStep[] {
+  const steps: GraphStep[] = [];
+  const group = new Map(spec.nodes.map((n) => [n, n]));
+  const find = (n: string): string => (group.get(n) === n ? n : find(group.get(n)!));
+  const tree: [string, string][] = [];
+  const gone: [string, string][] = [];
+  let total = 0;
+  const snap = (note: string, active?: [string, string]) =>
+    steps.push({
+      done: spec.nodes.filter((n) => tree.some(([a, b]) => a === n || b === n)),
+      frontier: [],
+      tree: [...tree],
+      gone: [...gone],
+      active,
+      labels: {},
+      note,
+      panels: [
+        ['Edges chosen', `${tree.length} of ${spec.nodes.length - 1}`],
+        ['Total weight', String(total)],
+      ],
+    });
+
+  const sorted = [...spec.edges].sort((a, b) => (a[2] ?? 1) - (b[2] ?? 1));
+  snap('Sort the edges by weight. Consider them from cheapest to most expensive.');
+  for (const [a, b, weight = 1] of sorted) {
+    if (tree.length === spec.nodes.length - 1) {
+      gone.push([a, b]);
+      continue;
+    }
+    if (find(a) === find(b)) {
+      gone.push([a, b]);
+      snap(`${a}–${b} (weight ${weight}): ${a} and ${b} are already connected, so this edge would make a cycle. Skip it.`, [a, b]);
+    } else {
+      group.set(find(a), find(b));
+      tree.push([a, b]);
+      total += weight;
+      snap(`${a}–${b} (weight ${weight}): joins two separate groups. Take it.`, [a, b]);
+    }
+  }
+  snap(`${tree.length} edges connect all ${spec.nodes.length} vertices. The minimum spanning tree has total weight ${total}.`);
+  return steps;
+}
+
+function prim(spec: GraphSpec, start: string): GraphStep[] {
+  const adj = adjacency(spec);
+  const steps: GraphStep[] = [];
+  const inside = [start];
+  const tree: [string, string][] = [];
+  let total = 0;
+  const border = () =>
+    spec.nodes.filter((n) => !inside.includes(n) && adj.get(n)!.some((e) => inside.includes(e.to)));
+  const snap = (note: string, current?: string, active?: [string, string]) =>
+    steps.push({
+      current,
+      done: inside.filter((n) => n !== current),
+      frontier: border(),
+      tree: [...tree],
+      gone: [],
+      active,
+      labels: {},
+      note,
+      panels: [
+        ['In the tree', row(inside)],
+        ['Total weight', String(total)],
+      ],
+    });
+
+  snap(`Start with just ${start} in the tree.`, start);
+  while (inside.length < spec.nodes.length) {
+    let best: { from: string; to: string; weight: number } | undefined;
+    for (const from of inside) {
+      for (const { to, weight } of adj.get(from)!) {
+        if (!inside.includes(to) && (!best || weight < best.weight)) best = { from, to, weight };
+      }
+    }
+    if (!best) break;
+    inside.push(best.to);
+    tree.push([best.from, best.to]);
+    total += best.weight;
+    snap(
+      `The cheapest edge leaving the tree is ${best.from}–${best.to} (weight ${best.weight}). Add ${best.to}.`,
+      best.to,
+      [best.from, best.to],
+    );
+  }
+  snap(`Every vertex is in the tree. Its total weight is ${total}.`);
+  return steps;
+}
+
 export function traceGraph(algorithm: GraphAlgorithm, spec: GraphSpec, start: string): GraphStep[] {
   if (algorithm === 'bfs') return bfs(spec, start);
   if (algorithm === 'dfs') return dfs(spec, start);
   if (algorithm === 'dijkstra') return dijkstra(spec, start);
+  if (algorithm === 'bellman-ford') return bellmanFord(spec, start);
+  if (algorithm === 'kruskal') return kruskal(spec);
+  if (algorithm === 'prim') return prim(spec, start);
   return topo(spec);
 }
