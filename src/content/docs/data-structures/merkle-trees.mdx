@@ -1,0 +1,135 @@
+---
+description: A tree of hashes in which each node summarises everything below it. It lets you verify one piece of a huge dataset, or find what differs between two copies, with only a handful of hashes.
+difficulty: intermediate
+---
+
+Suppose you download a large file in a thousand pieces from strangers on the internet. How do you know each piece is genuine?
+
+A [cryptographic hash](/security/cryptographic-hash-functions/) of the whole file would tell you, but only after downloading all of it. A list of a thousand piece hashes would let you check each piece as it arrives, but then you need to trust that long list.
+
+A **Merkle tree** solves this. A single small hash vouches for the entire dataset, and any individual piece can be checked against it using only a few extra hashes.
+
+## Building one
+
+1. Split the data into blocks and hash each one. These are the **leaves**.
+2. Pair up the hashes. Join each pair together and hash the result to get a parent.
+3. Repeat, level by level, until one hash remains: the **root**.
+
+<Tree
+  root={{ k: 'H1234', c: [{ k: 'H12', c: ['H1', 'H2'] }, { k: 'H34', c: ['H3', 'H4'] }] }}
+  highlight={['H1234']}
+  caption="Four data blocks give four leaf hashes, H1 to H4. H12 is the hash of H1 and H2 joined together. The root, H1234, is the hash of H12 and H34."
+/>
+
+The root depends on **every bit of every block**. Change one character anywhere, and that block's hash changes, which changes its parent, which changes *its* parent, all the way to the top. The root is a fingerprint of the whole dataset.
+
+## Proving one block belongs
+
+Say you hold the trusted root, and someone sends you block 3. They want to prove it is genuine without sending the other blocks.
+
+They send block 3 along with two hashes: **H4** and **H12**. You then compute:
+
+```text
+H3     = hash(block 3)           you compute this from the block
+H34    = hash(H3 + H4)           using the H4 you were given
+H1234  = hash(H12 + H34)         using the H12 you were given
+```
+
+If the result matches the root you trust, the block is genuine.
+
+<Tree
+  root={{ k: 'H1234', c: [{ k: 'H12', c: ['H1', 'H2'] }, { k: 'H34', c: ['H3', 'H4'] }] }}
+  highlight={['H3', 'H34', 'H1234']}
+  alt={['H4', 'H12']}
+  caption="The proof for block 3. Blue hashes are computed by the verifier. Orange hashes are supplied: one sibling at each level."
+/>
+
+This is a **Merkle proof**. It needs one sibling hash per level of the tree, and the tree's height is log₂ n.
+
+| Blocks | Hashes in a proof | Proof size with 32-byte hashes |
+| --- | --- | --- |
+| 4 | 2 | 64 bytes |
+| 1,024 | 10 | 320 bytes |
+| 1,000,000 | 20 | 640 bytes |
+| 1,000,000,000 | 30 | 960 bytes |
+
+To verify one block out of a billion, you need under a kilobyte.
+
+A forger cannot cheat. To pass off a fake block, they would need to supply sibling hashes that combine to the real root, which means finding a hash collision. For a cryptographic hash function that is not feasible.
+
+## The code
+
+```python
+import hashlib
+
+def h(data):
+    return hashlib.sha256(data).digest()
+
+
+def merkle_root(blocks):
+    level = [h(block) for block in blocks]
+    while len(level) > 1:
+        if len(level) % 2 == 1:
+            level.append(level[-1])           # odd count: pair the last with itself
+        level = [h(level[i] + level[i + 1]) for i in range(0, len(level), 2)]
+    return level[0]
+
+
+def verify(block, proof, root):
+    """proof is a list of (sibling_hash, sibling_is_on_the_left) pairs, leaf to root."""
+    current = h(block)
+    for sibling, on_left in proof:
+        current = h(sibling + current) if on_left else h(current + sibling)
+    return current == root
+```
+
+<Ops
+  items={[
+    ['Build', 'O(n)'],
+    ['Proof size', 'O(log n)'],
+    ['Verify a proof', 'O(log n)'],
+    ['Update one block', 'O(log n)', 'rehash one path'],
+  ]}
+/>
+
+## Finding differences between two copies
+
+Merkle trees have a second use that needs no cryptography. Two machines each hold a copy of a large dataset and want to know which parts differ, without sending the whole thing.
+
+Each builds a Merkle tree and they compare, starting at the top.
+
+- If the **roots match**, the copies are identical. Finished, after exchanging one hash.
+- If they differ, compare the two children. A child whose hash matches covers an identical half, and is skipped entirely.
+- Keep descending only into subtrees that differ.
+
+The work is proportional to the **amount that differs**, not to the size of the data. Two terabyte-sized replicas with a single changed record are reconciled by exchanging a few dozen hashes.
+
+## Where it shows up
+
+**Git.** Every file is stored under the hash of its contents. A directory is a list of names and the hashes of its files and subdirectories, itself stored under its own hash. A commit points to a directory hash and to its parent commits. So a commit's identifier pins down the exact contents of every file in the project and the entire history before it. Two unchanged directories have the same hash, which is how Git compares large trees quickly and stores unchanged files only once.
+
+**Blockchains.** Each block of transactions includes the Merkle root of those transactions in its header. A lightweight wallet that keeps only the headers can confirm that a payment is in a block by asking for a Merkle proof, without downloading the block.
+
+**Peer-to-peer file sharing.** BitTorrent and IPFS verify each piece as it arrives from an untrusted peer.
+
+**Distributed databases.** Cassandra and Amazon's Dynamo use Merkle trees to find and repair differences between replicas.
+
+**File systems.** ZFS and Btrfs store a checksum of every block in its parent, forming a Merkle tree over the whole disk. Silent corruption anywhere is detected when the data is read.
+
+**Certificate transparency.** Every publicly trusted HTTPS certificate is recorded in append-only logs built as Merkle trees, so anyone can verify that a certificate was logged and that the log has not been rewritten.
+
+<Aside title="Content addressing">
+
+In all of these, data is named by the hash of its contents rather than by where it is stored. That is called **content addressing**. Identical content always gets the same name, so duplicates are stored once, and any name can be verified against the data it claims to refer to.
+
+</Aside>
+
+The structure is named after Ralph Merkle, who patented it in 1979.
+
+## Key takeaways
+
+- A Merkle tree hashes data blocks into leaves, then hashes pairs of hashes upward to a single root.
+- The root is a fingerprint of all the data: any change anywhere changes it.
+- A Merkle proof shows that one block belongs, using one sibling hash per level, so O(log n) hashes.
+- Two copies can be compared from the root down, doing work proportional only to what differs.
+- It underlies Git, blockchains, peer-to-peer downloads and replica repair in distributed databases.
