@@ -1395,3 +1395,181 @@ main {
   border: 1.5px dashed var(--accent);
   background: none;
 }
+
+/* ---------- Bit, float and text widgets ---------- */
+
+.bit-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.playground .bit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  width: 2.6rem;
+  min-width: 0;
+  height: auto;
+  padding: 0.25rem 0 0.35rem;
+  border: 1.5px solid var(--viz-stroke);
+  border-radius: 0.4rem;
+  background: var(--viz-fill);
+  color: var(--text);
+  font-family: var(--mono);
+  line-height: 1.3;
+}
+
+.playground .bit small {
+  color: var(--text-3);
+  font-size: 0.65rem;
+}
+
+.playground .bit b {
+  font-size: 1.15rem;
+}
+
+.playground .bit[aria-pressed='true'],
+.playground .bit[data-on] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.playground .tries button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.readouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 2rem;
+  margin: 0.9rem 0 0;
+  font-size: 0.9rem;
+}
+
+.readouts div {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.readouts.stacked {
+  flex-direction: column;
+}
+
+.readouts dt {
+  min-width: 7.5rem;
+  color: var(--text-2);
+}
+
+.readouts:not(.stacked) dt {
+  min-width: 0;
+}
+
+.readouts dd {
+  margin: 0;
+  font-family: var(--mono);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.bits-demo .tries {
+  margin: 0.8rem 0 0;
+}
+
+.bitwise-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.bitwise-row.unused {
+  opacity: 0.35;
+}
+
+.bitwise-row .row-name {
+  width: 3.2rem;
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+.bitwise-row .row-value {
+  min-width: 2rem;
+  font: 600 0.95rem var(--mono);
+}
+
+.bitwise-demo .bit {
+  width: 2.1rem;
+}
+
+.bitwise-row[data-row='r'] {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+
+.float-bits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.float-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  --group: var(--series-1);
+}
+
+.float-group.exponent {
+  --group: var(--series-2);
+}
+
+.float-group.fraction {
+  --group: var(--series-3);
+}
+
+.float-group .cells {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 3px solid var(--group);
+}
+
+.float-group i {
+  width: 1.05rem;
+  font: 600 0.9rem/1.7 var(--mono);
+  text-align: center;
+}
+
+.float-group small {
+  color: var(--text-2);
+  font-size: 0.72rem;
+}
+
+.utf8-demo table {
+  width: 100%;
+  margin: 0.8rem 0 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.utf8-demo th,
+.utf8-demo td {
+  padding: 0.3rem 0.6rem 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.utf8-demo th {
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.utf8-demo td:not(:first-child) {
+  font-family: var(--mono);
+}

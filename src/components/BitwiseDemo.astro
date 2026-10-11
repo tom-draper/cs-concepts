@@ -1,0 +1,90 @@
+---
+// Two 8-bit values and a bitwise operator: flip bits and watch the result.
+import { bitwise } from '../lib/bits';
+
+const a = 0b11001010;
+const b = 0b10100110;
+const operators = [
+  ['and', 'A & B'],
+  ['or', 'A | B'],
+  ['xor', 'A ^ B'],
+  ['not', '~A'],
+  ['shl', 'A << 1'],
+  ['shr', 'A >> 1'],
+];
+const rows = [
+  { id: 'a', name: 'A', value: a },
+  { id: 'b', name: 'B', value: b },
+  { id: 'r', name: 'Result', value: bitwise('and', a, b) },
+];
+---
+
+<bitwise-demo class="playground bitwise-demo" data-a={a} data-b={b}>
+  <p class="tries" role="group" aria-label="Operator">
+    {
+      operators.map(([op, label], i) => (
+        <button type="button" data-op={op} aria-pressed={i === 0 ? 'true' : 'false'}>{label}</button>
+      ))
+    }
+  </p>
+  {
+    rows.map((row) => (
+      <div class="bitwise-row" data-row={row.id}>
+        <span class="row-name">{row.name}</span>
+        <div class="bit-row">
+          {[...row.value.toString(2).padStart(8, '0')].map((bit, i) =>
+            row.id === 'r' ? (
+              <span class="bit" data-on={bit === '1' ? '' : undefined}><b>{bit}</b></span>
+            ) : (
+              <button type="button" class="bit" data-weight={2 ** (7 - i)} aria-pressed={bit === '1' ? 'true' : 'false'}>
+                <b>{bit}</b>
+              </button>
+            ),
+          )}
+        </div>
+        <span class="row-value">{row.value}</span>
+      </div>
+    ))
+  }
+</bitwise-demo>
+
+<script>
+  import { bitwise } from '../lib/bits';
+
+  class BitwiseDemo extends HTMLElement {
+    connectedCallback() {
+      const values: Record<string, number> = { a: Number(this.dataset.a), b: Number(this.dataset.b) };
+      let op = 'and';
+      const render = () => {
+        const shown: Record<string, number> = { ...values, r: bitwise(op, values.a, values.b) };
+        for (const row of this.querySelectorAll<HTMLElement>('.bitwise-row')) {
+          const value = shown[row.dataset.row!];
+          row.querySelectorAll<HTMLElement>('.bit').forEach((cell, i) => {
+            const on = ((value >> (7 - i)) & 1) === 1;
+            cell.querySelector('b')!.textContent = on ? '1' : '0';
+            if (cell.tagName === 'BUTTON') cell.setAttribute('aria-pressed', String(on));
+            else cell.toggleAttribute('data-on', on);
+          });
+          row.querySelector('.row-value')!.textContent = String(value);
+        }
+        // B plays no part in the one-input operators.
+        this.querySelector<HTMLElement>('[data-row="b"]')!.classList.toggle('unused', /not|sh/.test(op));
+        for (const button of this.querySelectorAll('[data-op]')) {
+          button.setAttribute('aria-pressed', String((button as HTMLElement).dataset.op === op));
+        }
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.op) op = button.dataset.op;
+        else {
+          const row = button.closest<HTMLElement>('.bitwise-row')!.dataset.row!;
+          values[row] ^= Number(button.dataset.weight);
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('bitwise-demo', BitwiseDemo);
+</script>

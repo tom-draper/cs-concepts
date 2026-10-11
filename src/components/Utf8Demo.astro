@@ -1,0 +1,72 @@
+---
+// Type text and see each character's code point and UTF-8 bytes.
+import { utf8Rows } from '../lib/bits';
+
+const initial = 'Aé€😀';
+const rows = utf8Rows(initial);
+---
+
+<utf8-demo class="playground utf8-demo">
+  <label>
+    <span>Text</span>
+    <input type="text" value={initial} maxlength="24" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries">
+    Try:
+    {['Aé€😀', 'hello', 'naïve', '日本語', '👍🏽', '🇬🇧'].map((text) => <button type="button" data-key={text}>{text}</button>)}
+  </p>
+  <table>
+    <thead>
+      <tr><th>Character</th><th>Code point</th><th>UTF-8 bytes</th><th>Bytes</th></tr>
+    </thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr><td>{row.char}</td><td>{row.codePoint}</td><td>{row.bytes.join(' ')}</td><td>{row.bytes.length}</td></tr>
+        ))
+      }
+    </tbody>
+  </table>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Code points</dt><dd data-out="points">{rows.length}</dd></div>
+    <div><dt>UTF-8 bytes</dt><dd data-out="bytes">{rows.reduce((n, r) => n + r.bytes.length, 0)}</dd></div>
+    <div><dt>UTF-16 units</dt><dd data-out="units">{rows.reduce((n, r) => n + r.utf16, 0)}</dd></div>
+  </dl>
+</utf8-demo>
+
+<script>
+  import { utf8Rows } from '../lib/bits';
+
+  class Utf8Demo extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const body = this.querySelector('tbody')!;
+      const out = (name: string, value: number) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = String(value));
+      const update = () => {
+        const rows = utf8Rows(input.value);
+        body.replaceChildren(
+          ...rows.map((row) => {
+            const tr = document.createElement('tr');
+            for (const text of [row.char, row.codePoint, row.bytes.join(' '), String(row.bytes.length)]) {
+              tr.appendChild(document.createElement('td')).textContent = text;
+            }
+            return tr;
+          }),
+        );
+        out('points', rows.length);
+        out('bytes', rows.reduce((n, r) => n + r.bytes.length, 0));
+        out('units', rows.reduce((n, r) => n + r.utf16, 0));
+      };
+      input.addEventListener('input', update);
+      this.addEventListener('click', (event) => {
+        const key = (event.target as HTMLElement).closest('button')?.dataset.key;
+        if (key === undefined) return;
+        input.value = key;
+        update();
+      });
+    }
+  }
+
+  customElements.define('utf8-demo', Utf8Demo);
+</script>
