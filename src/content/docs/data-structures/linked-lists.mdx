@@ -1,0 +1,128 @@
+---
+description: A chain of separately allocated nodes, each pointing to the next. Splicing is instant; finding your place is not.
+difficulty: beginner
+---
+
+An [array](/data-structures/arrays/) keeps its elements side by side, which is why inserting in the middle forces everything after it to move. A linked list makes the opposite choice: elements can live **anywhere** in memory, and each one carries a pointer saying where the next one is.
+
+## The picture
+
+Each element is wrapped in a **node** with two fields: the value, and a pointer to the next node. The list itself is just a pointer to the first node, called the **head**. The last node points to nothing.
+
+<LinkedList
+  values={[12, 99, 37]}
+  labels={{ head: 0 }}
+  caption="Three nodes. The order comes from the arrows, not from where the nodes sit in memory."
+/>
+
+```python
+class Node:
+    def __init__(self, value, next=None):
+        self.value = value
+        self.next = next
+```
+
+## Why insertion is instant
+
+To insert into an array you shift elements. To insert into a linked list you change two pointers, and nothing else moves. Here is `50` going in after `99`:
+
+<Steps>
+<Step title="Find the node to insert after">
+
+<LinkedList values={[12, 99, 37]} labels={{ head: 0 }} highlight={[1]} />
+
+</Step>
+<Step title="Create the new node and point it at 37">
+
+Copy `99`'s next pointer into the new node. Nothing points at `50` yet, so the list itself has not changed.
+
+</Step>
+<Step title="Point 99 at the new node">
+
+<LinkedList values={[12, 99, 50, 37]} labels={{ head: 0 }} highlight={[1]} alt={[2]} />
+
+</Step>
+</Steps>
+
+```python
+def insert_after(node, value):
+    node.next = Node(value, node.next)
+```
+
+That is the whole operation, and it costs the same in a list of three nodes or three million: **O(1)**.
+
+<Aside type="warning" title="Order matters">
+
+Do steps 2 and 3 the other way round and you overwrite `99`'s pointer to `37` before saving it. The rest of the list becomes unreachable. Losing the tail like this is the classic linked list bug.
+
+</Aside>
+
+Deleting is the same idea in reverse: to remove `50`, point `99` straight at `37`. The removed node is simply bypassed.
+
+## Why access is slow
+
+There is no address arithmetic to jump to the fifth element. The only way to reach a node is to start at the head and follow pointers one at a time.
+
+```python
+def get(head, index):
+    node = head
+    for _ in range(index):
+        node = node.next
+    return node.value
+```
+
+So reading by index is **O(n)**. This also puts an asterisk on the O(1) insertion: it is only O(1) once you are *holding* the node to insert after. If you first have to walk there, the walk is O(n).
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Read by index', 'O(n)'],
+    ['Search', 'O(n)'],
+    ['Insert or delete at the head', 'O(1)'],
+    ['Insert after a known node', 'O(1)'],
+    ['Insert at a position', 'O(n)', 'the walk dominates'],
+  ]}
+/>
+
+## Doubly linked lists
+
+In a singly linked list you can only move forward, and to delete a node you need the one *before* it. A **doubly linked list** gives every node a second pointer, back to the previous node.
+
+<LinkedList
+  values={[12, 99, 37]}
+  doubly
+  caption="Each node now points both ways. ∅ marks a null pointer."
+/>
+
+That costs one more pointer per node and buys two things: you can walk in either direction, and you can delete a node in O(1) given only that node. Most library linked lists are doubly linked, usually with a pointer to the tail as well so both ends are O(1).
+
+## Arrays versus linked lists
+
+| | Array | Linked list |
+| --- | --- | --- |
+| Read by index | O(1) | O(n) |
+| Insert or delete at the front | O(n) | O(1) |
+| Insert or delete at a known spot | O(n) | O(1) |
+| Extra memory per element | none | one or two pointers |
+| Memory layout | one contiguous block | scattered nodes |
+
+On paper this looks like an even trade. In practice arrays win far more often than the table suggests, for two reasons.
+
+**Pointers are not free.** On a 64-bit machine each pointer is 8 bytes. A doubly linked list of 4-byte integers spends 16 bytes of pointers on every 4 bytes of data, before counting the allocator's own bookkeeping.
+
+**Scattered memory defeats the CPU cache.** Walking an array reads memory in order, which processors predict and pre-load. Walking a linked list jumps to an unpredictable address at every step, and each jump may be a cache miss costing a hundred times more than a hit. Both walks are O(n), but the constant factors are worlds apart.
+
+## Where linked lists earn their place
+
+- **LRU caches.** A [hash table](/data-structures/hash-tables/) finds an entry in O(1), and a doubly linked list moves it to the "most recently used" end in O(1). Neither structure can do both jobs alone.
+- **[Queues](/data-structures/queues/) and [stacks](/data-structures/stacks/)** where elements are only added and removed at the ends.
+- **Inside other structures.** Hash table chains, graph adjacency lists and memory allocator free lists are all linked lists.
+- **When elements must not move.** Growing an array relocates its elements. Nodes stay put for life, so pointers to them stay valid.
+
+## Key takeaways
+
+- A linked list trades contiguous storage for pointers between nodes.
+- Splicing a node in or out is O(1) once you are at the right spot; getting there is O(n).
+- A doubly linked list adds a backward pointer, enabling O(1) deletion and two-way traversal.
+- Scattered nodes are hard on the CPU cache. Prefer an array unless you specifically need cheap splicing or stable node addresses.

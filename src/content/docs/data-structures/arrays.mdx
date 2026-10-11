@@ -1,0 +1,128 @@
+---
+description: A row of same-sized slots sitting side by side in memory, which makes jumping to any element instant and inserting in the middle slow.
+difficulty: beginner
+---
+
+An array is the simplest data structure there is, and nearly every other one is built from it or defined in contrast to it. Its entire behaviour follows from one fact: **the elements are stored next to each other, and each is the same size.**
+
+## The picture
+
+Here is an array of six 4-byte integers. The small numbers above are memory addresses; the ones below are indices.
+
+<ArrayViz
+  values={[7, 2, 9, 4, 1, 8]}
+  addr={{ base: 0x1000, size: 4 }}
+  caption="Six integers in one unbroken block. Each address is exactly 4 bytes after the one before."
+/>
+
+Nothing is stored between the elements. No pointers, no labels, no gaps.
+
+## Why access is instant
+
+Because every slot is the same size and they are packed in order, the location of any element is a single calculation:
+
+```text
+address of element i  =  address of element 0  +  i × element size
+```
+
+To read index 3 above, the machine computes `0x1000 + 3 × 4 = 0x100c` and goes straight there.
+
+<ArrayViz
+  values={[7, 2, 9, 4, 1, 8]}
+  addr={{ base: 0x1000, size: 4 }}
+  highlight={[3]}
+  caption="Reading index 3. No other element is touched."
+/>
+
+That costs the same whether the array holds six elements or six billion, which is what **O(1) access** means. It is also why indices start at 0 in most languages: the index is literally the distance from the start.
+
+## Why inserting is slow
+
+The same packing that makes reads fast makes the middle of an array rigid. There is no free space between elements, so to insert one you have to make room by moving everything after it.
+
+Say the array has room for eight elements, currently holds six, and we want to insert `5` at index 2.
+
+<Steps>
+<Step title="Start with spare capacity at the end">
+
+<ArrayViz values={[7, 2, 9, 4, 1, 8, null, null]} pointers={{ 'insert here': 2 }} />
+
+</Step>
+<Step title="Shift everything from index 2 onward one slot right">
+
+Work from the back, so no value is overwritten before it has been copied.
+
+<ArrayViz values={[7, 2, null, 9, 4, 1, 8, null]} alt={[3, 4, 5, 6]} />
+
+</Step>
+<Step title="Write the new value into the gap">
+
+<ArrayViz values={[7, 2, 5, 9, 4, 1, 8, null]} highlight={[2]} />
+
+</Step>
+</Steps>
+
+Four elements moved to make room for one. Insert at index 0 and *every* element moves. On average an insertion shifts half the array, so it is **O(n)**. Deleting is the mirror image: remove the element, then shift everything after it left to close the gap.
+
+```python
+def insert(arr, length, index, value):
+    # Shift right, starting from the end.
+    for i in range(length, index, -1):
+        arr[i] = arr[i - 1]
+    arr[index] = value
+    return length + 1
+```
+
+The one cheap place to add or remove is the **end**, where nothing needs to move.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Read or write by index', 'O(1)'],
+    ['Search (unsorted)', 'O(n)'],
+    ['Search (sorted)', 'O(log n)'],
+    ['Add or remove at the end', 'O(1)'],
+    ['Insert or delete elsewhere', 'O(n)'],
+  ]}
+/>
+
+Searching an unsorted array means checking elements one by one. If the array is sorted you can use [binary search](/algorithms/binary-search/) instead.
+
+## The hidden superpower: cache friendliness
+
+[Big-O](/foundations/big-o-notation/) says scanning an array and scanning a [linked list](/data-structures/linked-lists/) are both O(n). In practice the array is often several times faster, sometimes far more.
+
+The reason is the CPU cache. When your program reads one byte from memory, the processor fetches the whole surrounding block (typically 64 bytes) into a small, very fast cache, betting you will want the neighbours next. With an array that bet always pays off: one fetch brings in sixteen 4-byte integers, and the processor notices the pattern and starts fetching ahead.
+
+<Aside type="tip" title="Rule of thumb">
+
+When in doubt, use an array. Modern hardware is built to make sequential memory access fast, and for small or medium collections that advantage often outweighs a better Big-O elsewhere.
+
+</Aside>
+
+## Fixed size, and how languages get around it
+
+A true array has a fixed size, chosen when it is created. It cannot simply grow, because the memory just past its end may already belong to something else.
+
+The lists most languages give you (`list` in Python, `Vec` in Rust, `ArrayList` in Java, `std::vector` in C++, arrays in JavaScript) are [dynamic arrays](/data-structures/dynamic-arrays/). They wrap a fixed array, and when it fills up they allocate a bigger one, usually double the size, and copy everything across. That copy is expensive but rare, so appending still averages out to O(1).
+
+## When to reach for an array
+
+**Good fit**
+
+- You read by position, or loop over everything.
+- You mostly add and remove at the end.
+- You want compact storage with no per-element overhead.
+
+**Poor fit**
+
+- You frequently insert or delete at the front or in the middle of a large collection.
+- You need to find elements by value quickly. Use a [hash table](/data-structures/hash-tables/) or a [search tree](/data-structures/binary-search-trees/).
+
+## Key takeaways
+
+- An array is one contiguous block of equal-sized slots.
+- Index to address is simple arithmetic, so reading and writing by index is O(1).
+- There are no gaps, so inserting or deleting anywhere but the end shifts elements: O(n).
+- Contiguous memory is what CPU caches are best at, which makes arrays fast in ways Big-O does not show.
