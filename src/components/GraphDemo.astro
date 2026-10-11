@@ -1,0 +1,167 @@
+---
+// An interactive run of a graph algorithm. The graph is drawn at build time;
+// the script replays the trace and can restart it from another vertex.
+import Controls from './Controls.astro';
+import { arrowHead, fit } from './viz/geom';
+import { layoutGraph } from './viz/graph-layout';
+import { traceGraph, type GraphAlgorithm, type GraphSpec } from '../lib/graph-traces';
+
+interface Props {
+  algorithm: GraphAlgorithm;
+  nodes: Record<string, [number, number]>;
+  edges: [string, string, number?][];
+  directed?: boolean;
+  start?: string;
+}
+
+const { algorithm, nodes, edges, directed = false } = Astro.props;
+const names = Object.keys(nodes);
+const start = Astro.props.start ?? names[0];
+const spec: GraphSpec = { nodes: names, edges, directed };
+const first = traceGraph(algorithm, spec, start)[0];
+const { points, lines, width, height } = layoutGraph(nodes, edges, directed, 16);
+const pickStart = algorithm !== 'topo';
+const legend = {
+  bfs: ['current', 'in the queue', 'visited'],
+  dfs: ['current', 'on the path', 'finished'],
+  dijkstra: ['current', 'reached', 'settled'],
+  topo: ['current', 'ready', 'output'],
+}[algorithm];
+---
+
+<graph-demo
+  class="graph-demo"
+  tabindex="0"
+  role="group"
+  aria-label={`${algorithm} step by step`}
+  data-algorithm={algorithm}
+  data-spec={JSON.stringify(spec)}
+  data-start={start}
+>
+  <div class="viz-scroll">
+    <svg class="viz-svg" viewBox={`0 0 ${width} ${height}`} style={fit(width)} aria-hidden="true">
+      {
+        lines.map((l) => (
+          <g class="v-gedge" data-edge={`${l.from}|${l.to}`}>
+            <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />
+            {directed && <polygon points={arrowHead(l.x1, l.y1, l.tip.x, l.tip.y, 9)} />}
+            {l.weight !== undefined && <text class="v-small" x={l.wx} y={l.wy}>{l.weight}</text>}
+          </g>
+        ))
+      }
+      {
+        points.map((p) => (
+          <g class="v-node" data-node={p.name}>
+            <rect x={p.x - p.hw} y={p.y - p.r} width={p.hw * 2} height={p.r * 2} rx={p.r} />
+            <text class="v-text" x={p.x} y={p.y}>{p.name}</text>
+            <text class="v-label tag" x={p.x + p.hw - 2} y={p.y - p.r - 5}>{first.labels[p.name] ?? ''}</text>
+          </g>
+        ))
+      }
+    </svg>
+  </div>
+  <p class="sort-note" aria-live="polite">{first.note}</p>
+  <dl class="panels">
+    {
+      first.panels.map(([label, value]) => (
+        <div>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))
+    }
+  </dl>
+  <Controls />
+  <p class="sort-meta">
+    {
+      pickStart ? (
+        <span class="starts">
+          Start from
+          {names.map((name) => (
+            <button type="button" data-start={name} aria-pressed={name === start ? 'true' : 'false'}>
+              {name}
+            </button>
+          ))}
+        </span>
+      ) : (
+        <span />
+      )
+    }
+    <span class="legend">
+      <span class="k-moved">{legend[0]}</span>
+      <span class="k-frontier">{legend[1]}</span>
+      <span class="k-compare">{legend[2]}</span>
+    </span>
+  </p>
+</graph-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { traceGraph, type GraphAlgorithm, type GraphSpec } from '../lib/graph-traces';
+
+  class GraphDemo extends HTMLElement {
+    connectedCallback() {
+      const algorithm = this.dataset.algorithm as GraphAlgorithm;
+      const spec: GraphSpec = JSON.parse(this.dataset.spec!);
+      const nodes = [...this.querySelectorAll<SVGGElement>('[data-node]')];
+      const edges = [...this.querySelectorAll<SVGGElement>('[data-edge]')];
+      const note = this.querySelector('.sort-note')!;
+      const values = [...this.querySelectorAll('.panels dd')];
+      let steps = traceGraph(algorithm, spec, this.dataset.start!);
+
+      const includes = (pairs: [string, string][], key: string) =>
+        pairs.some(([a, b]) => key === `${a}|${b}` || (!spec.directed && key === `${b}|${a}`));
+
+      const stepper = attachStepper(this, {
+        count: () => steps.length,
+        render: (index) => {
+          const step = steps[index];
+          for (const node of nodes) {
+            const name = node.dataset.node!;
+            node.setAttribute(
+              'class',
+              'v-node ' +
+                (step.current === name
+                  ? 'alt'
+                  : step.done.includes(name)
+                    ? 'hl'
+                    : step.frontier.includes(name)
+                      ? 'frontier'
+                      : ''),
+            );
+            node.querySelector('.tag')!.textContent = step.labels[name] ?? '';
+          }
+          for (const edge of edges) {
+            const key = edge.dataset.edge!;
+            edge.setAttribute(
+              'class',
+              'v-gedge ' + (includes(step.tree, key) ? 'on' : includes(step.gone, key) ? 'gone' : ''),
+            );
+          }
+          note.textContent = step.note;
+          step.panels.forEach(([, value], i) => (values[i].textContent = value));
+        },
+      });
+
+      const restart = (start: string) => {
+        steps = traceGraph(algorithm, spec, start);
+        for (const button of this.querySelectorAll<HTMLElement>('.starts button')) {
+          button.setAttribute('aria-pressed', String(button.dataset.start === start));
+        }
+        stepper.go(0);
+      };
+      this.querySelector('.starts')?.addEventListener('click', (event) => {
+        const start = (event.target as HTMLElement).closest('button')?.dataset.start;
+        if (start) restart(start);
+      });
+      if (this.querySelector('.starts')) {
+        for (const node of nodes) {
+          node.style.cursor = 'pointer';
+          node.addEventListener('click', () => restart(node.dataset.node!));
+        }
+      }
+    }
+  }
+
+  customElements.define('graph-demo', GraphDemo);
+</script>
