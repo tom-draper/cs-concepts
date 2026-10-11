@@ -1,0 +1,121 @@
+---
+description: A way to estimate how many distinct items are in a huge stream, to within a couple of percent, using only a few kilobytes of memory.
+difficulty: advanced
+---
+
+How many different people visited a website today? Counting *visits* is easy: add one each time. Counting *distinct* visitors is not, because you have to recognise the ones you have already seen.
+
+The exact approach keeps a [set](/data-structures/sets/) of every visitor. For a hundred million visitors that is gigabytes of memory, for a single number.
+
+**HyperLogLog** estimates that number using about 12 kilobytes, with a typical error under 1%. It can count billions of distinct items in less memory than this page of text.
+
+## The idea: rare events imply large numbers
+
+Suppose I tell you I flipped a coin repeatedly, and the longest run of heads I saw at the start of any attempt was three. You would guess I had not tried many times. If I said the longest was twenty, you would guess I had tried about a million times, because a run of twenty heads has a chance of one in 2²⁰.
+
+**The rarest thing you have seen tells you roughly how many times you tried.**
+
+HyperLogLog applies this to [hashes](/data-structures/hash-functions/). A good hash function turns each item into what looks like a random string of bits.
+
+- About half of all hashes start with `0`.
+- About a quarter start with `00`.
+- About one in a thousand start with ten zeros.
+
+So if, among all the hashes seen, the longest run of leading zeros is 10, there were probably about 2¹⁰ ≈ 1,000 distinct items.
+
+Two properties make this work.
+
+- **Duplicates do not matter.** The same item always produces the same hash, so seeing it again changes nothing. Only distinct items count, which is exactly what we want.
+- **Memory is tiny.** All that needs remembering is one small number: the longest run seen.
+
+## From one guess to a good estimate
+
+A single maximum is a wild estimate. One lucky hash with an unusually long run of zeros would double or quadruple the answer.
+
+The fix is to make many independent estimates and combine them.
+
+1. Use the first few bits of each hash to choose one of m **registers**.
+2. Use the remaining bits to measure the run of leading zeros.
+3. Each register keeps the longest run it has seen.
+
+This splits the stream into m separate sub-streams, each with its own rough estimate. Averaging them cancels out the luck. HyperLogLog uses the *harmonic mean*, which is much less disturbed by a single outlier than an ordinary average.
+
+## Try it
+
+<HllDemo />
+
+Things to try:
+
+- Add items and compare the estimate with the truth. It will be off by some percentage.
+- Switch to **16** registers. The estimate gets worse. Switch to **1,024** and it gets much better. The same items are replayed each time, so only the precision changes.
+- Watch the registers. Each holds a small number, and they all creep upward as more items arrive.
+- Notice the memory. Adding ten thousand more items does not use a single extra byte.
+
+## Accuracy
+
+The typical error depends only on the number of registers.
+
+```text
+typical error  ≈  1.04 / √m
+```
+
+| Registers | Memory | Typical error |
+| --- | --- | --- |
+| 16 | 12 bytes | 26% |
+| 64 | 48 bytes | 13% |
+| 1,024 | 768 bytes | 3.3% |
+| 16,384 | 12 KB | 0.81% |
+| 65,536 | 48 KB | 0.41% |
+
+Each register only needs about 6 bits, since it stores a count of zeros, a number that never exceeds about 60.
+
+To halve the error you need four times the registers. That is the usual pattern for estimates based on sampling. And the error does **not** depend on how many items are counted: a thousand or a trillion, the precision is the same.
+
+The name describes the memory use. Counting up to n needs registers of size log log n bits: the logarithm of a logarithm.
+
+<Ops
+  items={[
+    ['Add an item', 'O(1)'],
+    ['Estimate the count', 'O(m)'],
+    ['Merge two counters', 'O(m)'],
+    ['Memory', 'O(m)', 'independent of the count'],
+  ]}
+/>
+
+## Merging
+
+Two HyperLogLog counters with the same number of registers can be combined into one that represents the **union** of what they saw: for each register, take the larger value.
+
+The result is exactly what a single counter would hold if it had seen both streams. Nothing is lost.
+
+This is what makes it indispensable for analytics at scale.
+
+- A hundred servers each count their own visitors. Merge the hundred counters and you have the distinct count across all of them, with visitors who touched several servers counted once.
+- Keep one counter per day. Merge any seven to get the distinct count for that week. Merge thirty for a month. No rescanning of the raw data is needed.
+
+An exact approach would have to ship and merge the full sets.
+
+## What it cannot do
+
+- **List the items**, or say whether a particular one was seen. For membership, use a [Bloom filter](/data-structures/bloom-filters/).
+- **Remove an item.** A register holds a maximum, and there is no way to know what it would have been without one of its inputs.
+- **Count occurrences.** It ignores duplicates by design. For frequencies, see the [count-min sketch](/data-structures/count-min-sketch/).
+- **Be exact.** For small counts, an ordinary set is both exact and cheap. Real implementations start with an exact representation and switch to registers only once the set would be larger.
+
+## Where it shows up
+
+- **Redis** provides it as the `PFADD` and `PFCOUNT` commands, using 12 KB per counter.
+- **Analytical databases** such as BigQuery, Snowflake, ClickHouse and Presto use it for approximate `COUNT(DISTINCT ...)`, which is far faster than the exact version on large tables.
+- **Web analytics**: unique visitors, unique search queries, unique devices.
+- **Network monitoring**: how many distinct addresses a host has contacted, which is a signal for detecting scans and attacks.
+- **Query planners**, which estimate the number of distinct values in a column to choose a good execution plan.
+
+The algorithm was published in 2007 by Philippe Flajolet and colleagues, refining ideas Flajolet had been developing since the 1980s.
+
+## Key takeaways
+
+- HyperLogLog estimates the number of distinct items in a stream using a few kilobytes, whatever the size of the stream.
+- It works by tracking the longest run of leading zeros among the items' hashes: rare patterns imply many items.
+- Splitting the stream across many registers and averaging turns a rough guess into an accurate one.
+- The error is about 1.04 / √m and does not depend on the count.
+- Counters merge losslessly, which is why it is used for distributed and time-windowed counting.
