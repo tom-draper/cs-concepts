@@ -1,0 +1,71 @@
+---
+// A Fenwick tree drawn as the ranges each slot is responsible for.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+interface Props {
+  /** The underlying array. Shown with 1-based indices. */
+  values: number[];
+  /** 1-based tree slots to mark. */
+  highlight?: number[];
+  alt?: number[];
+  caption?: string;
+}
+
+const { values, highlight = [], alt = [], caption } = Astro.props;
+
+const W = 52;
+const H = 40;
+const BAR = 26;
+const ROW = 34;
+const PAD = 10;
+const n = values.length;
+const lowbit = (i: number) => i & -i;
+const levels = Math.floor(Math.log2(n)) + 1;
+const barsTop = PAD + H + 30;
+const width = n * W + PAD * 2;
+const height = barsTop + levels * ROW + 4;
+
+const bars = values.map((_, index) => {
+  const i = index + 1;
+  const span = lowbit(i);
+  return {
+    i,
+    x: PAD + (i - span) * W + 3,
+    w: span * W - 6,
+    y: barsTop + Math.log2(span) * ROW,
+    sum: values.slice(i - span, i).reduce((a, b) => a + b, 0),
+    state: highlight.includes(i) ? 'hl' : alt.includes(i) ? 'alt' : '',
+  };
+});
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg"
+    viewBox={`0 0 ${width} ${height}`}
+    style={fit(width)}
+    role="img"
+    aria-label={`Fenwick tree over ${n} values. ${bars.map((b) => `Slot ${b.i} stores ${b.sum}, covering positions ${b.i - lowbit(b.i) + 1} to ${b.i}`).join('. ')}.`}
+  >
+    {
+      values.map((value, index) => (
+        <>
+          <g class="v-node">
+            <rect x={PAD + index * W} y={PAD} width={W} height={H} rx="3" />
+            <text class="v-text" x={PAD + index * W + W / 2} y={PAD + H / 2}>{value}</text>
+          </g>
+          <text class="v-small" x={PAD + index * W + W / 2} y={PAD + H + 12}>{index + 1}</text>
+        </>
+      ))
+    }
+    {
+      bars.map((b) => (
+        <g class={`v-node ${b.state}`}>
+          <rect x={b.x} y={b.y} width={b.w} height={BAR} rx="6" />
+          <text class="v-text" x={b.x + b.w - W / 2 + 3} y={b.y + BAR / 2}>{b.sum}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
