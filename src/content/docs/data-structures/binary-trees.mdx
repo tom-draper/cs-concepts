@@ -1,0 +1,169 @@
+---
+description: A hierarchy in which every node has at most two children. The shape underneath search trees, heaps, expression parsers and much else.
+difficulty: beginner
+---
+
+Arrays and linked lists are *linear*: each item has one item after it. A tree is *hierarchical*: each item can have several items beneath it. Restrict that to **at most two** per node and you have a binary tree, the simplest tree there is and the foundation for [binary search trees](/data-structures/binary-search-trees/), [heaps](/data-structures/heaps/) and many more.
+
+This page covers the shape and vocabulary those structures share. A plain binary tree has no rule about *where* values go; the specialised trees add one.
+
+## The vocabulary
+
+<Tree
+  root={{ k: 'A', c: [{ k: 'B', c: ['D', 'E'] }, { k: 'C', c: [null, 'F'] }] }}
+  highlight={['A']}
+  alt={['D', 'E', 'F']}
+  caption="A is the root. D, E and F are leaves. B is the parent of D and E, and the left child of A."
+/>
+
+- **Node**: one item in the tree. Each has a value and up to two children, called **left** and **right**.
+- **Root**: the node at the top, with no parent. Trees in computing grow downward.
+- **Leaf**: a node with no children.
+- **Edge**: the link between a parent and a child.
+- **Subtree**: any node together with everything below it. Every subtree is itself a binary tree, which is why tree algorithms are so often [recursive](/algorithms/recursion/).
+- **Depth** of a node: the number of edges from the root down to it. A is at depth 0, F at depth 2.
+- **Height** of the tree: the depth of its deepest leaf. The tree above has height 2.
+
+```python
+class Node:
+    def __init__(self, value, left=None, right=None):
+        self.value = value
+        self.left = left
+        self.right = right
+```
+
+## Why height is everything
+
+Almost every tree operation walks from the root towards a leaf, so its cost is proportional to the tree's height. And the height of a tree with n nodes can vary enormously.
+
+<Tree
+  root={{ k: 1, c: [{ k: 2, c: [4, 5] }, { k: 3, c: [6, 7] }] }}
+  caption="Seven nodes, as bushy as possible: height 2."
+/>
+
+<Tree
+  root={{ k: 1, c: [null, { k: 2, c: [null, { k: 3, c: [null, 4] }] }] }}
+  caption="Four nodes, as stringy as possible: height 3. This is a linked list wearing a disguise."
+/>
+
+Each level of a bushy tree holds twice as many nodes as the one above: 1, 2, 4, 8 and so on. So a tree of height h can hold up to 2ʰ⁺¹ − 1 nodes, and turning that around, n nodes can fit in a height of about log₂ n.
+
+| Nodes | Best height (bushy) | Worst height (stringy) |
+| --- | --- | --- |
+| 7 | 2 | 6 |
+| 1,023 | 9 | 1,022 |
+| 1,000,000 | 19 | 999,999 |
+
+That gap, between log n and n, is the entire reason [self-balancing trees](/data-structures/avl-trees/) exist.
+
+## Kinds of binary tree
+
+A few shapes have names you will meet again.
+
+| Name | Definition | Where it matters |
+| --- | --- | --- |
+| **Full** | Every node has 0 or 2 children | Expression trees, Huffman codes |
+| **Complete** | Every level full, except possibly the last, which fills from the left | [Heaps](/data-structures/heaps/) |
+| **Perfect** | Every level completely full | The ideal case in analysis |
+| **Balanced** | Height is O(log n) | AVL and red-black trees |
+| **Degenerate** | Every node has one child | The worst case |
+
+## Traversals: visiting every node
+
+A list has one obvious order to visit its items. A tree has several, and which one you use depends on what you are doing.
+
+### Depth-first
+
+Go as deep as possible before backing up. There are three variants, differing only in *when* a node is visited relative to its subtrees.
+
+| Order | Rule | Result for the tree below | Typical use |
+| --- | --- | --- | --- |
+| **Pre-order** | node, left, right | 1 2 4 5 3 6 7 | Copying or serialising a tree |
+| **In-order** | left, node, right | 4 2 5 1 6 3 7 | Sorted output from a search tree |
+| **Post-order** | left, right, node | 4 5 2 6 7 3 1 | Deleting a tree; evaluating expressions |
+
+```python
+def pre_order(node):
+    if node is None:
+        return
+    visit(node)
+    pre_order(node.left)
+    pre_order(node.right)
+```
+
+Moving the `visit` line between or after the two recursive calls gives in-order and post-order.
+
+Step through a pre-order traversal. Notice how it finishes the whole left side before touching the right.
+
+export const tree = { k: 1, c: [{ k: 2, c: [4, 5] }, { k: 3, c: [6, 7] }] };
+export const preOrder = [1, 2, 4, 5, 3, 6, 7];
+export const levelOrder = [1, 2, 3, 4, 5, 6, 7];
+
+<Player>
+  {preOrder.map((key, i) => (
+    <Frame caption={`Visit <strong>${key}</strong>. Visited so far: ${preOrder.slice(0, i + 1).join(', ')}`}>
+      <Tree root={tree} highlight={preOrder.slice(0, i)} alt={[key]} />
+    </Frame>
+  ))}
+</Player>
+
+### Breadth-first
+
+Visit the tree **level by level**, top to bottom, left to right. This is also called level-order.
+
+<Player>
+  {levelOrder.map((key, i) => (
+    <Frame caption={`Visit <strong>${key}</strong>. Visited so far: ${levelOrder.slice(0, i + 1).join(', ')}`}>
+      <Tree root={tree} highlight={levelOrder.slice(0, i)} alt={[key]} />
+    </Frame>
+  ))}
+</Player>
+
+It cannot be written as a simple recursion. It uses a [queue](/data-structures/queues/): take a node from the front, visit it, and add its children to the back.
+
+```python
+from collections import deque
+
+def level_order(root):
+    queue = deque([root])
+    while queue:
+        node = queue.popleft()
+        visit(node)
+        if node.left:
+            queue.append(node.left)
+        if node.right:
+            queue.append(node.right)
+```
+
+Swap the queue for a [stack](/data-structures/stacks/) and the same loop becomes depth-first. These two strategies generalise to graphs as [depth-first search](/algorithms/depth-first-search/) and [breadth-first search](/algorithms/breadth-first-search/).
+
+<Ops
+  items={[
+    ['Any traversal', 'O(n)'],
+    ['Memory, depth-first', 'O(h)', 'h = height'],
+    ['Memory, breadth-first', 'O(w)', 'w = widest level'],
+  ]}
+/>
+
+Every traversal visits each node once. The memory differs: depth-first remembers the path back to the root, while breadth-first holds a whole level at a time, which for a bushy tree can be half the nodes.
+
+## Two ways to store one
+
+**Linked nodes**, as in the class above, handle any shape and are the general choice.
+
+**An array** works when the tree is complete. Store the nodes level by level and find relatives by arithmetic: the children of index `i` are at `2i + 1` and `2i + 2`. There are no pointers at all. This is how [heaps](/data-structures/heaps/) are stored. For a lopsided tree it wastes space on all the missing nodes.
+
+## Where binary trees show up
+
+- **[Binary search trees](/data-structures/binary-search-trees/)** order the values so one comparison per level finds anything.
+- **[Heaps](/data-structures/heaps/)** keep the smallest or largest value at the root.
+- **Expression trees.** A compiler parses `2 + 3 * 4` into a tree with `+` at the root; evaluating it is a post-order traversal. See [abstract syntax trees](/languages/abstract-syntax-trees/).
+- **[Huffman coding](/information/huffman-coding/)** builds a binary tree in which frequent symbols sit near the root and get short codes.
+- **Decision trees**, where each node asks a yes/no question.
+
+## Key takeaways
+
+- A binary tree is a hierarchy in which each node has at most two children.
+- The cost of most operations is the height, which ranges from about log₂ n (bushy) to n (stringy).
+- Depth-first traversals (pre-, in-, post-order) differ in when the node is visited; breadth-first goes level by level using a queue.
+- On its own a binary tree is just a shape. Search trees and heaps add an ordering rule to make it useful.
