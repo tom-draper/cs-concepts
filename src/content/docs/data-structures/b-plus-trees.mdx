@@ -1,0 +1,157 @@
+---
+description: The B-tree variant that keeps all data in a linked row of leaves, making range scans fast. It is what most database indexes actually are.
+difficulty: advanced
+---
+
+A [B-tree](/data-structures/b-trees/) is excellent at finding one key. Databases constantly need something slightly different: *every* row between two keys, in order. The B+ tree is a small redesign of the B-tree that makes that cheap, and it has become the default index structure in nearly every relational database.
+
+Read the [B-tree](/data-structures/b-trees/) page first; this one covers only what changes.
+
+## Two changes
+
+1. **All the data lives in the leaves.** Internal nodes hold only keys and child pointers. They are signposts, not storage.
+2. **The leaves are linked together**, left to right, in key order.
+
+<Tree
+  btree
+  linkLeaves
+  root={{ k: [10, 20], c: [[3, 7], [10, 12, 15], [20, 25, 30]] }}
+  caption="A B+ tree. The keys 10 and 20 appear twice: once in the root as signposts, and once in a leaf, where the actual data is."
+/>
+
+Because internal keys are only signposts, each one is a *copy* of a key that also exists in a leaf. The convention used here: keys **less than** a signpost go left, keys **equal or greater** go right.
+
+## Searching
+
+A lookup always descends from the root to a leaf, and the answer is found there. Here is the path to **12**:
+
+<Tree
+  btree
+  linkLeaves
+  leafOnly
+  root={{ k: [10, 20], c: [[3, 7], [10, 12, 15], [20, 25, 30]] }}
+  alt={[12]}
+  caption="12 is at least 10 and less than 20, so take the middle pointer. Then find it within the leaf."
+/>
+
+In a plain B-tree a search can stop early if it meets the key in an internal node. A B+ tree never does: even a search for 10, which appears in the root, continues down to the leaf. Every lookup costs exactly the height of the tree, which makes performance very predictable.
+
+## Range scans: the reason it exists
+
+Consider a query for every key from 12 to 25.
+
+In a plain B-tree the matching keys are scattered across leaves *and* internal nodes, so collecting them in order means walking up and down the tree. In a B+ tree, you descend once to find the start, then follow the leaf links.
+
+<Tree
+  btree
+  linkLeaves
+  leafOnly
+  root={{ k: [10, 20], c: [[3, 7], [10, 12, 15], [20, 25, 30]] }}
+  alt={[12, 15, 20, 25]}
+  caption="Descend once to find 12, then walk right along the leaves until passing 25."
+/>
+
+After the initial descent, the scan never touches an internal node again. It reads leaves sequentially, which is the access pattern disks and caches are fastest at. This is what makes these queries efficient:
+
+```sql
+SELECT * FROM orders WHERE created_at BETWEEN '2026-01-01' AND '2026-01-31';
+SELECT * FROM users ORDER BY name LIMIT 20;
+SELECT * FROM products WHERE price >= 100;
+```
+
+A full scan in key order is simply a walk along the entire leaf level.
+
+## Why signpost-only internal nodes help
+
+Keeping values out of the internal nodes has a second benefit: far more keys fit in each one.
+
+Suppose a page is 8 KB, a key is 8 bytes, a child pointer is 8 bytes, and a row of data is 100 bytes.
+
+| | Each internal entry holds | Entries per 8 KB page |
+| --- | --- | --- |
+| B-tree | key + pointer + row (116 bytes) | about 70 |
+| B+ tree | key + pointer (16 bytes) | about 500 |
+
+Higher fan-out means a shallower tree. With a billion rows, that is roughly the difference between five levels and four. It also means the whole internal part of the tree is small enough to stay cached in memory, so in practice only the final leaf read hits the disk.
+
+## Inserting: copy up, not move up
+
+Insertion works as in a B-tree, including splitting full nodes. One detail differs when a **leaf** splits.
+
+In a B-tree, the middle key *moves* up into the parent. In a B+ tree it is *copied* up, because the key and its data must remain in a leaf.
+
+<Steps>
+<Step title="Insert 17: it belongs in the middle leaf, which is full">
+
+These examples allow at most three keys per node.
+
+<Tree
+  btree
+  linkLeaves
+  leafOnly
+  root={{ k: [10, 20], c: [[3, 7], [10, 12, 15], [20, 25, 30]] }}
+  alt={[10, 12, 15]}
+/>
+
+</Step>
+<Step title="Split the leaf, and copy the first key of the new right-hand leaf into the parent">
+
+The keys `10 12 15 17` become two leaves, `10 12` and `15 17`. A copy of `15` goes up as the new signpost, and `15` itself stays in its leaf. The leaf links are updated to include the new leaf.
+
+<Tree
+  btree
+  linkLeaves
+  leafOnly
+  root={{ k: [10, 15, 20], c: [[3, 7], [10, 12], [15, 17], [20, 25, 30]] }}
+  alt={[10, 12, 15, 17]}
+/>
+
+</Step>
+</Steps>
+
+When an *internal* node splits, its middle key does move up, as in a plain B-tree, because signposts do not need to be kept at any particular level.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Point lookup', 'O(log n)'],
+    ['Insert', 'O(log n)'],
+    ['Delete', 'O(log n)'],
+    ['Range scan of k keys', 'O(log n + k)'],
+    ['Next key in order', 'O(1)'],
+  ]}
+/>
+
+## B-tree or B+ tree?
+
+| | B-tree | B+ tree |
+| --- | --- | --- |
+| Where values live | every node | leaves only |
+| Keys stored | once | signposts are duplicated |
+| Point lookup | can finish early at an internal node | always goes to a leaf |
+| Range scan | walks up and down the tree | walks along linked leaves |
+| Fan-out | lower | higher |
+
+The B+ tree gives up a little space for the duplicated signposts and the chance of an early exit. In return it gets fast range scans and a shallower tree. For database workloads that is almost always the right trade.
+
+## In the wild
+
+- **MySQL (InnoDB)** stores every table as a B+ tree keyed by the primary key, with full rows in the leaves. This is called a *clustered index*. Secondary indexes are separate B+ trees whose leaves hold the primary key.
+- **PostgreSQL**'s default index type is a B+ tree variant whose leaves point to rows stored separately, in the table's heap.
+- **SQLite** uses B+ trees for tables, and plain B-trees for indexes.
+- **Filesystems** such as NTFS and XFS use B+ trees for directories and other metadata.
+
+<Aside type="tip" title="Why this matters when writing queries">
+
+An index on `(last_name, first_name)` is a B+ tree sorted by last name, then first name. It can jump straight to "all the Smiths", or to "Smith, Anna". It cannot help find everyone called Anna, because those entries are scattered through the leaves rather than next to each other. Column order in a multi-column index follows directly from the leaf ordering.
+
+</Aside>
+
+## Key takeaways
+
+- A B+ tree keeps all data in the leaves and uses internal nodes purely as signposts.
+- Leaves are linked in key order, so a range scan is one descent followed by a sequential walk.
+- Signpost-only internal nodes have higher fan-out, giving a shallower tree that caches well.
+- When a leaf splits, the separating key is copied up rather than moved.
+- When a database says "B-tree index", this is nearly always what it means.
