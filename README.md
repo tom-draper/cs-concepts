@@ -137,6 +137,11 @@ reversed input. Algorithms: `bubble`, `insertion`, `selection`, `merge`, `quick`
 `heap`. The traces live in `src/lib/sort-traces.ts`; add a function there to
 support another algorithm.
 
+`<GraphDemo algorithm="bfs" nodes={...} edges={...} />` runs a graph algorithm
+step by step on a graph you describe, and lets the reader restart it from any
+vertex. Algorithms: `bfs`, `dfs`, `dijkstra`, `topo` (pass `directed` for a DAG).
+The traces live in `src/lib/graph-traces.ts`.
+
 `<HashPlayground />` is a live widget for the Hash Functions page. Widgets like
 it are custom elements with a script that only ships on pages that use them.
 
