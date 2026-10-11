@@ -1,0 +1,122 @@
+---
+description: Explore a graph in rings of increasing distance from the start. It finds the shortest path, counted in edges, to everything it reaches.
+difficulty: intermediate
+---
+
+Breadth-first search (BFS) explores a graph the way ripples spread from a stone dropped in water. First the starting vertex, then everything one step away, then everything two steps away, and so on. Nothing at distance 3 is visited until everything at distance 2 is done.
+
+That ordering is the whole point. It guarantees that the first time BFS reaches a vertex, it has got there by a **shortest possible route**.
+
+## Watch it run
+
+export const nodes = { A: [0, 1], B: [1, 0], C: [1, 2], D: [2, 0], E: [2, 2], F: [3, 1], G: [4, 1] };
+export const edges = [['A', 'B'], ['A', 'C'], ['B', 'C'], ['B', 'D'], ['C', 'E'], ['D', 'F'], ['E', 'F'], ['F', 'G']];
+
+<GraphDemo algorithm="bfs" nodes={nodes} edges={edges} />
+
+Things to notice:
+
+- The number above each vertex is its distance from the start, in edges. Vertices are visited in order of that number.
+- The **queue** is what enforces the order. Newly discovered vertices join the back, and the next vertex to process comes from the front, so older discoveries are always handled first.
+- A vertex is marked as seen when it is *added* to the queue, not when it is taken out. That stops it being queued twice. Watch C: both A and B are its neighbours, but it only joins the queue once.
+- Click a different vertex, or use the **Start from** buttons, to run it from somewhere else.
+
+## The code
+
+```python
+from collections import deque
+
+def bfs(graph, start):
+    seen = {start}
+    queue = deque([start])
+    order = []
+    while queue:
+        node = queue.popleft()
+        order.append(node)
+        for neighbour in graph[node]:
+            if neighbour not in seen:
+                seen.add(neighbour)
+                queue.append(neighbour)
+    return order
+```
+
+Here `graph` is an [adjacency list](/data-structures/graph-representations/): a dictionary from each vertex to a list of its neighbours. The two supporting structures are a [queue](/data-structures/queues/) for the frontier and a [set](/data-structures/sets/) for what has been seen.
+
+The highlighted edges in the demo form a tree, called the **BFS tree**. Each vertex is connected to the vertex that first discovered it.
+
+## Shortest paths
+
+To recover the actual route, not just the distance, remember which vertex each one was discovered *from*. Then walk backwards from the goal.
+
+```python
+def shortest_path(graph, start, goal):
+    parent = {start: None}
+    queue = deque([start])
+    while queue:
+        node = queue.popleft()
+        if node == goal:
+            path = []
+            while node is not None:
+                path.append(node)
+                node = parent[node]
+            return path[::-1]
+        for neighbour in graph[node]:
+            if neighbour not in parent:
+                parent[neighbour] = node
+                queue.append(neighbour)
+    return None      # the goal cannot be reached
+```
+
+The `parent` dictionary doubles as the "seen" set. For the graph above, the shortest path from A to G is A, B, D, F, G: four edges.
+
+<Aside type="warning" title="Only when every edge counts the same">
+
+BFS minimises the *number of edges*. If edges have different costs, such as road lengths, the route with the fewest edges may not be the cheapest. For weighted graphs use [Dijkstra's algorithm](/algorithms/dijkstras-algorithm/), which is BFS with the queue replaced by a priority queue.
+
+</Aside>
+
+## The cost
+
+With V vertices and E edges:
+
+<Ops
+  items={[
+    ['Time', 'O(V + E)'],
+    ['Memory', 'O(V)'],
+  ]}
+/>
+
+Every vertex enters the queue once, and every edge is examined once from each end. That is as fast as it is possible to explore a graph, since you must at least look at everything.
+
+The memory cost is the catch. The queue holds an entire "ring" at once, and in a graph that branches a lot, the rings grow quickly. If each vertex has 10 neighbours, the ring at distance 6 can hold a million vertices.
+
+## BFS or DFS?
+
+[Depth-first search](/algorithms/depth-first-search/) visits the same vertices in a different order, by following one path as far as it goes before backing up.
+
+| | Breadth-first | Depth-first |
+| --- | --- | --- |
+| Frontier is a | queue | stack (or recursion) |
+| Explores | nearest first | deepest first |
+| Finds shortest paths (unweighted) | yes | no |
+| Memory | the widest ring | the longest path |
+| Natural for | shortest routes, nearest matches | cycles, ordering, exhaustive search |
+
+Use BFS when distance from the start matters. Use DFS when you need to explore everything and the order is less important, or when the graph is very wide.
+
+## Where it shows up
+
+- **Shortest routes** in unweighted graphs: fewest hops in a network, fewest moves to solve a puzzle, fewest connections between two people.
+- **Nearest match.** "Find the closest vertex with property X" is BFS that stops at the first hit.
+- **Flood fill.** The paint bucket tool in an image editor is BFS over neighbouring pixels of the same colour.
+- **Web crawlers**, which fetch pages near the starting point before distant ones.
+- **Level-order traversal** of a [tree](/data-structures/binary-trees/#breadth-first) is BFS on a graph that happens to have no cycles.
+- **Garbage collectors.** Some find all live objects by BFS from the program's root references.
+
+## Key takeaways
+
+- BFS visits vertices in order of their distance from the start, using a queue.
+- The first time it reaches a vertex is by a shortest path, counted in edges.
+- It runs in O(V + E) time, but its queue can grow large in wide graphs.
+- Mark vertices as seen when they are queued, not when they are processed.
+- For weighted graphs, use Dijkstra's algorithm instead.
