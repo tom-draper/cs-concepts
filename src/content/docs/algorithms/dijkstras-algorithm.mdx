@@ -1,0 +1,113 @@
+---
+title: Dijkstra's Algorithm
+description: Find the cheapest route from one vertex to every other in a graph whose edges have costs. The algorithm behind route planners and network routing.
+difficulty: advanced
+---
+
+[Breadth-first search](/algorithms/breadth-first-search/) finds the route with the fewest edges. That is the shortest route only if every edge costs the same. Real graphs have **weights**: roads have lengths, network links have delays, flights have prices. The route with the fewest steps is often not the cheapest.
+
+Dijkstra's algorithm finds the cheapest route from a starting vertex to every other vertex, as long as no edge has a negative weight.
+
+## The idea
+
+Keep a table of the best known distance to each vertex. At the start, that is 0 for the starting vertex and infinity for everything else. Then repeat:
+
+1. Pick the unfinished vertex with the **smallest** known distance. That distance is now final. Call the vertex **settled**.
+2. For each of its neighbours, check whether going *through* the settled vertex gives a shorter route than the best one known. If so, update the neighbour's distance. This check is called **relaxing** the edge.
+
+## Watch it run
+
+export const nodes = { A: [0, 1], B: [1.2, 0], C: [1.2, 2], D: [2.6, 0], E: [2.6, 2], F: [3.8, 1] };
+export const edges = [['A', 'B', 4], ['A', 'C', 2], ['B', 'C', 1], ['B', 'D', 5], ['C', 'E', 10], ['D', 'E', 2], ['D', 'F', 6], ['E', 'F', 3]];
+
+<GraphDemo algorithm="dijkstra" nodes={nodes} edges={edges} />
+
+The number above each vertex is the best distance found so far. Things to notice:
+
+- B is first reached directly from A at a cost of 4. Then C is settled, and going A, C, B costs only 3. **A first estimate is not final**; it can improve until the vertex is settled.
+- E is reached from C at 12, then improved to 10 through D.
+- The cheapest route to F costs 13 and runs A, C, B, D, E, F: five edges. The route A, B, D, F has only three edges and costs 15. Fewest edges is not cheapest.
+- Choose a different start to see the whole tree of shortest routes change.
+
+## Why settling the closest vertex is safe
+
+This is the heart of the algorithm. When a vertex has the smallest distance among all unfinished ones, how can we be sure no better route to it will turn up later?
+
+Any other route would have to leave the settled region through some *other* unfinished vertex. That vertex is already at least as far away as the one being settled. And the rest of the route can only add more, because **weights are never negative**. So no detour can come out cheaper.
+
+That argument is also exactly why negative weights break the algorithm. With a negative edge, a longer-looking detour could become cheaper after a vertex was declared final. For graphs with negative weights, use [Bellman-Ford](/algorithms/bellman-ford/).
+
+## The code
+
+"Pick the unfinished vertex with the smallest distance" is what a [priority queue](/data-structures/heaps/) is for.
+
+```python
+import heapq
+
+def dijkstra(graph, start):
+    dist = {start: 0}
+    heap = [(0, start)]
+    while heap:
+        d, node = heapq.heappop(heap)
+        if d > dist[node]:
+            continue        # a stale entry: a better route was already found
+        for neighbour, weight in graph[node]:
+            through = d + weight
+            if through < dist.get(neighbour, float('inf')):
+                dist[neighbour] = through
+                heapq.heappush(heap, (through, neighbour))
+    return dist
+```
+
+Here `graph[node]` is a list of `(neighbour, weight)` pairs.
+
+One detail deserves a comment. When a vertex's distance improves, this code does not find and update its old entry in the heap. It just pushes a new one. The old entry is still in there with a worse distance, and when it eventually surfaces, the `if d > dist[node]` line throws it away. This "lazy deletion" is simpler than updating entries in place and is how the algorithm is usually written in practice.
+
+To recover the routes themselves, record `previous[neighbour] = node` whenever a distance improves, then walk backwards from the destination, as in BFS.
+
+## The cost
+
+<Ops
+  items={[
+    ['Time, with a binary heap', 'O((V + E) log V)'],
+    ['Memory', 'O(V + E)'],
+  ]}
+/>
+
+Each edge can cause one push onto the heap, and each push or pop costs O(log V).
+
+## Its relatives
+
+Dijkstra's algorithm sits in the middle of a family.
+
+| Algorithm | Handles | Frontier | Time |
+| --- | --- | --- | --- |
+| [Breadth-first search](/algorithms/breadth-first-search/) | unweighted graphs | queue | O(V + E) |
+| **Dijkstra** | non-negative weights | priority queue, by distance | O((V + E) log V) |
+| [A\* search](/algorithms/a-star-search/) | non-negative weights, one destination | priority queue, by distance plus an estimate of what remains | often far fewer vertices |
+| [Bellman-Ford](/algorithms/bellman-ford/) | negative weights | none: relax every edge, V − 1 times | O(V × E) |
+
+If every weight is 1, the priority queue hands vertices back in the same order as a plain queue, and Dijkstra's algorithm *is* breadth-first search.
+
+Dijkstra explores outward in all directions equally, even away from the destination. **A\*** adds a guess at the remaining distance, such as the straight-line distance on a map, to steer the search towards the goal. It is what route planners and game pathfinding actually use.
+
+## Where it shows up
+
+- **Maps and navigation.** Road networks with travel times as weights. Real systems add heavy preprocessing on top, but this is the core.
+- **Network routing.** The OSPF protocol has each router run Dijkstra's algorithm over a map of the network to work out where to forward packets.
+- **Games and robotics.** Pathfinding across a map, usually as A\*.
+- **Anything expressible as a cheapest sequence of steps**: currency conversions, puzzle solving, scheduling.
+
+<Aside title="Twenty minutes in a café">
+
+Edsger Dijkstra designed the algorithm in 1956, by his own account in about twenty minutes, without pen and paper, while sitting at a café in Amsterdam. He wanted a problem that non-specialists could understand to demonstrate a new computer, and chose the shortest route between two Dutch cities.
+
+</Aside>
+
+## Key takeaways
+
+- Dijkstra's algorithm finds the cheapest routes from one vertex to all others in a graph with non-negative weights.
+- It repeatedly settles the closest unfinished vertex, then relaxes the edges leaving it.
+- Settling is safe because, without negative weights, no detour can be cheaper than the closest candidate.
+- With a binary heap it runs in O((V + E) log V).
+- BFS is the special case where all weights are equal; A\* is the goal-directed extension.
