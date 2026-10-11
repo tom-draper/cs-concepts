@@ -1,0 +1,140 @@
+---
+description: A stable sort keeps items with equal keys in their original order. It sounds like a detail, and it decides whether sorting by two columns works.
+difficulty: beginner
+---
+
+When a sort compares two items and finds them equal, which should come first? For plain numbers it does not matter: one 5 is as good as another. But most real sorting is of *records* by one field, and then "equal" items are still different things.
+
+A sort is **stable** if items that compare as equal come out in the same relative order they went in.
+
+## Seeing the difference
+
+Sort four cards **by number only**, ignoring the suit. There are two 5s and two 3s.
+
+<ArrayViz
+  values={['5♥', '3♠', '5♣', '3♦']}
+  indices={false}
+  caption="Before. Among the 3s, ♠ comes before ♦. Among the 5s, ♥ comes before ♣."
+/>
+
+<ArrayViz
+  values={['3♠', '3♦', '5♥', '5♣']}
+  highlight={[0, 1, 2, 3]}
+  indices={false}
+  caption="A stable sort. Within each number, the suits are in their original order."
+/>
+
+<ArrayViz
+  values={['3♦', '3♠', '5♥', '5♣']}
+  alt={[0, 1]}
+  indices={false}
+  caption="A possible result from an unstable sort. It is correctly sorted by number, but the two 3s have traded places."
+/>
+
+Both outputs are correctly sorted. An unstable sort is not wrong, and it is not random either. It simply makes no promise about ties.
+
+## Why it matters: sorting by two things
+
+Stability is what makes this common trick work: to sort by several fields, **sort by the least important one first, then by the more important one**.
+
+Suppose you want a list of students ordered by grade, and alphabetically within each grade.
+
+<Steps>
+<Step title="Start with the students in any order">
+
+| Name | Grade |
+| --- | --- |
+| Dana | B |
+| Alex | A |
+| Cory | A |
+| Blake | B |
+
+</Step>
+<Step title="Sort by name">
+
+| Name | Grade |
+| --- | --- |
+| Alex | A |
+| Blake | B |
+| Cory | A |
+| Dana | B |
+
+</Step>
+<Step title="Then sort by grade, with a stable sort">
+
+Alex and Cory tie on grade, so they stay in the order the previous sort left them: alphabetical. The same goes for Blake and Dana.
+
+| Name | Grade |
+| --- | --- |
+| Alex | A |
+| Cory | A |
+| Blake | B |
+| Dana | B |
+
+</Step>
+</Steps>
+
+With an unstable sort, the last step could return the A students as Cory, Alex, discarding the work of the first sort.
+
+This is the behaviour people expect from a spreadsheet or a file browser. Click the "Name" column, then the "Date" column, and files with the same date stay in name order. That only works if the sort is stable. It is also the principle behind [radix sort](/algorithms/radix-sort/), which sorts numbers one digit at a time and relies on each pass preserving the last.
+
+## Which algorithms are stable
+
+| Algorithm | Stable | Why |
+| --- | --- | --- |
+| [Bubble sort](/algorithms/bubble-sort/) | yes | only swaps neighbours that are strictly out of order |
+| [Insertion sort](/algorithms/insertion-sort/) | yes | an item stops moving when it meets an equal one |
+| [Merge sort](/algorithms/merge-sort/) | yes | on a tie, the merge takes from the left run |
+| [Counting sort](/algorithms/counting-sort/) | yes | when it places items from right to left |
+| [Radix sort](/algorithms/radix-sort/) | yes | built from stable passes |
+| [Selection sort](/algorithms/selection-sort/) | no | a long swap can carry an item past its equals |
+| [Quicksort](/algorithms/quicksort/) | no | partitioning swaps items across long distances |
+| [Heapsort](/algorithms/heapsort/) | no | so does sifting through the heap |
+
+The pattern: algorithms that only move items past their immediate neighbours, or that merge in order, are stable. Algorithms that swap across long distances are not.
+
+Stability often hangs on a single character. In merge sort, taking from the left run when `left <= right` is stable. Change it to `<` and equal items start coming from the right run first, and the sort is silently unstable.
+
+## What your language does
+
+| Language | Default sort | Stable? |
+| --- | --- | --- |
+| Python | `sorted`, `list.sort` | yes |
+| JavaScript | `Array.prototype.sort` | yes (required since ES2019) |
+| Java | `Collections.sort`, `Arrays.sort` on objects | yes |
+| Java | `Arrays.sort` on primitives | no |
+| Rust | `sort` | yes |
+| Rust | `sort_unstable` | no |
+| C++ | `std::sort` | no |
+| C++ | `std::stable_sort` | yes |
+| Go | `sort.Slice`, `slices.Sort` | no |
+| Go | `sort.SliceStable`, `slices.SortStableFunc` | yes |
+
+Java's split is instructive. Primitives such as `int` are sorted with an unstable quicksort, because two equal integers are indistinguishable and stability would be meaningless. Objects are sorted with a stable merge sort, because two objects with equal keys are still different objects.
+
+## The price of stability
+
+Stable sorts are generally merge-based and need extra memory, typically O(n). Unstable sorts such as quicksort work in place and are usually a little faster. That is why several languages offer both, and why the unstable one is sometimes the default.
+
+Use the unstable sort when the items are plain values, or when you do not care about the order of ties. Use the stable sort when you are sorting records and the existing order carries meaning.
+
+## Making any sort stable
+
+If you only have an unstable sort, add each item's original position as a tie-breaker.
+
+```python
+indexed = [(key(item), i, item) for i, item in enumerate(items)]
+indexed.sort()            # ties on key are now broken by original position
+result = [item for _, _, item in indexed]
+```
+
+No two entries are equal any more, so there are no ties for the sort to mishandle. The cost is the extra memory for the positions.
+
+Often the better fix is to say what you mean. Rather than two stable sorts in a row, sort once by a combined key: `sorted(students, key=lambda s: (s.grade, s.name))`.
+
+## Key takeaways
+
+- A stable sort keeps equal items in their original relative order.
+- It matters when sorting records by one field, and it is what makes sorting by several columns in turn work.
+- Insertion sort, merge sort, counting sort and radix sort are stable; selection sort, quicksort and heapsort are not.
+- Know which your language's default is. When in doubt, sort by a combined key.
