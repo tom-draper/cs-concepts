@@ -1,0 +1,129 @@
+---
+title: A* Search
+description: A shortest-path search that uses an estimate of the remaining distance to head towards the goal, instead of exploring equally in every direction.
+difficulty: advanced
+---
+
+[Dijkstra's algorithm](/algorithms/dijkstras-algorithm/) finds the shortest path by spreading out from the start in all directions at once, like a ripple. If the destination is to the east, it explores just as far to the west. That is a lot of wasted effort when you know roughly where you are going.
+
+**A\*** (pronounced "A star") is Dijkstra's algorithm with a sense of direction.
+
+## The idea
+
+Dijkstra's algorithm always expands the vertex with the smallest distance from the start. Call that distance **g**.
+
+A\* adds a second number, **h**: an *estimate* of the distance still to go from that vertex to the goal. It expands the vertex with the smallest total:
+
+```text
+f  =  g  +  h
+      |     |
+      |     an estimate of the cost from here to the goal
+      the known cost from the start to here
+```
+
+`f` is an estimate of the length of the best route *through* that vertex. A vertex that is close to the start but in the wrong direction has a small g and a large h, so it waits. The search is pulled towards the goal.
+
+The estimate `h` is called the **heuristic**. On a grid where you can move up, down, left and right, a natural one is the *Manhattan distance*: the number of steps to the goal if nothing were in the way.
+
+## Try it
+
+**S** is the start and **G** the goal. Light cells have been explored and dark cells are the path found. Click any cell to add or remove a wall, and switch algorithm to compare.
+
+<GridSearch />
+
+Things to try:
+
+- Switch between **Dijkstra** and **A\***. Both find a path of the same length. A\* explores far fewer cells to do it.
+- Press **Clear walls**. With nothing in the way, A\* walks almost straight to the goal while Dijkstra floods outward in a diamond.
+- Build a **U-shaped trap** that opens towards the start, with the goal behind it. A\* is drawn into the pocket and has to explore its way out. A heuristic helps most when it is not misleading.
+- **Wall the goal in completely.** Both explore everything they can reach and report no route.
+
+## When is the answer guaranteed to be shortest?
+
+A\* returns a shortest path as long as the heuristic **never overestimates** the true remaining cost. Such a heuristic is called **admissible**.
+
+The reasoning: if h is always optimistic, then f never overstates the cost of a route. A\* cannot be fooled into rejecting the best route because it looked too expensive.
+
+The Manhattan distance is admissible on a four-direction grid, because walls can only make the real route longer than the estimate, never shorter.
+
+| Heuristic | Behaviour |
+| --- | --- |
+| h = 0 everywhere | exactly Dijkstra's algorithm |
+| Admissible (never too high) | finds a shortest path, exploring less |
+| Exactly right | walks straight down the shortest path |
+| Too high | faster still, but may return a longer path |
+
+The closer the heuristic is to the truth without going over, the less A\* explores. That gives a dial between speed and accuracy. Games often multiply h by a small factor deliberately, accepting slightly longer paths in exchange for much faster searches.
+
+## Choosing a heuristic
+
+The heuristic should match how movement works.
+
+| Movement | Heuristic |
+| --- | --- |
+| Grid, four directions | Manhattan distance: horizontal steps plus vertical steps |
+| Grid, eight directions | the larger of the horizontal and vertical distances (adjusted if diagonals cost more) |
+| Any direction | straight-line distance |
+| Road map | straight-line distance divided by the top speed, for travel time |
+
+For puzzles, a heuristic counts something that must be fixed. In the sliding 15-puzzle, the total distance of every tile from its home square is admissible, since each move shifts one tile by one square.
+
+## The code
+
+It is Dijkstra's algorithm with one change: the priority is `g + h` instead of `g`.
+
+```python
+import heapq
+
+def a_star(start, goal, neighbours, h):
+    best = {start: 0}                       # g: cheapest known cost to each node
+    heap = [(h(start), 0, start)]
+    while heap:
+        _, g, node = heapq.heappop(heap)
+        if node == goal:
+            return g
+        if g > best[node]:
+            continue                        # a stale entry
+        for nxt, cost in neighbours(node):
+            through = g + cost
+            if through < best.get(nxt, float('inf')):
+                best[nxt] = through
+                heapq.heappush(heap, (through + h(nxt), through, nxt))
+    return None
+```
+
+`neighbours` is a function, not a stored graph. A\* is very often run on graphs that are too large to build, such as every position of a puzzle, generating each node's neighbours only when it gets there.
+
+## The cost
+
+In the worst case, with a useless heuristic, A\* is Dijkstra's algorithm: O((V + E) log V). With a good one it examines a small fraction of the graph. There is no neat formula, because it depends entirely on how good the estimate is.
+
+Memory is the practical limit. A\* keeps every node it has reached. On large search spaces it can exhaust memory before it runs out of time, and there are variants designed to use less.
+
+## A\*, Dijkstra, or breadth-first search?
+
+| | Finds shortest path | Uses | Explores |
+| --- | --- | --- | --- |
+| [Breadth-first search](/algorithms/breadth-first-search/) | if every edge costs the same | a queue | everything nearer than the goal |
+| [Dijkstra](/algorithms/dijkstras-algorithm/) | yes, with non-negative weights | a priority queue on g | everything cheaper than the goal |
+| **A\*** | yes, with an admissible heuristic | a priority queue on g + h | mostly what lies towards the goal |
+| Greedy best-first | no | a priority queue on h alone | very little, but can be badly wrong |
+
+Use A\* when there is **one destination** and you can estimate the distance to it. If you need the distance to *every* vertex, the heuristic has nothing to aim at, and Dijkstra's algorithm is the right choice.
+
+## Where it shows up
+
+- **Games.** Character and unit pathfinding is the best-known use.
+- **Navigation.** Route planners build on A\* with heavy preprocessing of the road network.
+- **Robotics.** Planning a route through a map of obstacles.
+- **Puzzles and planning.** Finding the fewest moves to solve a puzzle, or the cheapest sequence of actions to reach a goal state.
+
+A\* was published in 1968 by Peter Hart, Nils Nilsson and Bertram Raphael, who were working on route planning for Shakey, one of the first mobile robots.
+
+## Key takeaways
+
+- A\* is Dijkstra's algorithm with an added estimate of the remaining distance, expanding the node with the smallest g + h.
+- The estimate steers the search towards the goal, so far less of the graph is explored.
+- If the heuristic never overestimates, the path found is a shortest one.
+- With h = 0 it is Dijkstra's algorithm; a better heuristic means less exploring.
+- It suits searches with a single known destination.
