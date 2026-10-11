@@ -1,0 +1,133 @@
+---
+description: The standard ways of showing that something is always true, rather than true in the cases you happened to test. They are how algorithms are known to be correct.
+difficulty: intermediate
+---
+
+Testing shows that a program works for the inputs you tried. A **proof** shows that it works for all of them. For an algorithm that will run on billions of inputs nobody has seen, that difference matters.
+
+You do not need to write formal proofs to be a good programmer. But the handful of standard techniques below are also the standard ways of *thinking* about why code is correct, and they turn up in every explanation of why an algorithm works.
+
+## Direct proof
+
+Start from what is given, and reason step by step to the conclusion.
+
+**Claim.** The sum of two even numbers is even.
+
+**Proof.** An even number is one that can be written as 2 times a whole number. So let the two numbers be 2a and 2b. Their sum is 2a + 2b = 2(a + b). That is 2 times a whole number, so it is even.
+
+The key move is replacing the word "even" with its definition. Most direct proofs begin that way.
+
+## Proof by contradiction
+
+Assume the claim is **false**, and show that this leads to something impossible. Since the assumption cannot hold, the claim must be true.
+
+**Claim.** There is no largest prime number.
+
+**Proof.** Suppose there were. Then there would be finitely many primes, so multiply them all together and add 1. Call the result N. Dividing N by any prime on the list leaves a remainder of 1, so none of them divides it. But every number greater than 1 is divisible by some prime. So there is a prime that was not on the list, which contradicts the assumption that the list was complete.
+
+This proof is over two thousand years old, from Euclid. Contradiction is the natural technique for showing that something *cannot exist* or *cannot be done*. The most famous result in computing, that no program can decide whether any given program will ever stop, is proved this way. See [the halting problem](/theory/the-halting-problem/).
+
+## Proof by contrapositive
+
+"If A then B" is logically the same statement as "if not B then not A". Sometimes the second form is much easier to prove.
+
+**Claim.** If n² is even, then n is even.
+
+**Proof.** Prove instead: if n is odd, then n² is odd. An odd number is 2k + 1, and (2k + 1)² = 4k² + 4k + 1 = 2(2k² + 2k) + 1, which is odd.
+
+The equivalence is a fact of [Boolean logic](/foundations/boolean-logic/). Be careful not to confuse it with the *converse*, "if B then A", which is a different statement and may be false.
+
+## Proof by induction
+
+Induction proves that something holds for **every** whole number, in two steps.
+
+1. **Base case.** Show it is true for the first value, usually 0 or 1.
+2. **Inductive step.** Show that *if* it is true for some value n, *then* it is true for n + 1.
+
+Together these cover everything. The base case gives 1. The step turns that into 2, then 3, and so on for ever. The usual picture is a row of dominoes: knock over the first, and make sure each one knocks over the next.
+
+**Claim.** 1 + 2 + … + n = n(n + 1) / 2.
+
+**Proof.**
+
+*Base case.* For n = 1 the left side is 1 and the right side is 1 × 2 / 2 = 1.
+
+*Inductive step.* Assume the formula holds for n. Then for n + 1:
+
+```text
+1 + 2 + … + n + (n + 1)  =  n(n + 1)/2 + (n + 1)        using the assumption
+                         =  (n + 1)(n/2 + 1)
+                         =  (n + 1)(n + 2) / 2
+```
+
+That is the formula with n + 1 in place of n.
+
+That sum is worth knowing in its own right. It is the number of comparisons made by [bubble sort](/algorithms/bubble-sort/) and [selection sort](/algorithms/selection-sort/), and the reason they are O(n²).
+
+### Induction is recursion
+
+A [recursive](/algorithms/recursion/) function and an inductive proof have the same shape. The base case of the function is the base case of the proof. The recursive call, trusted to work on a smaller input, is the inductive assumption. Proving a recursive function correct almost always means an induction on the size of its input.
+
+**Strong induction** allows the step to assume the claim for *all* smaller values, not just the previous one. That is what you need for [merge sort](/algorithms/merge-sort/), which calls itself on halves rather than on n − 1.
+
+## Loop invariants
+
+Induction applies to loops as well. A **loop invariant** is a statement that is true before the loop starts and remains true after every iteration.
+
+To use one, show three things.
+
+1. **It holds at the start.**
+2. **Each iteration preserves it.** If it was true before the iteration, it is true after.
+3. **At the end, it gives you what you wanted.**
+
+Take [binary search](/algorithms/binary-search/). The invariant is: *if the target is in the array at all, it lies between `lo` and `hi`.*
+
+- At the start, `lo` and `hi` span the whole array, so it holds.
+- Each iteration discards only the half that cannot contain the target, so it still holds.
+- The loop ends either by finding the target, or with an empty range. By the invariant, an empty range means the target is nowhere in the array.
+
+Writing down the invariant is the most reliable way to get the boundary conditions of a loop right. The classic off-by-one bugs in binary search are exactly places where the invariant has been broken.
+
+## Disproof by counterexample
+
+To prove a general claim, an example is not enough. To **disprove** one, a single counterexample is.
+
+**Claim.** Always taking the largest coin that fits gives the fewest coins.
+
+**Counterexample.** With coins worth 1, 3 and 4, making 6 that way uses three coins (4 + 1 + 1). Two coins will do (3 + 3).
+
+This is the everyday use of proof thinking in programming. Before trusting a plausible shortcut, especially a [greedy](/algorithms/greedy-algorithms/) one, spend a few minutes trying to break it.
+
+## The pigeonhole principle
+
+If you put more than n items into n boxes, some box must contain at least two.
+
+It sounds too obvious to be useful, and it proves a surprising amount.
+
+- **Hash collisions must exist.** There are more possible keys than buckets. See [hash functions](/data-structures/hash-functions/).
+- **No compression scheme shrinks every file.** There are more files of length n than there are shorter files, so some two files would have to compress to the same output and could not both be recovered.
+- **In any group of 367 people, two share a birthday.**
+
+## Proof by cases
+
+Split the problem into a finite number of cases that together cover everything, and prove each one. Showing that a claim holds for odd numbers and for even numbers proves it for all whole numbers. The reasoning behind a block of `if`, `else if` and `else` is a proof by cases, and the common bug is a case that was forgotten.
+
+## Which technique?
+
+| To show that | Try |
+| --- | --- |
+| something follows from definitions | direct proof |
+| something is impossible or does not exist | contradiction |
+| "if A then B", where not-B is easier to work with | contrapositive |
+| something holds for every n, or a recursive function is correct | induction |
+| a loop is correct | a loop invariant |
+| a general claim is false | a counterexample |
+| a collision or repetition must happen | the pigeonhole principle |
+
+## Key takeaways
+
+- A proof establishes that something is true in every case, which testing cannot do.
+- Contradiction assumes the opposite and derives an impossibility.
+- Induction proves a base case and a step from n to n + 1. It is the same reasoning as recursion.
+- A loop invariant is induction applied to a loop, and the best tool for getting boundaries right.
+- One counterexample disproves a general claim.
