@@ -1,0 +1,174 @@
+---
+description: A search tree with many keys per node, built to stay shallow so that huge datasets on disk can be searched in a handful of reads.
+difficulty: advanced
+---
+
+A [binary search tree](/data-structures/binary-search-trees/) is a fine structure when everything fits in memory. Put a billion keys on disk and it falls apart, for a reason that has nothing to do with Big-O. B-trees were designed for exactly that situation, and they sit underneath almost every database and filesystem you use.
+
+## The problem: disks are slow, and trees are tall
+
+Following a pointer in memory takes nanoseconds. Following one to a different place on disk means a separate read, which costs tens of microseconds on an SSD and milliseconds on a spinning disk. When data lives on disk, the number of **nodes visited** is the only cost that matters.
+
+A balanced binary tree halves the candidates at each node, so a billion keys means about 30 levels, and up to 30 disk reads per lookup.
+
+The fix is to make each node do more work. Disks are read in fixed-size blocks, or **pages**, usually 4 to 16 KB, and reading one byte costs the same as reading its whole page. So fill a page with keys: instead of one key and two children, give each node hundreds of keys and hundreds of children.
+
+| | Children per node | Levels for 1 billion keys |
+| --- | --- | --- |
+| Binary search tree | 2 | about 30 |
+| B-tree | 500 | 4 |
+
+Four reads instead of thirty. And because the top levels are tiny (the root plus the level below hold only a few hundred nodes), they stay cached in memory, so a real lookup often touches the disk once or twice.
+
+## The structure
+
+A B-tree node holds several keys in sorted order. A node with *k* keys has *k* + 1 children, and the keys act as dividers between them.
+
+<Tree
+  btree
+  root={{ k: [10, 20], c: [[3, 7], [12, 15, 18], [25, 30]] }}
+  caption="The root's keys 10 and 20 split everything into three ranges: below 10, between 10 and 20, and above 20."
+/>
+
+Real nodes hold hundreds of keys. The examples here allow at most **three** per node so the pictures stay readable; the rules are the same at any size.
+
+For a B-tree where nodes may have at most *m* children:
+
+1. Every node has at most *m* − 1 keys.
+2. Every node except the root is at least half full.
+3. A non-leaf node with *k* keys has exactly *k* + 1 children.
+4. **Every leaf is at the same depth.**
+
+Rule 4 is the important one. A B-tree is perfectly balanced at all times, so it has no bad insertion order and no worst case like the degenerate BST.
+
+## Searching
+
+Search works like a BST with a wider choice at each step. Within a node, find where the target falls among the keys, then follow the child pointer for that gap. Here is the search for **15**:
+
+<Tree
+  btree
+  root={{ k: [10, 20], c: [[3, 7], [12, 15, 18], [25, 30]] }}
+  highlight={[10, 20]}
+  alt={[15]}
+  caption="15 falls between 10 and 20, so follow the middle pointer. Then scan that node and find it."
+/>
+
+```python
+def search(node, key):
+    i = 0
+    while i < len(node.keys) and key > node.keys[i]:
+        i += 1
+    if i < len(node.keys) and node.keys[i] == key:
+        return node, i
+    if node.is_leaf:
+        return None
+    return search(node.children[i], key)   # one page read
+```
+
+Scanning inside a node is cheap, because the whole node is already in memory. Real implementations use [binary search](/algorithms/binary-search/) within the node.
+
+## Inserting: grow by splitting
+
+New keys always go into a leaf. The interesting part is what happens when that leaf is already full. It cannot grow downward without breaking rule 4, so the B-tree does something no binary tree does: it **splits the node sideways and pushes a key up**.
+
+<Steps>
+<Step title="Insert 16: it belongs in the middle leaf, which is full">
+
+Adding it would give that leaf four keys, `12 15 16 18`, one over the limit.
+
+<Tree
+  btree
+  root={{ k: [10, 20], c: [[3, 7], [12, 15, 18], [25, 30]] }}
+  alt={[12, 15, 18]}
+/>
+
+</Step>
+<Step title="Split the leaf around its median and move the median up">
+
+`15` moves up into the parent. What is left becomes two leaves, `12` and `16 18`, with 15 as the divider between them.
+
+<Tree
+  btree
+  root={{ k: [10, 15, 20], c: [[3, 7], [12], [16, 18], [25, 30]] }}
+  highlight={[15]}
+  alt={[12, 16, 18]}
+/>
+
+</Step>
+<Step title="Later, a split reaches a full root">
+
+Suppose 26 has been added, and now 27 arrives. The last leaf overflows and pushes `26` up, but the root already has three keys. It would become `10 15 20 26`.
+
+<Tree
+  btree
+  root={{ k: [10, 15, 20], c: [[3, 7], [12], [16, 18], [25, 26, 30]] }}
+  alt={[25, 26, 30]}
+  highlight={[10, 15, 20]}
+/>
+
+</Step>
+<Step title="The root splits too, and the tree gets one level taller">
+
+The root's median, `15`, moves up into a brand new root.
+
+<Tree
+  btree
+  root={{ k: [15], c: [{ k: [10], c: [[3, 7], [12]] }, { k: [20, 26], c: [[16, 18], [25], [27, 30]] }] }}
+  highlight={[15]}
+  alt={[10, 20, 26]}
+/>
+
+</Step>
+</Steps>
+
+<Aside title="B-trees grow from the top">
+
+A binary search tree grows downward, one leaf at a time, which is how it becomes lopsided. A B-tree only gets taller when the **root** splits, and that pushes every leaf down by one level at once. This is why all the leaves always stay at the same depth, with no separate rebalancing step.
+
+</Aside>
+
+## Deleting
+
+Deletion runs the same logic in reverse. Removing a key can leave a node less than half full. When that happens the node first tries to **borrow** a key from a neighbouring sibling, rotating it through the parent. If the sibling has none to spare, the two nodes **merge**, pulling their divider key down from the parent. A merge can leave the parent short in turn, and if it cascades all the way up, the root disappears and the tree becomes one level shorter.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Search', 'O(log n)'],
+    ['Insert', 'O(log n)'],
+    ['Delete', 'O(log n)'],
+    ['Range scan of k keys', 'O(log n + k)'],
+  ]}
+/>
+
+These are worst-case bounds, not averages. The Big-O matches a balanced binary tree; the win is the base of the logarithm. With hundreds of children per node, log n is so small that for practical purposes it is a constant of 3 or 4.
+
+## B+ trees: what databases actually use
+
+Most real systems use a variant called the [B+ tree](/data-structures/b-plus-trees/), which changes two things:
+
+- **Values live only in the leaves.** Internal nodes hold just keys and child pointers, so more of them fit in a page, the fan-out is higher and the tree is shallower.
+- **Leaves are linked together** in order. A range query such as `WHERE age BETWEEN 20 AND 30` finds the first leaf by descending the tree, then just walks along the leaf level.
+
+When a database's documentation says "B-tree index", it nearly always means a B+ tree.
+
+## In the wild
+
+- **Databases.** The default index type in PostgreSQL, MySQL (InnoDB), SQLite, Oracle and SQL Server is a B-tree variant. In InnoDB and SQLite the table itself is stored as one.
+- **Filesystems.** NTFS, APFS, Btrfs and XFS use B-trees to map names and offsets to disk blocks.
+- **In memory, too.** Rust's `BTreeMap` uses a B-tree rather than a binary tree, because packing several keys into one node is friendlier to CPU caches. The disk argument applies again one level up the memory hierarchy.
+
+<Aside title="What does the B stand for?">
+
+Nobody knows. Rudolf Bayer and Edward McCreight invented the structure at Boeing around 1970 and never explained the name. Balanced, broad, Boeing and Bayer have all been suggested. It does not stand for binary.
+
+</Aside>
+
+## Key takeaways
+
+- B-trees exist because visiting a node on disk is expensive, so the goal is the fewest nodes per lookup.
+- Each node fills one disk page with many sorted keys, giving a very high fan-out and a very shallow tree.
+- Full nodes split and push their median up; the tree grows at the root, so every leaf stays at the same depth.
+- All operations are O(log n) in the worst case, with a logarithm base in the hundreds.
+- Databases mostly use the B+ tree variant, which keeps values in linked leaves for fast range scans.

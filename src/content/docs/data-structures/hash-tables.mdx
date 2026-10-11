@@ -1,0 +1,175 @@
+---
+description: A structure that finds a value by its key in constant time, by turning the key into an array index.
+difficulty: intermediate
+---
+
+An [array](/data-structures/arrays/) can fetch element 4,072 instantly, because the index *is* the location. But real keys are rarely tidy integers: they are usernames, URLs, product codes. A hash table closes that gap with one trick: **compute an array index from the key itself.**
+
+It is the structure behind `dict` in Python, objects and `Map` in JavaScript, `HashMap` in Java and Rust, and `map` in Go.
+
+## The core idea
+
+A hash table is an array of slots, called **buckets**, plus a **hash function** that turns any key into a number. To find a key's bucket:
+
+```text
+index = hash(key) % number_of_buckets
+```
+
+For the pictures on this page we will use a toy hash function, simple enough to check by hand: add up the character codes of the key. For `"dog"` that is 100 + 111 + 103 = 314, and 314 % 8 = 2.
+
+<HashTable
+  buckets={[['cat'], ['bird'], ['dog'], ['ant'], ['bee'], [], [], ['emu']]}
+  highlight={2}
+  alt={['dog']}
+  input={{ key: 'dog', note: '314 % 8 = 2' }}
+  caption="The key decides its own bucket. No searching, no comparing against other keys."
+/>
+
+Storing and looking up use the same calculation, so a lookup goes directly to the right bucket however many entries the table holds. That is where **O(1)** comes from.
+
+## What makes a good hash function
+
+- **Deterministic.** The same key must always give the same number, or you could never find anything again.
+- **Uniform.** Keys should spread evenly across buckets, even when the keys themselves are similar.
+- **Fast.** It runs on every single operation.
+
+Our toy function fails the second test badly. `"cat"` and `"act"` contain the same letters, so they sum to the same value, 312, and land in the same bucket. Real hash functions scramble the bits so that even one changed character produces a completely different number.
+
+## Collisions
+
+Even a perfect hash function sends different keys to the same bucket sometimes. There are infinitely many possible keys and only a few buckets, so **collisions** are unavoidable. Every hash table needs a plan for them, and there are two main ones.
+
+### Separate chaining
+
+Each bucket holds a small [linked list](/data-structures/linked-lists/) of every entry that hashed there. To look up a key, hash to the bucket, then walk its chain comparing keys.
+
+<HashTable
+  buckets={[['cat', 'act'], ['bird'], ['dog', 'fish'], ['ant'], ['bee'], [], [], ['emu']]}
+  highlight={0}
+  alt={['act']}
+  input={{ key: 'act', note: '312 % 8 = 0' }}
+  caption="“act” collides with “cat”, so it joins the chain in bucket 0."
+/>
+
+As long as chains stay short, this is still effectively constant time.
+
+### Open addressing
+
+Store entries directly in the array, with no chains. If a key's bucket is taken, try another. The simplest scheme, **linear probing**, tries the next slot along, then the next, until it finds a free one.
+
+<Steps>
+<Step title="Insert “cat” (bucket 0) and “dog” (bucket 2)">
+
+Both buckets are free, so each key goes straight in.
+
+<ArrayViz values={['cat', null, 'dog', null, null, null, null, null]} highlight={[0, 2]} />
+
+</Step>
+<Step title="Insert “act” (bucket 0)">
+
+Bucket 0 is taken. Probe forward to bucket 1, which is free.
+
+<ArrayViz values={['cat', 'act', 'dog', null, null, null, null, null]} alt={[0]} highlight={[1]} />
+
+</Step>
+<Step title="Insert “fish” (bucket 2)">
+
+Bucket 2 is taken. Probe forward to bucket 3.
+
+<ArrayViz values={['cat', 'act', 'dog', 'fish', null, null, null, null]} alt={[2]} highlight={[3]} />
+
+</Step>
+</Steps>
+
+A lookup follows the same path: hash to the starting bucket, then walk forward until it finds the key or hits an empty slot, which proves the key is absent.
+
+Open addressing keeps everything in one contiguous array, which CPU caches love, so it is often faster than chaining in practice. Its weak spot is deletion. Emptying a slot would break the probe path for keys stored beyond it, so deleted slots are marked with a "tombstone" instead.
+
+## Load factor and resizing
+
+A hash table is only fast while it is mostly empty. The measure of fullness is the **load factor**:
+
+```text
+load factor = number of entries / number of buckets
+```
+
+As it climbs, chains get longer and probe sequences get longer. So when it crosses a threshold (commonly around 0.75) the table **resizes**: it allocates a bigger array, usually double the size, and re-inserts every entry, because each key's index depends on the bucket count.
+
+A resize is O(n), but doubling means it happens less and less often. Spread over all the insertions that led up to it, the cost averages out to O(1) each. This is an [amortized](/foundations/amortized-analysis/) bound.
+
+## The costs at a glance
+
+<Ops
+  items={[
+    ['Lookup', 'O(1)', 'average'],
+    ['Insert', 'O(1)', 'average, amortized'],
+    ['Delete', 'O(1)', 'average'],
+    ['Any of them, worst case', 'O(n)', 'every key collides'],
+  ]}
+/>
+
+The worst case is real. If every key lands in one bucket, the table degrades into a single long list. Attackers have exploited this by sending servers thousands of deliberately colliding keys, which is why many languages now mix a random secret into their hash function at startup.
+
+## A minimal implementation
+
+Separate chaining, in about twenty lines.
+
+```python
+class HashTable:
+    def __init__(self, capacity=8):
+        self.buckets = [[] for _ in range(capacity)]
+        self.size = 0
+
+    def _bucket(self, key):
+        return self.buckets[hash(key) % len(self.buckets)]
+
+    def get(self, key):
+        for k, v in self._bucket(key):
+            if k == key:
+                return v
+        raise KeyError(key)
+
+    def put(self, key, value):
+        bucket = self._bucket(key)
+        for i, (k, _) in enumerate(bucket):
+            if k == key:
+                bucket[i] = (key, value)   # key exists: overwrite
+                return
+        bucket.append((key, value))
+        self.size += 1
+        if self.size > 0.75 * len(self.buckets):
+            self._resize()
+
+    def _resize(self):
+        old = self.buckets
+        self.buckets = [[] for _ in range(2 * len(old))]
+        for bucket in old:
+            for k, v in bucket:
+                self._bucket(k).append((k, v))
+```
+
+## What hash tables cannot do
+
+Hashing deliberately scatters keys, which destroys any ordering between them. A hash table cannot efficiently answer:
+
+- What is the smallest key?
+- Which keys fall between 100 and 200?
+- What comes just after this key?
+
+For ordered questions you want a tree, such as a [binary search tree](/data-structures/binary-search-trees/) or a [B-tree](/data-structures/b-trees/). That is why databases offer both hash and tree indexes.
+
+## In the wild
+
+| Language | Type | Collision strategy |
+| --- | --- | --- |
+| Python | `dict` | Open addressing |
+| Java | `HashMap` | Chaining; long chains convert to red-black trees |
+| Rust | `HashMap` | Open addressing (SwissTable design) |
+| Go | `map` | Open addressing (SwissTable design, since Go 1.24) |
+
+## Key takeaways
+
+- A hash table computes where a key lives instead of searching for it.
+- Collisions are inevitable; chaining and open addressing are the two ways to handle them.
+- Keeping the load factor low by resizing is what keeps operations O(1) on average.
+- You give up ordering. If you need sorted keys or range queries, use a tree.
