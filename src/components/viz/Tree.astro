@@ -70,6 +70,8 @@ const GAP = btree ? 20 : 12;
 const LEVEL = 68;
 const PAD = Object.keys(notes).length ? 24 : 10;
 const EMPTY = KW * 0.6 + GAP;
+const labelWidth = (key: Key) => (show === 'last' ? 0 : String(key).length * 8.5 + 16);
+const kw = (node: Node) => node.w / node.keys.length;
 
 function build(input: Input): Node | null {
   if (input === null) return null;
@@ -79,7 +81,8 @@ function build(input: Input): Node | null {
     keys,
     children: (node.c ?? []).map(build),
     slots: [],
-    w: keys.length * KW,
+    // A single long label gets a wider pill instead of overflowing.
+    w: keys.length === 1 && !btree ? Math.max(KW, labelWidth(keys[0])) : keys.length * KW,
     span: 0,
     x: 0,
     y: 0,
@@ -157,7 +160,7 @@ const edges = nodes.flatMap((node) =>
     child
       ? [
           {
-            x1: cells(node) ? node.x - node.w / 2 + i * KW : node.x,
+            x1: cells(node) ? node.x - node.w / 2 + i * kw(node) : node.x,
             y1: cells(node) ? node.y + NH : node.y + NH / 2,
             x2: child.x,
             y2: child.y,
@@ -204,23 +207,23 @@ const edges = nodes.flatMap((node) =>
         node.keys.map((key, i) => (
           <g class={`v-node ${keyState(node, key)}`}>
             <rect
-              x={node.x - node.w / 2 + i * KW}
+              x={node.x - node.w / 2 + i * kw(node)}
               y={node.y}
-              width={KW}
+              width={kw(node)}
               height={NH}
               rx={cells(node) ? 4 : NH / 2}
             />
             {terminal.includes(key) && (
               <rect
                 class="inner"
-                x={node.x - node.w / 2 + i * KW + 4}
+                x={node.x - node.w / 2 + i * kw(node) + 4}
                 y={node.y + 4}
-                width={KW - 8}
+                width={kw(node) - 8}
                 height={NH - 8}
                 rx={(NH - 8) / 2}
               />
             )}
-            <text class="v-text" x={node.x - node.w / 2 + i * KW + KW / 2} y={node.y + NH / 2}>
+            <text class="v-text" x={node.x - node.w / 2 + (i + 0.5) * kw(node)} y={node.y + NH / 2}>
               {text(key)}
             </text>
           </g>
