@@ -1,0 +1,100 @@
+---
+description: The same algorithm can be fast on one input and slow on another. Best, average and worst case describe that spread, and choosing which to quote matters.
+difficulty: beginner
+---
+
+An algorithm's running time depends on the *size* of its input, which is what [Big-O](/foundations/big-o-notation/) describes. It often depends on the *particular* input as well. Searching a list for a value takes one step if the value is first and a million if it is last.
+
+So a single Big-O is sometimes not the whole story. There are three standard cases.
+
+- **Best case**: the input that makes the algorithm do the least work.
+- **Worst case**: the input that makes it do the most.
+- **Average case**: the expected work over all inputs, given some assumption about how likely each is.
+
+## One algorithm, three answers
+
+Take [linear search](/algorithms/linear-search/) for a value in a list of n items.
+
+<ArrayViz
+  values={[16, 2, 91, 23, 38, 5, 72, 8]}
+  highlight={[0]}
+  alt={[7]}
+  caption="Searching for 16 is the best case: one comparison. Searching for 8, or for something absent, is the worst: all eight."
+/>
+
+<Ops
+  items={[
+    ['Best case', 'O(1)', 'the target is first'],
+    ['Average case', 'O(n)', 'about n / 2 comparisons'],
+    ['Worst case', 'O(n)', 'last, or not there'],
+  ]}
+/>
+
+The average is n/2 comparisons, which is still O(n), because Big-O drops the constant ½.
+
+## Where the cases really differ
+
+For some algorithms the three cases are in different complexity classes, and the gap is the most important thing to know about them.
+
+| Algorithm | Best | Average | Worst | The worst case is |
+| --- | --- | --- | --- | --- |
+| [Linear search](/algorithms/linear-search/) | O(1) | O(n) | O(n) | target absent |
+| [Insertion sort](/algorithms/insertion-sort/) | O(n) | O(n²) | O(n²) | reversed input |
+| [Quicksort](/algorithms/quicksort/) | O(n log n) | O(n log n) | O(n²) | bad pivots every time |
+| [Merge sort](/algorithms/merge-sort/) | O(n log n) | O(n log n) | O(n log n) | no bad input |
+| [Hash table](/data-structures/hash-tables/) lookup | O(1) | O(1) | O(n) | every key collides |
+| [Binary search tree](/data-structures/binary-search-trees/) lookup | O(1) | O(log n) | O(n) | keys inserted in sorted order |
+
+Quicksort and hash tables are the two that surprise people. Both are described everywhere as O(n log n) and O(1). Those are *average* cases. Their worst cases are a whole class slower.
+
+## Which one to use
+
+### Worst case: the default
+
+Unless told otherwise, a stated complexity is the worst case. It is a **guarantee**: whatever the input, it will not be slower than this. It is also usually the easiest to work out.
+
+It matters most when:
+
+- A slow response is unacceptable, not just unfortunate: real-time control, anything with a deadline.
+- Inputs might be chosen by an adversary. Attackers have taken down web servers by sending keys crafted to collide in a hash table, turning every O(1) lookup into O(n).
+
+### Average case: what you usually experience
+
+The average case predicts typical performance, and it explains why quicksort is used in practice despite its O(n²) worst case.
+
+It comes with a catch: **an average needs an assumption about the inputs.** "On average" normally means "if every input is equally likely". Real inputs are often not like that. Already-sorted data is far more common in practice than a random shuffle would suggest, and it happens to be the worst case for a naive quicksort.
+
+One way out is for the algorithm to make its own randomness. A quicksort that picks its pivot at random has an expected time of O(n log n) on *every* input. No particular input is bad, and only bad luck is.
+
+### Best case: rarely useful
+
+Almost any algorithm can be given an impressive best case by checking for a lucky input first. It tells you little.
+
+The exception is when the best case is an input you actually expect. Insertion sort's O(n) on nearly sorted data is the reason real sorting libraries use it.
+
+## A common confusion
+
+Best, average and worst case are about **which input** you are considering. Big-O, Big-Omega and Big-Theta are about **which bound** you are stating. They are separate ideas, and any combination is possible.
+
+| Notation | Means | Read as |
+| --- | --- | --- |
+| O(f) | grows no faster than f | an upper bound |
+| Ω(f) | grows at least as fast as f | a lower bound |
+| Θ(f) | grows exactly like f | a tight bound |
+
+So "the worst case of quicksort is Θ(n²)" and "the best case of insertion sort is Θ(n)" are both precise statements. It is a mistake to read Big-O as "worst case" and Big-Omega as "best case".
+
+In everyday use people write O where they strictly mean Θ, and this book follows that convention.
+
+## Related ideas
+
+- **[Amortized analysis](/foundations/amortized-analysis/)** is a different kind of average: over a *sequence of operations* rather than over possible inputs. It involves no probability, and it is a guarantee.
+- **Tail latency.** In a running system, the average response time hides the slow requests. Engineers track percentiles instead, such as the time within which 99% of requests finish, because that long tail is what users notice.
+
+## Key takeaways
+
+- The same algorithm can take very different times on different inputs of the same size.
+- Worst case is a guarantee and the default meaning of a stated complexity.
+- Average case predicts typical behaviour but depends on an assumption about the inputs.
+- Quicksort and hash tables have average cases that are much better than their worst cases.
+- Best, average and worst describe the input; O, Ω and Θ describe the bound.
