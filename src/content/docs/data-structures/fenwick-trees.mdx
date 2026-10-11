@@ -1,0 +1,168 @@
+---
+description: A compact array that keeps running totals up to date. It answers prefix sums and applies updates in O(log n) using one line of bit arithmetic.
+difficulty: advanced
+---
+
+A Fenwick tree, also called a **binary indexed tree** (BIT), solves the same problem as a [segment tree](/data-structures/segment-trees/) for the most common case: keeping **running totals** of an array that keeps changing. It uses no more memory than the array itself, and the whole implementation is about ten lines.
+
+The problem, again:
+
+| Approach | Sum of the first k elements | Change one element |
+| --- | --- | --- |
+| Plain array | O(n) | O(1) |
+| Running totals (prefix sums) | O(1) | O(n) |
+| **Fenwick tree** | O(log n) | O(log n) |
+
+## The idea
+
+A table of prefix sums makes updates slow because each entry covers *everything* before it, so one change invalidates many entries. A Fenwick tree makes each entry responsible for a smaller, carefully chosen range.
+
+Positions are numbered **from 1**. Slot `i` stores the sum of a range that *ends* at position `i`, and the length of that range is the largest power of two that divides `i`.
+
+For the array `[4, 9, 6, 8, 7, 5, 2, 1]`:
+
+<FenwickViz
+  values={[4, 9, 6, 8, 7, 5, 2, 1]}
+  caption="The array, and below it the range each slot covers. Every bar ends at its own position. Odd positions cover one element; position 8 covers all eight."
+/>
+
+So slot 6 holds 12, the sum of positions 5 to 6. Slot 4 holds 27, the sum of positions 1 to 4. Slot 7 covers only itself.
+
+| Position | In binary | Range length | Covers |
+| --- | --- | --- | --- |
+| 1 | `0001` | 1 | 1 |
+| 2 | `0010` | 2 | 1–2 |
+| 3 | `0011` | 1 | 3 |
+| 4 | `0100` | 4 | 1–4 |
+| 5 | `0101` | 1 | 5 |
+| 6 | `0110` | 2 | 5–6 |
+| 7 | `0111` | 1 | 7 |
+| 8 | `1000` | 8 | 1–8 |
+
+The range length is the value of the **lowest set bit** of the position. That is the pattern in the binary column: 6 is `0110`, its lowest set bit is worth 2, so slot 6 covers two elements.
+
+## Prefix sums: hop left
+
+To get the sum of the first 7 elements, start at slot 7 and repeatedly jump to the slot just before the current range. The ranges sit end to end and cover positions 1 to 7 exactly.
+
+<Player>
+<Frame caption="Start at slot 7 (binary <code>111</code>). It covers position 7 only. Running total: 2.">
+<FenwickViz values={[4, 9, 6, 8, 7, 5, 2, 1]} alt={[7]} />
+</Frame>
+<Frame caption="Remove the lowest set bit: <code>111</code> becomes <code>110</code>, slot 6. It covers positions 5–6. Running total: 2 + 12 = 14.">
+<FenwickViz values={[4, 9, 6, 8, 7, 5, 2, 1]} highlight={[7]} alt={[6]} />
+</Frame>
+<Frame caption="Again: <code>110</code> becomes <code>100</code>, slot 4. It covers positions 1–4. Running total: 14 + 27 = 41.">
+<FenwickViz values={[4, 9, 6, 8, 7, 5, 2, 1]} highlight={[7, 6]} alt={[4]} />
+</Frame>
+<Frame caption="Again: <code>100</code> becomes <code>000</code>. Stop. Three slots gave the sum of seven elements: 41.">
+<FenwickViz values={[4, 9, 6, 8, 7, 5, 2, 1]} highlight={[7, 6, 4]} />
+</Frame>
+</Player>
+
+Each hop clears one bit of the position, and a number below n has at most log₂ n bits set. Hence O(log n).
+
+## Updates: hop right
+
+Changing an element means fixing every slot whose range contains it. Start at the element's own slot, then repeatedly *add* the lowest set bit to reach the next larger range that covers it.
+
+Adding to position 3 touches slots 3, 4 and 8:
+
+<FenwickViz
+  values={[4, 9, 6, 8, 7, 5, 2, 1]}
+  alt={[3, 4, 8]}
+  caption="3 is 011. Add its lowest bit to get 100 (slot 4), then again to get 1000 (slot 8). These are exactly the bars that span position 3."
+/>
+
+Again at most one slot per bit: O(log n).
+
+## The one line that makes it work
+
+Both loops need the lowest set bit of a number. There is a famous trick for it:
+
+```text
+lowest set bit of i  =  i & -i
+```
+
+It relies on how negative numbers are stored. In [two's complement](/foundations/twos-complement/), `-i` is "flip every bit, then add one". That leaves the lowest set bit and the zeros below it unchanged and inverts everything above, so the AND keeps just that one bit.
+
+```text
+ i      =  0110   (6)
+-i      =  1010
+ i & -i =  0010   (2)
+```
+
+## The code
+
+```python
+class FenwickTree:
+    def __init__(self, n):
+        self.tree = [0] * (n + 1)      # slot 0 is unused
+
+    def add(self, i, delta):
+        """Add delta to the element at position i (counting from 1)."""
+        while i < len(self.tree):
+            self.tree[i] += delta
+            i += i & -i
+
+    def prefix_sum(self, i):
+        """Sum of positions 1 to i."""
+        total = 0
+        while i > 0:
+            total += self.tree[i]
+            i -= i & -i
+        return total
+
+    def range_sum(self, left, right):
+        return self.prefix_sum(right) - self.prefix_sum(left - 1)
+```
+
+A sum over any range is the difference of two prefix sums.
+
+<Ops
+  items={[
+    ['Prefix sum', 'O(log n)'],
+    ['Range sum', 'O(log n)'],
+    ['Add to one element', 'O(log n)'],
+    ['Memory', 'O(n)', 'one number per element'],
+  ]}
+/>
+
+<Aside type="warning" title="Positions start at 1">
+
+The arithmetic depends on it. Position 0 has no set bits, so `0 & -0` is 0 and the update loop would never advance. If your data is 0-indexed, add one on the way in.
+
+</Aside>
+
+## Why is it called a tree?
+
+There are no nodes or pointers, only an array. The tree is implicit in the hops. Each slot's parent is the slot reached by clearing its lowest set bit, so 7 leads to 6, which leads to 4, which leads to 0, the root. It is a tree encoded in the binary representation of the indices, which is where "binary indexed tree" comes from.
+
+## Fenwick tree or segment tree?
+
+| | Fenwick tree | Segment tree |
+| --- | --- | --- |
+| Memory | n | about 2n to 4n |
+| Code | about 10 lines | 30 or more |
+| Speed in practice | faster | slower |
+| Sums, counts, XOR | yes | yes |
+| Minimum, maximum | not in general | yes |
+| Updating a whole range | with extra tricks | yes, with lazy propagation |
+
+The restriction comes from `range_sum`: it **subtracts** one prefix from another. That only works for operations that can be undone. Sums can; there is no way to "subtract" a minimum.
+
+Use a Fenwick tree when you need sums or counts. Use a segment tree when you need anything else.
+
+## Where it shows up
+
+- **Cumulative frequency tables.** Peter Fenwick introduced the structure in 1994 for exactly this, as part of data compression.
+- **Ranks and leaderboards.** With one slot per possible score, "how many players score below 1,500?" is a prefix sum.
+- **Counting inversions**, a measure of how far a list is from sorted, in O(n log n).
+- **Running totals over changing data**, such as order books and histograms.
+
+## Key takeaways
+
+- A Fenwick tree keeps prefix sums of a changing array with O(log n) queries and updates.
+- Slot i stores the sum of a range ending at i, whose length is the lowest set bit of i.
+- Queries hop left by clearing that bit; updates hop right by adding it. `i & -i` finds it.
+- It is smaller, shorter and faster than a segment tree, but limited to operations that can be undone, like addition.
