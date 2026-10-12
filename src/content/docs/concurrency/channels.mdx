@@ -1,0 +1,176 @@
+---
+description: A channel is a queue that threads use to hand values to one another. A sender puts a value in and a receiver takes it out, so data moves between threads instead of being shared by them.
+difficulty: intermediate
+---
+
+Most of the trouble in concurrent programs comes from two threads touching the same data. [Mutexes](/concurrency/mutexes/) manage that sharing. A **channel** avoids it. One thread puts a value into the channel, another takes it out, and at no point do both have it.
+
+The idea is summed up in a saying from the Go community: do not communicate by sharing memory; share memory by communicating.
+
+## Send and receive
+
+A channel has two operations.
+
+- **Send** puts a value in. If the channel has no room, the sender waits.
+- **Receive** takes the oldest value out. If the channel is empty, the receiver waits.
+
+Values come out in the order they went in, as from any [queue](/data-structures/queues/). The waiting is the important part: it is what keeps the two sides in step without either of them using a lock.
+
+## Try it
+
+<ChannelDemo capacity={2} />
+
+Send three times with a buffer of 2. The first two values go into the buffer and their senders carry on. The third sender blocks, and stays blocked until a receive makes room.
+
+Now set the buffer to 0 and send once. With nowhere to put the value, the sender waits until a receiver turns up, and the value passes directly from one to the other.
+
+## Buffered and unbuffered
+
+| | Unbuffered (size 0) | Buffered (size n) |
+| --- | --- | --- |
+| A send completes when | a receiver takes the value | there is room in the buffer |
+| Sender and receiver | meet at the same moment | are decoupled by up to n values |
+| Tells the sender | the value has been received | only that it has been queued |
+| Absorbs bursts | no | up to n |
+
+An unbuffered channel is a **rendezvous**: a hand-over that is also a synchronisation point. A buffered one lets a fast sender get a little ahead.
+
+## Backpressure
+
+The limit on the buffer is a feature. Suppose a producer makes 1000 items a second and the consumer can handle 100.
+
+With an unlimited queue, the backlog grows by 900 items every second until the program runs out of memory, and long before that every item is being handled minutes late.
+
+With a bounded channel, the producer blocks as soon as the buffer is full and is slowed to the consumer's pace. This is **backpressure**: the slow end of a system pushing back on the fast end. It turns a crash into a slowdown, and it shows up where the cause is.
+
+A queue with no limit is rarely the right choice. It hides the problem until it is too large to fix.
+
+## In code
+
+Go has channels in the language. In Python, `queue.Queue` is a channel between threads.
+
+```python
+import threading, queue
+
+DONE = object()                      # a marker meaning "no more values"
+
+def producer(channel):
+    for n in range(5):
+        channel.put(n * n)           # blocks while the channel is full
+    channel.put(DONE)
+
+def consumer(channel):
+    while (value := channel.get()) is not DONE:   # blocks while it is empty
+        print(value)
+
+channel = queue.Queue(maxsize=2)     # a buffer of two
+threading.Thread(target=producer, args=(channel,)).start()
+consumer(channel)                    # 0, 1, 4, 9, 16
+```
+
+There is no lock in this program and no shared variable. The producer cannot run more than two values ahead, and the consumer sleeps whenever there is nothing to take.
+
+The same thing in Go, where `<-` is the send and receive operator.
+
+```go
+channel := make(chan int, 2)         // a buffer of two
+
+go func() {
+    for n := 0; n < 5; n++ {
+        channel <- n * n             // send
+    }
+    close(channel)                   // no more values
+}()
+
+for value := range channel {         // receive until closed
+    fmt.Println(value)
+}
+```
+
+## Closing
+
+A receiver needs to know when to stop. The Python version sends a special marker. Go lets the sender **close** the channel, after which receivers drain what is left and then see that it is finished. Rust closes a channel automatically when the last sender is dropped.
+
+Whatever the mechanism, the convention is that the sending side decides when the stream is over.
+
+## Ownership moves with the value
+
+A channel removes sharing only if the sender lets go of what it sent. Sending a reference to a list and then carrying on modifying that list is a [data race](/concurrency/race-conditions/) with extra steps.
+
+Go leaves this to discipline. Rust enforces it: sending a value moves ownership into the channel, and the compiler rejects any later use by the sender.
+
+## Patterns
+
+**Pipeline.** Each stage is a thread that reads from one channel, does some work and writes to the next.
+
+```python
+def stage(work, source, sink):
+    while (value := source.get()) is not DONE:
+        sink.put(work(value))
+    sink.put(DONE)                   # pass the end marker along
+
+numbers, squares, labels = queue.Queue(2), queue.Queue(2), queue.Queue(2)
+threading.Thread(target=stage, args=(lambda n: n * n, numbers, squares)).start()
+threading.Thread(target=stage, args=(lambda n: f"<{n}>", squares, labels)).start()
+
+for n in [1, 2, 3]:
+    numbers.put(n)
+numbers.put(DONE)
+
+while (value := labels.get()) is not DONE:
+    print(value)                     # <1>, <4>, <9>
+```
+
+<Graph
+  directed
+  nodes={{ source: [0, 0], square: [1.6, 0], label: [3.2, 0], print: [4.8, 0] }}
+  edges={[['source', 'square', 'numbers'], ['square', 'label', 'squares'], ['label', 'print', 'labels']]}
+  caption="Three channels joining four stages. Each stage runs on its own thread and owns its own data."
+/>
+
+**Worker pool.** Several workers receive from the same channel, so each job goes to whichever worker is free. This is fan-out. Their results going into one shared channel is fan-in.
+
+**Request and reply.** A request carries a channel of its own for the answer to be sent back on.
+
+**Select.** Waiting on several channels at once and acting on whichever is ready first. It is how a worker listens for both jobs and a signal to stop, and how timeouts are built: one of the alternatives is a channel that delivers after a delay.
+
+## Kinds of channel
+
+| Kind | Senders | Receivers | Example |
+| --- | --- | --- | --- |
+| Single producer, single consumer | one | one | a lock-free [ring buffer](/concurrency/lock-free-data-structures/) |
+| Multiple producer, single consumer | many | one | Rust's `std::sync::mpsc` |
+| Multiple producer, multiple consumer | many | many | Go channels, `queue.Queue` |
+| Broadcast | many | each receiver gets every value | event buses |
+
+The same idea works between [processes](/operating-systems/processes/), where it is called a pipe, and between machines, where it is called a message queue.
+
+## What can still go wrong
+
+Channels remove data races. They do not remove the need to think.
+
+- **[Deadlock](/concurrency/deadlock/).** A thread sends on an unbuffered channel that nobody will ever receive from, or two threads each wait to receive from the other. Go's runtime detects the case where every goroutine is blocked and stops the program with an error.
+- **Leaked threads.** A worker blocked for ever on a channel that everybody else has forgotten about stays in memory for the life of the program.
+- **Ordering.** Values on one channel keep their order. Values on two different channels have no order relative to each other.
+- **Hidden shared state.** Sending a pointer shares whatever it points to.
+
+## Channels or locks
+
+| | Channel | Mutex |
+| --- | --- | --- |
+| Model | data moves between owners | data stays put and access is guarded |
+| Suits | pipelines, work distribution, events | a cache, a counter, a shared table |
+| Flow control | built in, with bounded buffers | none |
+| Cost per operation | higher: a queue operation, often a wake-up | lower |
+
+Use a channel when work or data flows from one part of a program to another. Use a lock when several threads need to read and update one piece of state in place. Real programs use both.
+
+Channels are the heart of a model called communicating sequential processes, described by Tony Hoare in 1978. A close relative, where each receiver has exactly one built-in mailbox, is [the actor model](/concurrency/the-actor-model/).
+
+## Key takeaways
+
+- A channel is a thread-safe queue for handing values from one thread to another.
+- A send blocks when the channel is full and a receive blocks when it is empty.
+- An unbuffered channel makes sender and receiver meet. A buffered one lets the sender run a little ahead.
+- A bounded buffer gives backpressure, slowing producers to the pace of consumers.
+- Channels prevent data races only if the sender stops using what it has sent.
