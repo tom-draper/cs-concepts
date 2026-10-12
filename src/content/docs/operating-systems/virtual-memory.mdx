@@ -1,0 +1,118 @@
+---
+description: Every program is given its own private, continuous range of memory addresses, which the operating system and the processor secretly map onto real memory. It is the mechanism behind isolation between programs.
+difficulty: intermediate
+---
+
+If programs used physical memory addresses directly, a computer would be a fragile and awkward thing.
+
+- Every program would need to know which addresses were free, and be written to avoid everyone else's.
+- A bug in one program could overwrite another's data, or the operating system's.
+- A program could never use more memory than was physically installed.
+
+**Virtual memory** removes all three problems with one layer of indirection. Each [process](/operating-systems/processes/) works with **virtual addresses**. On every memory access, the hardware translates them into **physical addresses**, using a mapping controlled by the operating system.
+
+## A private address space
+
+Each process is given its own **virtual address space**: a vast, continuous range of addresses that belongs to it alone. On a 64-bit system it is typically 128 terabytes or more, far beyond the physical memory in any computer.
+
+Within it, the parts of a program occupy conventional regions.
+
+<ArrayViz
+  values={['code', 'data', 'heap', null, null, 'libraries', null, 'stack']}
+  highlight={[0, 1]}
+  alt={[2, 7]}
+  indices={false}
+  caption="One process's address space, from low addresses to high. The heap grows upward and the stack grows downward. The dashed regions are not mapped to anything."
+/>
+
+The crucial property is that **two processes can use the same virtual address for different things**. Address 4,096 in your editor and address 4,096 in your browser lead to different physical memory. Neither can even name the other's memory, because every address a program can form is interpreted through its own mapping.
+
+## What it buys
+
+### Isolation
+
+A process cannot read or write another's memory, because it has no way to refer to it. A wild [pointer](/foundations/pointers-and-references/) can only damage its own process. This is the foundation of both stability and security on a modern computer.
+
+### Protection within a process
+
+Each region of an address space carries permissions: readable, writable, executable. The hardware checks them on every access.
+
+- Program code is readable and executable but **not writable**, so a bug cannot overwrite the program.
+- The [stack and heap](/foundations/stack-and-heap/) are writable but **not executable**, which blocks a whole class of attacks that work by injecting code as data. See [buffer overflows](/security/buffer-overflows/).
+- The region around address zero is deliberately left unmapped, so that following a null pointer is caught immediately.
+
+A violation raises an [exception](/operating-systems/interrupts/#exceptions). The familiar "segmentation fault" is the kernel ending a process that touched memory it had no right to.
+
+### Simplicity
+
+Every program can be built as if it will be loaded at the same addresses with all of memory to itself. Nobody has to coordinate.
+
+### More memory than exists
+
+The address space only has to be backed by real memory for the parts actually in use. And when physical memory runs short, the operating system can move parts that have not been used recently out to disk, and bring them back if they are needed again.
+
+## How the mapping works
+
+Memory is divided into fixed-size chunks, usually 4 KB. A chunk of virtual memory is a **page**, and a chunk of physical memory is a **frame**. For each process, the operating system keeps a **page table** recording which frame, if any, holds each page.
+
+The translation is done in hardware, by a part of the processor called the **memory management unit**, on every single memory access. [Paging](/operating-systems/paging/) covers the mechanics.
+
+A page can be in one of three situations.
+
+| The page is | An access to it |
+| --- | --- |
+| mapped to a frame | proceeds normally |
+| valid, but not currently in memory | causes a **page fault**; the kernel loads it and the program carries on |
+| not part of the address space | is an error; the process is stopped |
+
+## Memory is handed out lazily
+
+When a program asks for memory, the operating system usually just **records the promise** and returns at once. No physical memory is assigned.
+
+Real memory is found only when the program first touches each page. That touch causes a page fault, the kernel finds a free frame, fills it with zeros, maps it in, and re-runs the instruction. This is **demand paging**.
+
+The same laziness is used everywhere.
+
+- **Starting a program** does not read the whole file from disk. Pages of its code are loaded only when execution first reaches them. A large application that uses a fraction of its features never loads the rest.
+- **Copy-on-write.** When a process is duplicated with [`fork`](/operating-systems/processes/#creating-processes), parent and child share all their frames, marked read-only. A page is copied only when one of them writes to it.
+- **Shared libraries.** One copy of a commonly used library's code is held in physical memory and mapped into every process that uses it.
+
+### Why memory figures are confusing
+
+Because of all this, "how much memory is this process using?" has more than one answer.
+
+| Measure | Meaning |
+| --- | --- |
+| **Virtual size** | everything in the address space, including promises never used. Often enormous, and mostly meaningless |
+| **Resident size** | physical memory actually occupied right now. The useful figure, though shared pages are counted in every process that maps them |
+
+A program showing 20 GB of virtual size may be using 200 MB of real memory.
+
+## When memory runs out
+
+Since promises exceed what is really available, the system can find itself with no free frames. It then has to take one from somewhere.
+
+- A page that is an unmodified copy of something on disk, such as program code, can simply be dropped. It can be read back later.
+- A page of data that exists only in memory must first be written to a reserved area of disk called **swap**.
+
+Deciding which page to evict is the job of a page replacement algorithm. See [paging](/operating-systems/paging/#choosing-a-page-to-evict).
+
+Swapping lets a system survive running short of memory, at a steep price. [Disk is far slower than memory](/architecture/storage-devices/): thousands of times, even with an SSD. A program that keeps needing pages that have been swapped out slows to a crawl.
+
+When memory is badly overcommitted, the system can spend nearly all its time moving pages in and out and almost none doing work. This is **thrashing**, and it is why a machine that runs out of memory becomes unresponsive long before anything actually fails.
+
+If there is no swap left either, the kernel has to end a process to free memory. On Linux this is done by the "out of memory killer".
+
+## Memory-mapped files
+
+The same mechanism can connect a file to a range of addresses. Instead of reading a file into a buffer with [system calls](/operating-systems/system-calls/), a program **maps** it. The file then appears as an ordinary array in memory. Reading from the array loads the corresponding part of the file on demand, and writing to it changes the file.
+
+It avoids copying data between the kernel and the program, and loads only the parts that are touched. Databases and other tools that work with large files use it heavily. It is also how the operating system loads programs and libraries in the first place.
+
+## Key takeaways
+
+- Each process has its own virtual address space. Hardware translates virtual addresses to physical ones on every access.
+- This isolates processes from each other and lets each region be protected as read-only, non-executable and so on.
+- Memory is divided into pages, and a per-process page table records where each one is.
+- Physical memory is assigned lazily, on first use, and shared wherever possible.
+- When memory runs short, pages are moved to disk. Doing that too much causes thrashing.
