@@ -1,0 +1,123 @@
+---
+description: Signals that make the processor stop what it is doing and attend to something else. They are how hardware gets attention, how errors are caught, and how the operating system keeps control.
+difficulty: intermediate
+---
+
+A processor left to itself would run one program for ever, [fetching and executing](/architecture/fetch-decode-execute-cycle/) instruction after instruction. It would never notice a key being pressed, a network packet arriving, or a disk finishing a read.
+
+An **interrupt** is a signal that makes the processor pause the current program, run a piece of operating system code to deal with whatever happened, and then carry on as though nothing had occurred.
+
+## Why not just keep checking?
+
+The alternative is **polling**: the processor repeatedly asks each device, "anything yet?"
+
+That wastes time when nothing is happening, and responds slowly when something is, since the event has to wait for the next check. A keyboard produces a few events per second. Checking it millions of times a second is absurd.
+
+Interrupts reverse the arrangement. The processor gets on with useful work, and a device speaks up when it needs attention. It is the difference between checking your front door every thirty seconds and having a doorbell.
+
+## What happens during an interrupt
+
+<Steps>
+<Step title="A device raises a signal">
+
+A network card, say, has received a packet. It asserts an electrical line connected to the processor.
+
+</Step>
+<Step title="The processor finishes its current instruction, then checks">
+
+Interrupts are recognised between instructions, never half-way through one.
+
+</Step>
+<Step title="It saves where it was, and switches to kernel mode">
+
+At minimum, the program counter and status flags of the interrupted program are saved.
+
+</Step>
+<Step title="It looks up the handler">
+
+Each kind of interrupt has a number. The processor uses it as an index into a table of addresses, set up by the operating system at boot, and jumps to the corresponding routine: the **interrupt handler**.
+
+</Step>
+<Step title="The handler deals with the event">
+
+For the network card: copy the packet out of the device, and note that there is data waiting.
+
+</Step>
+<Step title="The saved state is restored and the interrupted program resumes">
+
+It continues from exactly where it stopped. It cannot tell that anything happened, except that some time has passed.
+
+</Step>
+</Steps>
+
+This is a close relative of a [context switch](/operating-systems/context-switching/). The difference is that an interrupt normally returns to the same program. But once the kernel is in control, it is free to decide to run a different one instead.
+
+## Three kinds
+
+The same mechanism serves three purposes, distinguished by what triggers it.
+
+| Kind | Triggered by | Examples |
+| --- | --- | --- |
+| **Hardware interrupt** | a device, at an unpredictable moment | key press, packet arrival, disk finished, timer tick |
+| **Exception** (or fault) | the instruction being executed | division by zero, an invalid memory access, a page that is not loaded |
+| **Software interrupt** (or trap) | the program, deliberately | a [system call](/operating-systems/system-calls/), a debugger breakpoint |
+
+Hardware interrupts are **asynchronous**: they have nothing to do with what the program was doing. Exceptions and traps are **synchronous**: they are caused by a particular instruction and would happen again at the same place if the program were re-run.
+
+### Exceptions
+
+When an instruction cannot be completed, the processor raises an exception and the kernel decides what to do.
+
+Some are fatal for the program. Reading through a null pointer touches memory the process does not own. The kernel ends the process, and you see a "segmentation fault".
+
+Some are perfectly normal. A **page fault** occurs when a program touches memory that is valid but not currently loaded. The kernel quietly loads it and re-runs the instruction, and the program never knows. This is the mechanism behind [virtual memory](/operating-systems/virtual-memory/).
+
+## The timer interrupt
+
+One interrupt deserves special mention, because the whole idea of an operating system depends on it.
+
+A hardware timer is set to interrupt at regular intervals, typically hundreds or thousands of times a second. Each tick hands control to the kernel, whatever the running program was doing.
+
+Without it, a program stuck in an infinite loop would hold the processor for ever, and the system could do nothing about it. With it, the kernel is **guaranteed** to regain control, and can then take the processor away and give it to another task. This is **preemptive multitasking**. See [CPU scheduling](/operating-systems/cpu-scheduling/).
+
+## Writing a handler is delicate
+
+An interrupt handler runs at an arbitrary moment, in the middle of something else. That imposes strict discipline.
+
+**It must be quick.** While a handler runs, the interrupted work is stalled, and other interrupts may be held up. Slow handlers make a system unresponsive and can cause incoming data to be lost.
+
+Operating systems therefore split the work in two.
+
+- The handler itself does the bare minimum that cannot wait: acknowledge the device, grab the data, and note that there is more to do.
+- The rest is **deferred** to run slightly later, in a normal context where it can take its time.
+
+**It must not disturb what it interrupted.** A handler may have interrupted code that was in the middle of updating a data structure. If the handler touches the same structure, it finds it half-changed. This is a [race condition](/concurrency/race-conditions/) in its purest form. Kernel code protects such sections by briefly **disabling interrupts** around them, an option not available to ordinary programs.
+
+**Some interrupts take precedence.** Interrupts have priorities, and a more urgent one can interrupt the handler of a less urgent one.
+
+## When there are too many
+
+An interrupt per event works well at modest rates. A fast network link can deliver millions of packets a second. At one interrupt each, the processor would do nothing but enter and leave handlers, and make no progress on actually processing the packets. This is called **receive livelock**.
+
+The fixes go back towards polling.
+
+- **Coalescing.** The device waits briefly and raises one interrupt for a batch of events.
+- **Hybrid interrupt and polling.** On the first interrupt, the kernel turns interrupts off for that device and polls it until the backlog is cleared, then turns them back on. Linux's network stack works this way.
+- **Pure polling.** The fastest packet-processing and storage frameworks dedicate a core to checking the device continuously, and use no interrupts at all.
+
+So interrupts suit events that are **rare and unpredictable**, and polling suits events that are **constant**. The choice between them recurs throughout systems design.
+
+## The same idea, higher up
+
+Interrupts are the lowest-level form of **event-driven** programming: do nothing until something happens, then run a handler. The pattern reappears at every level above.
+
+- **Signals** are the operating system's way of interrupting a *process*. Pressing Ctrl+C sends one.
+- **Callbacks** and **[event loops](/concurrency/event-loops/)** let a program register code to run when a network response arrives or a button is clicked.
+
+## Key takeaways
+
+- An interrupt makes the processor suspend the current program, run a handler in the kernel, and resume.
+- Hardware interrupts come from devices; exceptions come from the instruction being executed; traps are deliberate, as in a system call.
+- The timer interrupt guarantees that the kernel regains control, which is what makes preemptive multitasking possible.
+- Handlers must be very short, deferring longer work, and must be careful with shared data.
+- For rare events interrupts beat polling; at very high rates, polling wins.
