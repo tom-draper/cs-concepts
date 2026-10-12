@@ -1,0 +1,170 @@
+---
+description: A mutex is a lock that only one thread can hold at a time. Wrapping a critical section in one makes it run as a single uninterrupted step from every other thread's point of view.
+difficulty: intermediate
+---
+
+A [race condition](/concurrency/race-conditions/) happens when two threads are inside the same critical section at once. A **mutex**, short for mutual exclusion, is the simplest tool that prevents it. It is a lock with two operations.
+
+- **Lock** (or acquire). If the mutex is free, take it and continue. If another thread holds it, wait until it is released.
+- **Unlock** (or release). Give it up, so that one waiting thread can take it.
+
+Only one thread can hold the mutex at any moment. Code between the lock and the unlock therefore runs with no other thread in the same section.
+
+## The counter, fixed
+
+This is the lost-update example with each thread taking a lock `m` around its three steps. Try to make it lose an update.
+
+<InterleaveDemo scenario="mutex" />
+
+Whichever thread locks first, the other becomes blocked at its own `m.lock()` and cannot take a single step until the first has unlocked. The 20 possible orders have shrunk to 2, and both give 2.
+
+The mutex has not made the three steps faster or truly indivisible. The operating system can still switch away from the thread in the middle. What it guarantees is that no other thread that respects the lock can get in while it is away.
+
+## In code
+
+```python
+import threading, time
+
+counter = 0
+lock = threading.Lock()
+
+def work():
+    global counter
+    for _ in range(1000):
+        with lock:               # acquire; released when the block ends
+            value = counter
+            time.sleep(0)
+            counter = value + 1
+
+threads = [threading.Thread(target=work) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(counter)                   # always 4000
+```
+
+Without the lock this program printed about 1000. With it, the answer is 4000 on every run.
+
+The `with` block matters. It releases the lock however the block is left, including by an exception. A lock that is acquired by hand and not released on some error path stays held for ever, and every other thread that wants it waits for ever.
+
+## A lock protects data, not code
+
+The mutex and the data have no connection that the language can see in most languages. The protection is a convention: every piece of code that touches the counter must take the same lock first. One function that forgets brings the race back, for everybody.
+
+Two habits help.
+
+- **Keep the lock next to the data.** Put both in one object and make the data reachable only through methods that lock.
+- **Say what each lock guards.** A comment such as "guards `balance` and `history`" is worth having.
+
+Rust builds this into the type system. A `Mutex<T>` contains the value it protects, and the only way to reach the value is to lock the mutex, so forgetting is a compile error.
+
+## Lock the whole operation
+
+Locking each access separately is not enough when several accesses must agree with each other.
+
+```python
+def withdraw(amount):
+    if get_balance() >= amount:      # locks, reads, unlocks
+        take(amount)                 # locks, subtracts, unlocks
+```
+
+Every access to the balance here is protected, and the function is still wrong. Two threads can both pass the check before either subtracts. Run with two withdrawals of 80 from a balance of 100, this version ends at -60, exactly like the version with no locks at all.
+
+The critical section is the check together with the act. The lock must be held across both.
+
+```python
+def withdraw(amount):
+    global balance
+    with lock:
+        if balance >= amount:
+            balance -= amount
+```
+
+## How long to hold a lock
+
+While one thread holds a lock, every other thread that wants it is stopped. The lock turns that part of the program back into a single-threaded one.
+
+<Ops
+  items={[
+    ['Lock, nobody waiting', 'O(1)', 'tens of nanoseconds'],
+    ['Lock, already held', 'waits', 'for as long as the holder takes'],
+    ['Unlock', 'O(1)', 'plus waking a waiter'],
+  ]}
+/>
+
+So the rule is to hold a lock for as short a time as possible, and to do nothing slow while holding it. Reading a file, calling a network service or waiting for user input inside a critical section stalls every other thread behind it.
+
+There is a choice of **granularity** as well.
+
+| | One big lock | Many small locks |
+| --- | --- | --- |
+| Example | one lock for a whole hash table | one lock per bucket |
+| Correctness | easy to reason about | easy to get wrong |
+| Parallelism | threads queue up | threads rarely collide |
+| Risk of [deadlock](/concurrency/deadlock/) | low | higher |
+
+Start with one coarse lock. Split it only when measurement shows threads spending real time waiting for it.
+
+## What waiting looks like
+
+A thread that finds a mutex held can wait in two ways.
+
+**Blocking.** It asks the operating system to put it to sleep until the mutex is free. This costs no processor time while it waits, but going to sleep and waking up each involve the kernel and a [context switch](/operating-systems/context-switching/), a matter of microseconds.
+
+**Spinning.** It checks the lock again and again in a tight loop. This wastes a core while it waits, but if the lock is released within a few nanoseconds it is much faster than sleeping. A lock that only spins is a **spinlock**.
+
+Most modern mutexes do both: spin briefly in case the holder is nearly done, then go to sleep. An uncontended lock or unlock is a single [atomic instruction](/concurrency/atomics-and-compare-and-swap/) with no kernel involvement at all.
+
+## Variations
+
+| Lock | Difference | Use |
+| --- | --- | --- |
+| Reentrant lock | the thread holding it may lock it again | a method that locks calling another that locks |
+| Read-write lock | many readers at once, or one writer alone | data read often and changed rarely |
+| Try-lock | returns at once with failure if the lock is held | doing something else instead of waiting |
+| Timed lock | gives up after a set time | detecting that something is stuck |
+
+An ordinary mutex is not reentrant. A thread that locks it twice waits for itself, and never wakes.
+
+## Condition variables
+
+Sometimes a thread needs to wait for more than the lock. A worker taking jobs from a [queue](/data-structures/queues/) needs the queue to be non-empty. Checking in a loop would waste the processor, and sleeping for a fixed time would be slow to respond.
+
+A **condition variable** lets a thread release a mutex and go to sleep in one step, until another thread signals that something has changed.
+
+```python
+import threading
+from collections import deque
+
+jobs = deque()
+ready = threading.Condition()        # a lock with a waiting room
+
+def put(job):
+    with ready:
+        jobs.append(job)
+        ready.notify()               # wake one waiting worker
+
+def take():
+    with ready:
+        while not jobs:              # check again after every wake-up
+            ready.wait()             # release the lock and sleep
+        return jobs.popleft()
+```
+
+The condition is tested in a `while`, not an `if`. By the time a woken thread has the lock back, another thread may have taken the job, so it must look again.
+
+## Costs beyond waiting
+
+- **[Deadlock](/concurrency/deadlock/).** Two threads each hold a lock the other needs.
+- **Contention.** With enough threads wanting the same lock, adding more threads makes the program slower.
+- **Priority inversion.** A low-priority thread holding a lock stalls a high-priority thread that needs it. The usual cure is to lend the holder the waiter's priority for as long as it holds the lock.
+- **Composition.** Two operations that are each safe do not combine into a safe one, as the withdrawal showed.
+
+## Key takeaways
+
+- A mutex can be held by one thread at a time. Lock before the critical section, unlock after.
+- It protects data only if every piece of code that touches the data takes the same lock.
+- The lock must cover the whole operation that needs to be consistent, not each access separately.
+- Hold locks briefly and never across slow operations.
+- Release in a way that cannot be skipped, such as a `with` block.
