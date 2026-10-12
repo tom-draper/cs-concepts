@@ -1,0 +1,46 @@
+---
+// Instructions moving through a five-stage pipeline, one column per clock cycle.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+
+interface Props {
+  instructions: string[];
+  /** The clock cycle to mark, counting from 1. */
+  cycle?: number;
+  caption?: string;
+}
+
+const { instructions, cycle, caption } = Astro.props;
+
+const stages = ['IF', 'ID', 'EX', 'MEM', 'WB'];
+const cycles = instructions.length + stages.length - 1;
+const LEFT = 86;
+const W = 46;
+const H = 30;
+const PAD = 8;
+const top = PAD + 18;
+const width = LEFT + cycles * W + PAD;
+const height = top + instructions.length * H + PAD;
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`Pipeline diagram for ${instructions.length} instructions over ${cycles} cycles${cycle ? `, at cycle ${cycle}` : ''}`}>
+    {Array.from({ length: cycles }, (_, c) => <text class="v-small" x={LEFT + c * W + W / 2} y={PAD + 6}>{c + 1}</text>)}
+    {
+      instructions.map((name, row) => (
+        <>
+          <text class="v-small end" x={LEFT - 8} y={top + row * H + H / 2}>{name}</text>
+          {stages.map((stage, s) => {
+            const c = row + s;
+            return (
+              <g class={`v-node ${cycle === c + 1 ? 'alt' : cycle && c + 1 < cycle ? 'hl' : ''}`}>
+                <rect x={LEFT + c * W + 2} y={top + row * H + 2} width={W - 4} height={H - 4} rx="4" />
+                <text class="v-small" x={LEFT + c * W + W / 2} y={top + row * H + H / 2}>{stage}</text>
+              </g>
+            );
+          })}
+        </>
+      ))
+    }
+  </svg>
+</Figure>
