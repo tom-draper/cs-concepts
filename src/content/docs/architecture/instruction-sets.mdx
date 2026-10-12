@@ -1,0 +1,94 @@
+---
+description: The vocabulary of a processor. An instruction set defines the operations a chip understands, and it is the contract between hardware and every piece of software that runs on it.
+difficulty: intermediate
+---
+
+A processor does not understand Python or C. It understands a fixed list of simple operations, each encoded as a pattern of bits. That list, together with the rules for how the operations behave, is its **instruction set architecture**, or ISA.
+
+x86-64, ARM64 and RISC-V are instruction sets. An Intel Core and an AMD Ryzen are different designs, built by different companies, that implement the *same* instruction set, which is why the same program runs on both.
+
+## A contract
+
+The ISA is the boundary between hardware and software.
+
+- It tells **software** what it may rely on: which instructions exist, what registers there are, how memory is addressed.
+- It tells **hardware** what it must do, and nothing about how. A chip designer is free to implement the instructions any way they like, provided programs cannot tell the difference.
+
+That separation is why a program compiled twenty years ago still runs on a processor released this year, although the two chips have almost nothing in common internally.
+
+## What an instruction set contains
+
+Nearly all the instructions in any ISA fall into a few groups.
+
+| Group | Examples | Used for |
+| --- | --- | --- |
+| Arithmetic and logic | add, subtract, multiply, AND, OR, shift | calculating |
+| Moving data | load from memory, store to memory, copy between registers | variables, arrays, objects |
+| Control flow | jump, conditional branch, call, return | `if`, loops, functions |
+| Comparison | compare, test | setting up a conditional branch |
+| System | system call, halt, interrupt control | talking to the operating system |
+
+That is a surprisingly short list. There is no instruction for "sort this list" or "open this file". Everything a program does is assembled from these.
+
+The ISA also defines the **registers** software can see, the sizes of data it works with, how memory addresses are formed, and how exceptions are reported.
+
+## How an instruction is encoded
+
+An instruction is a number. Different groups of bits within it mean different things: one field says which operation, and others say which registers or values to use.
+
+Here is one way a 32-bit instruction can be laid out, for "add register 2 and register 3, and put the result in register 1".
+
+<ArrayViz
+  values={['add', 'r1', 'r2', 'r3', 'unused']}
+  highlight={[0]}
+  alt={[1, 2, 3]}
+  indices={false}
+  caption="An operation code, then three register numbers. The decode step of the processor pulls these fields apart."
+/>
+
+The **opcode** selects the operation. The other fields are the **operands**. The [decode step](/architecture/fetch-decode-execute-cycle/) of the processor is the circuitry that separates them and routes each to where it is needed.
+
+## Two philosophies
+
+Instruction sets are traditionally divided into two camps.
+
+**CISC**, "complex instruction set computer", has many instructions, some of which do a lot of work, such as reading from memory, adding, and writing back, all in one. Instructions vary in length. The idea, from an era of expensive memory and hand-written assembly, was to make each instruction do as much as possible. **x86** is the surviving example.
+
+**RISC**, "reduced instruction set computer", has fewer, simpler instructions, all the same length. Arithmetic works only on registers, with separate instructions to load and store memory. The idea, from the 1980s, was that simple instructions can be executed very fast and compilers can combine them as needed. **ARM** and **RISC-V** are RISC designs.
+
+| | x86-64 | ARM64 | RISC-V |
+| --- | --- | --- | --- |
+| Style | CISC | RISC | RISC |
+| Instruction length | 1 to 15 bytes | always 4 bytes | 4 bytes (2 with an optional extension) |
+| General-purpose registers | 16 | 31 | 31 |
+| Arithmetic directly on memory | yes | no | no |
+| Licensing | Intel and AMD | licensed from Arm | open and free to implement |
+| Found in | desktops, laptops, servers | phones, tablets, Apple computers, many servers | embedded devices, a growing range of others |
+
+Fixed-length instructions are much easier to decode, and to decode several at once, since the processor knows where each one starts. Variable-length instructions can be more compact.
+
+### The line has blurred
+
+The distinction matters less than it once did. A modern x86 processor does not execute its complex instructions directly. Its decoder translates each one into a short sequence of simple internal operations, called **micro-operations**, and the core that runs those is effectively a RISC machine. Meanwhile ARM has gained hundreds of specialised instructions.
+
+What remains true is that a simple, regular instruction set costs less power and less chip area to decode. That is a large part of why ARM dominates in phones, and why it has spread into laptops and data centres.
+
+## Why it matters to programmers
+
+**Binaries are tied to an ISA.** A program compiled for x86-64 is a sequence of x86-64 instructions and means nothing to an ARM chip. That is why downloads come in separate versions, and why moving a platform from one ISA to another is a major undertaking. Apple's switch to ARM relied on software that translates x86 programs on the fly.
+
+**Portable languages hide it.** Source code is not tied to an ISA. The [compiler](/languages/compilers-and-interpreters/) is what translates it, and can target several. Languages such as Java and JavaScript go further and target a *virtual* instruction set, which is then run by an interpreter or a [just-in-time compiler](/languages/just-in-time-compilation/) on whatever the real hardware is.
+
+**Extensions matter for performance.** ISAs grow over time. Newer chips add instructions for [processing several values at once](/architecture/simd/), for encryption, and for other specialised tasks. Software that uses them is faster, and has to check that the processor supports them.
+
+**The ISA is only part of the contract.** Running a real program also needs an agreement about how functions pass arguments, which registers must be preserved across a call, and how to ask the operating system for services. That is the **application binary interface** (ABI), and it differs between operating systems even on the same processor.
+
+The human-readable form of these instructions is [assembly language](/architecture/assembly-language/).
+
+## Key takeaways
+
+- An instruction set architecture defines the instructions, registers and behaviour a processor presents to software.
+- It is a contract: different chips implementing the same ISA run the same programs.
+- Instructions are numbers, with fields for the operation and its operands.
+- CISC designs such as x86 have complex, variable-length instructions; RISC designs such as ARM and RISC-V have simple, fixed-length ones.
+- Compiled programs are specific to an ISA, which is why software is distributed per architecture.
