@@ -1,0 +1,134 @@
+---
+description: A thread is an independent path of execution inside a process. Threads share memory, which makes them cheap and fast to coordinate, and is also what makes them hard to get right.
+difficulty: intermediate
+---
+
+A [process](/operating-systems/processes/) starts with a single path of execution: one program counter working its way through the code. A **thread** is such a path. A process can have more than one, all running through the same program at once, each at its own position.
+
+Threads let one program do several things at the same time: keep a user interface responsive while a file loads, handle many network connections, or use all the cores of a processor for one calculation.
+
+## What is shared and what is not
+
+Threads in the same process share almost everything. Each has only what it needs to be a separate path of execution.
+
+| Shared by all threads in a process | Private to each thread |
+| --- | --- |
+| The code | A program counter |
+| Global variables | The other processor registers |
+| The [heap](/foundations/stack-and-heap/) | A [stack](/foundations/stack-and-heap/), holding its function calls and local variables |
+| Open files and network connections | |
+
+So every thread can read and write the same objects in memory. That is their great advantage and their great hazard.
+
+## Threads and processes
+
+| | Separate processes | Threads in one process |
+| --- | --- | --- |
+| Memory | isolated | shared |
+| Sharing data | must go through the kernel (pipes, sockets) | read and write it directly |
+| Creation | slower: a new address space | fast: just a new stack |
+| Switching between them | slower | faster: the address space stays the same |
+| A crash in one | affects only that process | usually brings down the whole process |
+| A bug in one | cannot corrupt the others | can corrupt memory the others rely on |
+
+Threads are for cooperation within one program. Processes are for isolation.
+
+## Concurrency and parallelism
+
+Two words are often used loosely for what threads provide.
+
+- **Concurrency** is dealing with several things at once: making progress on more than one task by switching between them. It is possible on a single core.
+- **Parallelism** is actually doing several things at the same instant, which needs more than one core.
+
+A single-core machine running ten threads is concurrent and not parallel: the operating system switches rapidly between them. An eight-core machine can run eight threads truly in parallel.
+
+Threads help in two different situations.
+
+**Waiting.** A program that spends its time waiting for the network or the disk can use threads so that one slow operation does not hold up everything else. This works even on one core, because a waiting thread uses no processor time.
+
+**Computing.** A program doing heavy calculation can split the work across cores to finish sooner. This needs real parallelism.
+
+## Using threads
+
+```python
+import threading
+
+def download(url):
+    ...                                   # a slow network operation
+
+threads = [threading.Thread(target=download, args=(url,)) for url in urls]
+for t in threads:
+    t.start()                             # begin running
+for t in threads:
+    t.join()                              # wait for it to finish
+```
+
+`start` begins a new thread running the given function. `join` waits for it to end. Without the joins, the main program could carry on, or exit, before the downloads were done.
+
+## The problem with sharing
+
+Because threads share memory, two of them can touch the same data at the same moment. Consider two threads each adding 1 to a shared counter.
+
+`counter += 1` looks like one step. It is three: read the value, add one, write it back. The operating system can switch threads between any two of them.
+
+| Thread A | Thread B | counter |
+| --- | --- | --- |
+| reads 5 | | 5 |
+| | reads 5 | 5 |
+| adds 1, writes 6 | | 6 |
+| | adds 1, writes 6 | 6 |
+
+Two increments happened and the counter went up by one. An update has been lost.
+
+This is a **[race condition](/concurrency/race-conditions/)**: the result depends on the exact timing of the threads. It is the defining difficulty of concurrent programming, for three reasons.
+
+- It is **intermittent**. The code works nearly every time, because the unlucky interleaving is rare.
+- It is **not reproducible**. It may never happen under a debugger, which changes the timing.
+- It is **invisible** in the source. The line `counter += 1` gives no hint.
+
+The standard fix is to make sure only one thread at a time can run the critical section, using a [mutex](/concurrency/mutexes/).
+
+```python
+lock = threading.Lock()
+
+with lock:
+    counter += 1           # only one thread at a time can be in here
+```
+
+Locks bring problems of their own, notably [deadlock](/concurrency/deadlock/), where two threads each wait for a lock the other holds. The [Concurrency](/concurrency/race-conditions/) part of this book covers these in detail.
+
+## Kernel threads and user threads
+
+The threads above are **kernel threads**: the operating system knows about each one and schedules it. They can run in parallel on separate cores. But each has a sizeable stack, typically a megabyte or more reserved, and [switching between them](/operating-systems/context-switching/) involves the kernel. A program can comfortably have thousands of them, not millions.
+
+Many languages therefore offer lighter alternatives managed by the language's own runtime instead of the kernel.
+
+| | Managed by | Cost each | Examples |
+| --- | --- | --- | --- |
+| Kernel threads | the operating system | about a megabyte of stack | Java platform threads, C++ `std::thread`, Rust `std::thread` |
+| Green threads | the language runtime | a few kilobytes | goroutines in Go, virtual threads in Java |
+| Async tasks | the language runtime | a small object | `async`/`await` in JavaScript, Python and Rust |
+
+The lightweight kinds are multiplexed onto a small number of kernel threads. They make it practical to have one task per network connection, even with hundreds of thousands of connections. See [async/await](/concurrency/async-await/) and [event loops](/concurrency/event-loops/).
+
+<Aside title="Python's global interpreter lock">
+
+Standard Python has traditionally allowed only one thread at a time to execute Python code, because of a lock inside the interpreter. Threads in Python are therefore useful for waiting on the network or disk, and have not sped up pure calculation. For that, Python programs use several processes, or libraries that do their heavy work outside the interpreter. Recent versions of Python have begun offering a build without this lock.
+
+</Aside>
+
+## How many threads?
+
+For calculation, more threads than cores does not help. They just take turns, and the switching adds overhead. A sensible number is about one per core.
+
+For waiting, many more can be useful, since a waiting thread costs no processor time. This is where lightweight tasks do best.
+
+Programs rarely create a thread per job by hand. They use a **thread pool**: a fixed set of worker threads that take jobs from a [queue](/data-structures/queues/). This avoids the cost of creating threads repeatedly and puts a limit on how many run at once.
+
+## Key takeaways
+
+- A thread is a path of execution within a process. Threads in a process share its memory and each has its own stack.
+- They are cheaper than processes and can share data directly, but a fault in one can affect all.
+- Concurrency is making progress on several tasks by interleaving; parallelism is running them at the same instant on several cores.
+- Shared memory makes race conditions possible, where the outcome depends on timing. Locks prevent them.
+- Kernel threads are relatively heavy. Green threads and async tasks allow very large numbers of concurrent activities.
