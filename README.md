@@ -2,13 +2,13 @@
 
 A complete guide for Computer Science concepts: one page per concept, read front to back like a book.
 
-Built with [Astro](https://astro.build) and served from GitHub Pages at <https://tom-draper.github.io/cs-concepts/>.
+Built with [Astro](https://astro.build) and served from GitHub Pages at <https://tom-draper.github.io/vcs/>.
 
 ## Develop
 
 ```sh
 pnpm install
-pnpm dev        # http://localhost:4321/cs-concepts/
+pnpm dev        # http://localhost:4321/vcs/
 pnpm build      # static site + search index in dist/
 pnpm preview    # serve dist/ (search only works here, not in dev)
 ```
