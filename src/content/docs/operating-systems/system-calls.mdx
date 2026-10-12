@@ -1,0 +1,147 @@
+---
+description: The controlled doorway between a program and the operating system. Every time a program reads a file, sends a packet or asks for memory, it is making a system call.
+difficulty: intermediate
+---
+
+A [process](/operating-systems/processes/) runs in a sealed box. It can calculate freely and read and write its own memory. It cannot touch a disk, the network, the screen or another process. Those belong to the operating system.
+
+To do anything involving the outside world, a program must **ask**. The mechanism for asking is the **system call**, and it is the entire interface between programs and the kernel.
+
+## Two modes
+
+The separation is enforced by the processor itself, which runs in one of two modes.
+
+| | User mode | Kernel mode |
+| --- | --- | --- |
+| Runs | applications | the operating system kernel |
+| May execute | ordinary instructions only | every instruction |
+| May access | its own memory | all memory, and all devices |
+| A fault here | ends that program | can crash the whole machine |
+
+A program in user mode that tries a privileged instruction, such as talking directly to a disk controller, is stopped by the processor, which hands control to the kernel.
+
+This is what makes isolation real. A program cannot bypass the operating system, because the hardware will not let it.
+
+## What a system call does
+
+A system call is a deliberate, tightly controlled way of crossing from user mode into kernel mode.
+
+<Steps>
+<Step title="The program puts its request in registers">
+
+A number identifying which system call it wants, plus the arguments. For example: "call number 0 (read), file 3, this buffer, up to 4,096 bytes".
+
+</Step>
+<Step title="It executes a special instruction">
+
+On x86-64 this is `syscall`; on ARM64 it is `svc`. The instruction switches the processor to kernel mode and jumps to a single fixed entry point inside the kernel. The program does **not** choose where in the kernel to go.
+
+</Step>
+<Step title="The kernel checks the request">
+
+Is the call number valid? Does this process have that file open? Is it allowed to read it? Does the buffer lie inside the process's own memory? Nothing from the program is trusted.
+
+</Step>
+<Step title="The kernel does the work">
+
+If the data is not ready, the process is put to sleep and another one runs. See [context switching](/operating-systems/context-switching/).
+
+</Step>
+<Step title="The kernel returns">
+
+It places a result in a register, switches back to user mode, and resumes the program at the instruction after the system call.
+
+</Step>
+</Steps>
+
+The crucial point is step 2. A program cannot jump to an arbitrary place in the kernel. It can only knock at one door, and the kernel decides what happens next.
+
+## What they look like in code
+
+You almost never write the special instruction yourself. The standard library wraps each system call in an ordinary function.
+
+```python
+import os
+
+fd = os.open('notes.txt', os.O_RDONLY)    # system call: open
+data = os.read(fd, 100)                   # system call: read
+os.close(fd)                              # system call: close
+```
+
+Higher-level code hides them further. Python's built-in `open` and a `for line in file` loop end up making the same calls underneath.
+
+### The main families
+
+| Family | Examples on Linux | Used for |
+| --- | --- | --- |
+| Files | `open`, `read`, `write`, `close`, `stat` | reading and writing data. See [file systems](/operating-systems/file-systems/) |
+| Processes | `fork`, `execve`, `exit`, `wait`, `kill` | starting and stopping programs |
+| Memory | `mmap`, `brk` | asking for more memory. See [memory allocators](/operating-systems/memory-allocators/) |
+| Networking | `socket`, `connect`, `send`, `recv` | communicating over a network. See [sockets](/networking/sockets/) |
+| Time | `clock_gettime`, `nanosleep` | reading the clock, sleeping |
+| Waiting for events | `epoll_wait`, `poll` | handling many connections. See [non-blocking I/O](/operating-systems/blocking-and-non-blocking-io/) |
+
+Linux has a few hundred system calls in all. Every program on the system, however elaborate, is built from them.
+
+### File descriptors
+
+Many calls refer to an open file, socket or pipe by a small integer called a **file descriptor**. It is an index into a table the kernel keeps for each process. The program holds only the number. The real object stays safely inside the kernel.
+
+By convention every Unix process starts with three: 0 is standard input, 1 is standard output and 2 is standard error.
+
+## The cost
+
+A system call is much slower than an ordinary function call.
+
+| | Rough cost |
+| --- | --- |
+| An ordinary function call | about a nanosecond |
+| A system call | a hundred nanoseconds or more |
+
+Crossing into the kernel means switching mode, saving state, validating arguments and switching back. It also disturbs the processor's [caches](/architecture/cpu-caches/).
+
+That cost is why programs avoid making lots of small calls.
+
+### Buffering
+
+Writing a file one byte at a time with a system call per byte would be painfully slow. Standard libraries therefore **buffer**: they collect output in memory and pass it to the kernel in large chunks.
+
+```python
+with open('out.txt', 'w') as f:
+    for i in range(1_000_000):
+        f.write('x')          # goes into a buffer in memory
+                              # a system call happens only when the buffer fills
+```
+
+A million calls to `write` become a few hundred system calls.
+
+This explains a familiar puzzle. Output written just before a program crashes can go missing, because it was still sitting in the buffer. Output to a terminal is usually flushed at the end of each line, and output to a file only when the buffer fills, so a program can behave differently depending on where its output is going.
+
+### Other ways to cut the cost
+
+- **Batching.** Some calls accept several operations at once.
+- **Avoiding the kernel.** A few simple, frequent calls, such as reading the clock, are implemented by the kernel sharing a page of memory with every process, so no mode switch is needed.
+- **Shared queues.** Linux's `io_uring` lets a program place many requests in a [ring buffer](/data-structures/ring-buffers/) shared with the kernel, and collect the results from another, with few or no system calls.
+
+## Seeing them
+
+You can watch a program's system calls directly.
+
+- On Linux, `strace ls` prints every system call `ls` makes, with arguments and results.
+- On macOS, `dtruss` does the same.
+
+It is one of the most useful debugging tools there is. A program that hangs, fails mysteriously or cannot find a file is nearly always visible in its system calls, without any source code.
+
+## A security boundary
+
+Since the kernel has complete power, the system call interface is where it defends itself. Every argument has to be checked, because a single unchecked pointer or length could let a program read or overwrite kernel memory.
+
+It is also a convenient place to restrict programs. A **sandbox** limits which system calls a process is allowed to make. A browser's page renderer, for example, has no business opening arbitrary files, so it is forbidden from doing so. If an attacker takes it over, there is very little they can do. Containers rely on the same idea.
+
+## Key takeaways
+
+- A system call is how a program asks the operating system to do something it is not allowed to do itself.
+- The processor's user and kernel modes enforce the separation. A special instruction crosses between them at a single controlled entry point.
+- The kernel validates every request before acting on it.
+- A system call costs roughly a hundred times more than a function call, which is why libraries buffer input and output.
+- Tools such as `strace` show the system calls a program makes, and sandboxes work by limiting them.
