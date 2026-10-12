@@ -1,0 +1,130 @@
+---
+description: The mechanism that implements virtual memory. Memory is cut into fixed-size pages, and a table per process says where each one physically lives.
+difficulty: advanced
+---
+
+[Virtual memory](/operating-systems/virtual-memory/) gives every process its own private address space. **Paging** is how that is actually done: the scheme by which a virtual address is turned into a physical one, billions of times a second.
+
+## Pages and frames
+
+Both kinds of memory are divided into equal-sized chunks.
+
+- Virtual memory is divided into **pages**.
+- Physical memory is divided into **frames** of the same size.
+
+The usual size is **4 KB** (4,096 bytes). Any page can be placed in any frame. Pages that sit next to each other in a program's address space can be scattered anywhere in physical memory, and the program cannot tell.
+
+Fixed-size chunks are the key design choice. Since every frame is the same size, any free frame will do for any page. Physical memory never gets split into awkward gaps too small to use, a problem that plagues allocation of variable-sized pieces. See [memory allocators](/operating-systems/memory-allocators/).
+
+## Splitting an address
+
+A virtual address is treated as two parts.
+
+- The **page number**: which page.
+- The **offset**: how far into that page.
+
+With 4 KB pages the offset is the low 12 bits, since 2¹² is 4,096. The rest is the page number.
+
+Translation replaces the page number with a frame number, and **leaves the offset alone**. Byte 100 of a page is byte 100 of whichever frame holds it.
+
+Try it with a small example. Here pages are 256 bytes, so the arithmetic is easy to follow, and this process has eight pages.
+
+<PagingDemo />
+
+Things to try:
+
+- **300** is in page 1 at offset 44. Page 1 lives in frame 7, so the physical address is 7 × 256 + 44 = 1,836.
+- **44** and **300** have the same offset in different pages, and land in different frames.
+- **600** is in page 2, which is not in memory. That is a **page fault**.
+- **3000** is beyond the eight pages this process has. The access is invalid.
+
+## The page table
+
+The mapping is held in a **page table**, one per process. Each entry describes one page.
+
+| Field | Meaning |
+| --- | --- |
+| Frame number | where the page is in physical memory |
+| Present | whether it is in memory at all |
+| Writable | whether writes are allowed |
+| Executable | whether code may run from it |
+| User | whether user-mode code may access it |
+| Accessed | set by the hardware when the page is read or written |
+| Dirty | set by the hardware when the page is written |
+
+The last two are how the operating system learns which pages are in use, and which have changed and would need saving before being discarded.
+
+A register in the processor points at the current process's page table. A [context switch](/operating-systems/context-switching/) to another process changes that register, and with it the meaning of every address.
+
+## Page tables are huge, so they are trees
+
+A 64-bit address space has an astronomical number of pages. A flat table with an entry for each would be far larger than physical memory, for every process.
+
+But a process uses only a minute, scattered fraction of its address space. So the table is built as a **tree**, typically four levels deep on current processors.
+
+The page number is cut into four pieces. The first piece picks an entry in the top-level table, which points to a second-level table. The second piece picks an entry there, and so on down to the entry holding the frame number.
+
+The saving is that **a subtree for an unused region is simply not there**. Its parent entry is marked empty. A process using a few megabytes needs only a handful of small tables. It is the same idea as a [trie](/data-structures/tries/), with pieces of the address in place of letters.
+
+## The TLB
+
+The tree has a cost. Translating one address now means reading four table entries from memory, before the access the program actually wanted. Every memory access would become five.
+
+The fix is a cache. The **translation lookaside buffer** (TLB) is a small, extremely fast store inside the processor holding recently used translations from page number to frame number.
+
+- **TLB hit:** the translation is available at once. The overwhelming majority of accesses.
+- **TLB miss:** the processor walks the page table, which takes several memory accesses, and stores the result in the TLB.
+
+A TLB holds from a few dozen to a few thousand entries. That works because of [locality](/architecture/cache-locality/): a program tends to keep using the same few pages.
+
+How much memory a TLB can cover is called its **reach**. A thousand entries of 4 KB pages cover only 4 MB. A program that roams across gigabytes of memory, as a large [hash table](/data-structures/hash-tables/) does, will miss the TLB constantly, and that can dominate its running time.
+
+### Huge pages
+
+One remedy is bigger pages. Processors support **huge pages** of 2 MB, and sometimes 1 GB. A single TLB entry then covers 512 times as much memory, and one level of the page table tree is skipped.
+
+Databases and other programs with very large memory footprints are often configured to use them. The price is coarser granularity: memory is handed out in 2 MB pieces, and a huge page needs a contiguous 2 MB of physical memory to be free.
+
+## What happens on a page fault
+
+A **page fault** is the [exception](/operating-systems/interrupts/#exceptions) raised when a program touches a page that cannot be used as things stand. The kernel takes over and looks at why.
+
+| Cause | What the kernel does |
+| --- | --- |
+| The address is not part of the address space at all | ends the process (a segmentation fault) |
+| The access breaks the page's permissions | ends the process |
+| First touch of memory that was promised but never assigned | finds a free frame, zeroes it, maps it. Quick |
+| A write to a page shared copy-on-write | makes a private copy and maps that |
+| The page was moved out to disk, or belongs to a file not yet read | reads it from disk. Slow |
+
+In every case but the first two, the kernel then returns to the same instruction and runs it again. This time it succeeds, and the program is none the wiser.
+
+Faults that need no disk access are **minor** and take around a microsecond. Faults that do are **major** and take thousands of times longer. A program that seems inexplicably slow is sometimes suffering major page faults.
+
+## Choosing a page to evict
+
+When physical memory is full and a new frame is needed, some page has to give up its place. The aim is to choose one that will not be wanted again soon.
+
+<PageReplacementDemo />
+
+Each column is one memory access. A highlighted cell is a page just loaded, and a ✗ marks a page fault. Things to try:
+
+- Compare the three policies on the default sequence.
+- Add a frame and watch the faults fall.
+- Load the **surprising sequence** under first in, first out, and go from 3 frames to 4. The number of faults goes **up**.
+
+**First in, first out** evicts the page that was loaded longest ago. It is simple and often poor, because the oldest page may be one that is used constantly. It is also capable of the odd behaviour you just saw, where more memory makes things worse. That is known as *Belady's anomaly*.
+
+**Least recently used** evicts the page that has gone unused for longest, on the assumption that the recent past predicts the near future. It works well and never suffers the anomaly.
+
+**Optimal** evicts the page whose next use is furthest in the future. Nothing can do better, and it cannot be built, because it requires knowing the future. It is useful as a yardstick.
+
+Real systems cannot afford exact least-recently-used bookkeeping on every memory access. They approximate it using the *accessed* bit that the hardware sets in each page table entry. The kernel periodically clears these bits, and a page whose bit is still clear later on has not been used in the meantime.
+
+## Key takeaways
+
+- Paging divides virtual memory into pages and physical memory into frames of the same fixed size, usually 4 KB.
+- A virtual address is a page number and an offset. Translation swaps the page number for a frame number.
+- Page tables are trees, so that unused parts of the address space cost nothing.
+- The TLB caches translations. Missing it is expensive, and huge pages make each entry cover more.
+- A page fault hands control to the kernel, which usually fixes things and resumes the program. When memory is full, a page replacement policy picks a victim.
