@@ -1,0 +1,132 @@
+---
+description: A semaphore is a counter of permits. Threads take one to proceed and wait when none are left, which makes it the natural tool for limiting how many things happen at once.
+difficulty: intermediate
+---
+
+A [mutex](/concurrency/mutexes/) lets one thread in at a time. Often the right number is not one. A database accepts twenty connections. A machine has eight cores. A download manager should run four downloads at once, not four hundred.
+
+A **semaphore** generalises the lock to a count. It holds a number of **permits** and has two operations.
+
+- **Acquire** (historically *P*, or wait, or down). If a permit is available, take it and continue. If none is, block until one is returned.
+- **Release** (historically *V*, or signal, or up). Return a permit. If a thread is blocked waiting, it gets the permit and wakes.
+
+The count never goes below zero. That is the whole mechanism.
+
+## Try it
+
+Six workers share a semaphore. Click a worker to have it acquire, and again to have it release.
+
+<SemaphoreDemo permits={3} workers={6} />
+
+With three permits, the fourth worker to arrive blocks. It stays blocked until one of the three inside releases, at which point it is let in without the permit count ever rising above zero. Set the permits to 1 and the semaphore behaves like a mutex.
+
+## Limiting concurrency
+
+```python
+import threading, time
+
+pool = threading.Semaphore(3)        # three permits
+
+def download(n):
+    with pool:                       # acquire; released when the block ends
+        time.sleep(0.1)              # the slow work
+
+threads = [threading.Thread(target=download, args=(n,)) for n in range(10)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+```
+
+Ten threads start at once, and never more than three are inside the block at the same moment. The ten downloads of a tenth of a second each finish in about 0.4 seconds: four rounds of up to three.
+
+This is the commonest use of a semaphore, sometimes called a **bulkhead** or a concurrency limit. It protects a resource that degrades when too many things use it at once.
+
+## Semaphore and mutex
+
+A semaphore with one permit, a **binary semaphore**, allows one thread in at a time. It is tempting to call that a mutex. There is one real difference.
+
+| | Mutex | Semaphore |
+| --- | --- | --- |
+| Count | held or free | any number of permits |
+| Who releases | only the thread that locked it | any thread |
+| Meaning | "I am using this" | "one more is available" |
+| Typical use | protecting data | limiting numbers, signalling |
+
+A mutex has an **owner**. A semaphore does not. A permit can be released by a thread that never acquired one, and that is not a misuse. It is how semaphores are used for signalling.
+
+## Signalling
+
+Start a semaphore at zero permits. A thread that acquires it blocks at once. It stays blocked until some other thread releases, which amounts to saying "the thing you were waiting for has happened".
+
+```python
+done = threading.Semaphore(0)
+
+def worker():
+    ...                              # do the work
+    done.release()                   # signal: finished
+
+threading.Thread(target=worker).start()
+done.acquire()                       # wait for the signal
+```
+
+Unlike a notification on a [condition variable](/concurrency/mutexes/), the signal is not lost if it arrives early. The permit simply waits in the semaphore until somebody acquires it.
+
+## A bounded buffer
+
+The classic use of both ideas together is the **producer-consumer** problem. Producers put items into a buffer of limited size and consumers take them out. A producer must wait when the buffer is full, and a consumer must wait when it is empty.
+
+Two semaphores count the two things that can run out, and a mutex protects the buffer itself.
+
+```python
+import threading
+from collections import deque
+
+class BoundedBuffer:
+    def __init__(self, size):
+        self.items = deque()
+        self.lock = threading.Lock()
+        self.spaces = threading.Semaphore(size)   # free slots
+        self.filled = threading.Semaphore(0)      # items waiting
+
+    def put(self, item):
+        self.spaces.acquire()        # wait for a free slot
+        with self.lock:
+            self.items.append(item)
+        self.filled.release()        # announce an item
+
+    def get(self):
+        self.filled.acquire()        # wait for an item
+        with self.lock:
+            item = self.items.popleft()
+        self.spaces.release()        # announce a free slot
+        return item
+```
+
+`put` takes a permit from `spaces` and gives one to `filled`. `get` does the opposite. The two counts always add up to the size of the buffer, less whatever is being moved at that instant.
+
+The order of the first two lines of each method matters. A consumer that took the lock first and then waited for an item would be holding the lock while it slept, and no producer could ever get in to add one. That is a [deadlock](/concurrency/deadlock/).
+
+In practice this structure is supplied ready made. Python's `queue.Queue(maxsize)` is a bounded buffer, and a buffered [channel](/concurrency/channels/) is the same thing with different names.
+
+## Where semaphores are used
+
+- **Connection pools.** One permit per database connection.
+- **Rate and load limits.** At most a set number of requests in progress to a service.
+- **Worker limits.** At most as many heavy jobs as there are cores.
+- **Inside operating systems.** Semaphores were introduced by Edsger Dijkstra in the 1960s for exactly this, and the names *P* and *V* come from Dutch.
+
+## Pitfalls
+
+- **A lost permit.** If a thread acquires and then fails without releasing, the capacity shrinks by one for ever. Release in a way that cannot be skipped.
+- **An extra permit.** Because anyone can release, a stray extra release quietly raises the limit. Nothing reports it.
+- **Not for protecting data.** When the aim is mutual exclusion, use a mutex. Its ownership rule catches mistakes that a binary semaphore lets through.
+- **Fairness.** Whether the longest waiter is served first depends on the implementation. Without that guarantee, an unlucky thread can wait indefinitely while others come and go, which is called starvation.
+
+## Key takeaways
+
+- A semaphore is a count of permits. Acquire takes one or blocks. Release returns one and wakes a waiter.
+- It limits how many threads can do something at once.
+- It has no owner, so one thread can release a permit that another is waiting for. That makes it a signalling tool as well.
+- Starting at zero, it lets one thread wait for an event announced by another.
+- For plain mutual exclusion, prefer a mutex.
