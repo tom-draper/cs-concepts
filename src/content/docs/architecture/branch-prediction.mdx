@@ -1,0 +1,127 @@
+---
+description: A processor guesses which way each conditional jump will go, and carries on before it knows. It is right far more often than not, and code that is easy to predict runs much faster.
+difficulty: advanced
+---
+
+A [pipelined](/architecture/pipelining/) processor works on many instructions at once, which means it has to fetch instructions well before the earlier ones have finished. That is fine for straight-line code. At a conditional branch there is a problem: the next instruction depends on a comparison that has not been computed yet.
+
+Waiting would waste several cycles at every branch, and branches make up something like one instruction in five. So the processor does not wait. It **predicts** the outcome, and carries on executing down the predicted path.
+
+## The bet
+
+- If the prediction is **right**, nothing is lost. The branch cost nothing.
+- If it is **wrong**, everything done since the branch must be thrown away and the processor restarts from the correct place. On a current processor that wastes around 15 to 20 cycles.
+
+This is called **speculative execution**. Speculative results are held back and only made permanent once the branch is confirmed, so a wrong guess never changes what the program computes. It only costs time.
+
+Whether the bet pays off depends entirely on how often the guesses are right.
+
+## Why prediction is possible at all
+
+Branches are not random. Most are heavily biased.
+
+- The branch at the bottom of a loop that runs a thousand times is taken 999 times and not taken once.
+- A check for an error is almost never taken.
+- A null check on a pointer that is never null always goes the same way.
+
+The simplest rule, "predict that it will do what it did last time", already works well.
+
+## Simple predictors
+
+A predictor keeps a small table indexed by the address of the branch instruction, recording something about how that branch has behaved.
+
+### One bit: remember the last outcome
+
+Store one bit per branch: taken or not taken last time. Predict the same again.
+
+This fails twice on every loop. It mispredicts when the loop finally exits, which flips the bit. Then it mispredicts again the next time the loop starts, because it remembers the exit.
+
+### Two bits: require two surprises
+
+Use a counter with four states instead.
+
+| State | Predicts |
+| --- | --- |
+| 3: strongly taken | taken |
+| 2: weakly taken | taken |
+| 1: weakly not taken | not taken |
+| 0: strongly not taken | not taken |
+
+Each taken branch moves the counter up one, and each not-taken branch moves it down one, stopping at the ends. A single surprise only moves it from "strongly" to "weakly", without changing the prediction. It takes two in a row to change its mind.
+
+<BranchDemo />
+
+`T` means the branch was taken and `N` means not taken. Each mark shows whether that prediction was right.
+
+Things to try:
+
+- **A loop.** The pattern is seven iterations then an exit, three times over. The 1-bit predictor is wrong twice per loop. The 2-bit predictor is wrong once per loop, plus one extra miss at the very start while it warms up.
+- **Mostly taken.** An occasional `N` costs the 1-bit predictor two mistakes each time, and the 2-bit predictor one.
+- **Alternating.** Both predictors are wrong *every single time*. Each one keeps predicting what just happened, which is exactly what will not happen next. A perfectly regular pattern defeats them completely.
+- Type your own pattern.
+
+## Modern predictors
+
+The alternating pattern points at what is missing: **history**. The outcome is completely predictable if you look at the previous one.
+
+Real predictors record the outcomes of the last several branches as a string of bits, and use that history, together with the branch's address, to choose a counter. A branch that alternates then has two counters, one for "last time taken" and one for "last time not taken", and each is right every time.
+
+Taking this much further, current processors:
+
+- combine several predictors using different lengths of history, and learn which to trust for each branch;
+- use **global** history, since the outcome of one branch often predicts another (two `if` statements testing related conditions);
+- predict not only *whether* a branch is taken but *where it goes*, for function returns and for indirect jumps such as virtual method calls;
+- keep a dedicated stack of return addresses, which makes function returns almost perfectly predictable.
+
+The result is accuracy typically above 95%, and often above 99%, on real programs. A substantial part of a processor's chip area and design effort is spent on this.
+
+## What it means for your code
+
+Branch prediction is invisible until it fails. A branch that is right 99% of the time is nearly free. One that is effectively a coin flip costs, on average, half a misprediction every time it runs.
+
+### The famous example
+
+Sum the elements of an array that are at least 128, where the values are random bytes.
+
+```python
+for value in data:
+    if value >= 128:
+        total += value
+```
+
+In a compiled language, this loop can run several times faster if the array is **sorted first**. The work per element is identical. The difference is the branch.
+
+- **Unsorted:** the condition is true or false at random. The predictor is wrong about half the time.
+- **Sorted:** the condition is false for the whole first half and true for the whole second half. The predictor is wrong once.
+
+### Removing the branch
+
+When a branch cannot be predicted, the usual fix is to not have one. Many simple conditions can be computed as arithmetic.
+
+```c
+total += (value >= 128) ? value : 0;
+```
+
+A compiler can turn this into a **conditional move**, an instruction that selects between two values without jumping. Both options are computed, and one is chosen. That is slightly more work than a correctly predicted branch and far less than a mispredicted one. Compilers make this choice automatically where they can.
+
+Other practical points:
+
+- **Put the common case first** and keep rare paths, such as error handling, out of the way.
+- **Avoid data-dependent branches in inner loops** over unpredictable data.
+- **Measure.** Tools such as `perf` on Linux report the number of branch mispredictions directly.
+
+## The security side
+
+In 2018, researchers disclosed **Spectre**, a family of attacks on speculative execution itself.
+
+The assumption had been that wrongly speculated work leaves no trace, because its results are discarded. But it does leave a trace: the speculative instructions may load data into the [cache](/architecture/cpu-caches/), and the cache is not rolled back. By carefully timing later memory accesses, an attacker can work out which data was loaded.
+
+An attacker can therefore train the predictor to guess wrongly, causing the processor to speculatively read memory it should not, and then recover that secret through timing. It affected nearly every modern processor, could not be fixed by a simple update, and its mitigations cost measurable performance. It was a stark demonstration that an optimisation invisible to correct programs can still leak information.
+
+## Key takeaways
+
+- A processor predicts each conditional branch and executes speculatively down the predicted path.
+- A correct prediction is free; a wrong one discards 15 to 20 cycles of work.
+- A 2-bit counter needs two surprises to change its prediction, which handles loops well.
+- Modern predictors use the history of recent branches and exceed 95% accuracy.
+- Branches on unpredictable data are slow. Sorting the data, or replacing the branch with arithmetic, can make a large difference.
