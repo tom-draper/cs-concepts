@@ -1,0 +1,159 @@
+---
+description: The code behind malloc and new. An allocator takes large regions of memory from the operating system and carves them up to satisfy a stream of requests of every size.
+difficulty: advanced
+---
+
+When a program creates an object, a string or a list, the memory comes from the [heap](/foundations/stack-and-heap/). But the operating system only hands out memory in whole [pages](/operating-systems/paging/) of 4 KB, through a relatively slow [system call](/operating-systems/system-calls/). A program asking for 24 bytes, millions of times, needs something in between.
+
+That something is a **memory allocator**: a library that obtains big regions from the operating system and divides them up. It sits underneath `malloc` in C, `new` in C++ and Java, and every object creation in Python or JavaScript.
+
+## The job
+
+An allocator has two operations.
+
+- **Allocate** a block of at least n bytes and return its address.
+- **Free** a block that is no longer needed, so the space can be reused.
+
+The difficulty is that it has no control over the requests. They arrive in any order, in any size, and blocks are freed in an order unrelated to how they were allocated. And once it has handed out an address, the block **cannot be moved**, because the program holds pointers to it.
+
+A good allocator must be:
+
+- **fast**, since programs may allocate millions of times a second;
+- **economical**, wasting little memory;
+- **scalable** across many [threads](/operating-systems/threads/).
+
+These aims conflict, and allocator design is the art of trading between them.
+
+## Fragmentation
+
+The central enemy is **fragmentation**: memory that is free but unusable.
+
+<AllocatorDemo />
+
+Things to try:
+
+- Allocate several blocks of different sizes, then click some in the middle to free them. Gaps appear.
+- Press **Fragment it**. Half of the heap is free, in pieces of 4. Now ask for 5 or 8 units. The request **fails**, although there are 16 units free.
+- Free two neighbouring blocks. Their gaps merge into one larger gap.
+- Switch between **first fit** and **best fit** and see where new blocks land.
+
+That failed request is **external fragmentation**: enough free memory in total, but not in one piece.
+
+There is a second kind. Allocators generally round requests up to a convenient size, so a request for 17 bytes may be given 32. The unused 15 bytes are **internal fragmentation**: wasted space inside an allocated block.
+
+| | External fragmentation | Internal fragmentation |
+| --- | --- | --- |
+| Where the waste is | between blocks | inside blocks |
+| Cause | free space split into small gaps | rounding requests up |
+| Reduced by | merging neighbours, grouping by size | finer size classes |
+
+## Free lists
+
+The classic way to keep track of free memory is a **free list**: a [linked list](/data-structures/linked-lists/) of the gaps. A neat trick makes this cost nothing. A free block is, by definition, unused, so the allocator stores the list's pointers **inside the free blocks themselves**.
+
+Each block also has a small **header** just before it, recording its size. That is how `free` knows how much to release when given only an address.
+
+### Choosing a gap
+
+When there are several gaps large enough, which should be used?
+
+| Policy | Rule | Character |
+| --- | --- | --- |
+| **First fit** | the first gap that is big enough | fast; tends to leave small leftovers near the start |
+| **Best fit** | the smallest gap that is big enough | wastes least per allocation, but slower, and leaves tiny unusable slivers |
+| **Worst fit** | the largest gap | leaves big leftovers; generally performs badly |
+
+If the chosen gap is larger than needed, it is **split**, and the remainder goes back on the list.
+
+### Merging
+
+When a block is freed, the allocator checks whether its neighbours are free too, and if so joins them into one larger block. This is **coalescing**. Without it, memory would break into ever smaller pieces that could never again satisfy a large request.
+
+## Size classes
+
+Searching a list for every allocation is too slow for modern use. The dominant technique today is **segregated storage**.
+
+The allocator rounds each request up to one of a fixed set of **size classes**, such as 16, 32, 48, 64, 96 and 128 bytes. For each class it keeps a separate pool, made of whole pages cut into equal-sized slots.
+
+- **Allocating** is taking the first free slot from the right pool. O(1), with no searching.
+- **Freeing** is putting the slot back. O(1).
+- **External fragmentation** within a pool cannot happen, since every slot is the same size and any free one will do.
+
+The price is internal fragmentation, from rounding up, which careful choice of size classes keeps to around 10 to 20 percent.
+
+Very large requests bypass all this and are obtained straight from the operating system as their own regions of pages.
+
+## Many threads
+
+A single allocator shared by every thread needs a [lock](/concurrency/mutexes/), and on a many-core machine all the threads would queue for it.
+
+Modern allocators give **each thread its own cache** of free slots. Most allocations and frees are served from the thread's own cache with no locking at all. Only when a cache runs dry, or overflows, does the thread visit a shared pool.
+
+This is what distinguishes allocators such as jemalloc, tcmalloc and mimalloc, which are widely substituted for the system default in servers and browsers.
+
+## Simpler allocators for special cases
+
+When the pattern of use is known, a specialised allocator can be dramatically faster.
+
+### Arena allocation
+
+An **arena** (or bump allocator) is the simplest possible design. Take a large block and keep a pointer to the next free byte. To allocate, return that pointer and move it forward.
+
+```python
+class Arena:
+    def __init__(self, size):
+        self.memory = bytearray(size)
+        self.used = 0
+
+    def allocate(self, n):
+        start = self.used
+        self.used += n              # that is the entire allocation
+        return start
+
+    def reset(self):
+        self.used = 0               # frees everything at once
+```
+
+Allocation is a single addition. There is no fragmentation and no header per block. Individual blocks cannot be freed; instead the whole arena is released in one go.
+
+That is perfect when many objects share a lifetime: everything needed to handle one web request, compile one function, or draw one frame of a game. When the task ends, everything goes at once.
+
+### Pool allocation
+
+A **pool** hands out objects of one fixed size, keeping the free ones on a list. It is a single size class used directly, ideal for something created and destroyed constantly, such as network connection records.
+
+## Allocators and garbage collection
+
+In languages with [garbage collection](/languages/garbage-collection/), the program never frees memory. The runtime works out what is no longer reachable.
+
+This gives the allocator a freedom that `malloc` lacks: a garbage collector that knows where every pointer is can **move objects** and update the pointers to them. So it can periodically slide all the live objects together, eliminating fragmentation entirely. Between such compactions, allocation is as simple as an arena: bump a pointer.
+
+That is why allocating a small object in Java or Go is often faster than a call to `malloc` in C. The cost is paid elsewhere, in the collector.
+
+## What can go wrong
+
+In languages where the programmer frees memory by hand, mistakes are both easy and serious.
+
+| Bug | Result |
+| --- | --- |
+| **Leak**: never freeing | memory use grows until the program fails |
+| **Use after free** | reads or writes memory that may now belong to something else |
+| **Double free** | corrupts the allocator's own bookkeeping |
+| **Overflow**: writing past the end of a block | overwrites the next block, or its header |
+
+The last three corrupt memory silently, with the failure showing up later and somewhere else. They are also the raw material of many security exploits. Tools such as AddressSanitizer and Valgrind detect them by instrumenting every allocation and access.
+
+## Practical advice
+
+- **Allocation is not free.** In a hot loop, reusing a buffer instead of allocating a new one each time can make a large difference.
+- **Reserve capacity** when the size is known in advance. A [dynamic array](/data-structures/dynamic-arrays/) that grows gradually allocates and copies repeatedly.
+- **Fewer, larger allocations beat many small ones**, for both speed and [cache locality](/architecture/cache-locality/).
+- **A long-running program whose memory keeps growing** may have a leak, or may be suffering fragmentation. Trying a different allocator is sometimes a cheap fix.
+
+## Key takeaways
+
+- An allocator divides large regions from the operating system into the blocks a program asks for.
+- Fragmentation is free memory that cannot be used: external between blocks, internal inside them.
+- Free lists track gaps, with policies such as first fit and best fit, and merge neighbouring gaps when blocks are freed.
+- Modern allocators use size classes for O(1) allocation and per-thread caches to avoid locking.
+- Arenas and pools are far faster when objects share a lifetime or a size.
