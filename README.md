@@ -159,6 +159,9 @@ static `<Gates only={['xor', 'and']} />` and
 `<Pipeline instructions={['add', 'load']} cycle={3} />`. Their simulations are in
 `src/lib/hardware.ts`.
 
+The operating systems pages use `<SchedulerDemo />`, `<PagingDemo />`,
+`<PageReplacementDemo />` and `<AllocatorDemo />`, backed by `src/lib/os.ts`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
