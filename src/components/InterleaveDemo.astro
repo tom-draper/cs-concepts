@@ -1,0 +1,166 @@
+---
+// Two threads whose steps the reader interleaves by hand, to see lost updates,
+// locks, compare-and-swap retries and deadlock.
+import { outcomes, scenarios, type Op, type ScenarioName } from '../lib/concurrency';
+
+interface Props {
+  scenario?: ScenarioName;
+}
+
+const { scenario: name = 'race' } = Astro.props;
+const scenario = scenarios[name];
+const names = ['A', 'B'];
+const retrying = name === 'cas';
+
+const text = (op: Op) => {
+  switch (op.kind) {
+    case 'read':
+      return retrying ? 'seen = counter' : 'tmp = counter';
+    case 'add':
+      return retrying ? 'tmp = seen + 1' : 'tmp = tmp + 1';
+    case 'write':
+      return 'counter = tmp';
+    case 'cas':
+      return 'compare_and_swap(counter, seen, tmp)';
+    case 'lock':
+      return `${op.lock}.lock()`;
+    case 'unlock':
+      return `${op.lock}.unlock()`;
+  }
+};
+
+const all = outcomes(scenario);
+const summary = scenario.counter
+  ? all.counters[2] === all.schedules
+    ? `The steps can run in ${all.schedules} different orders. Every one of them ends with the counter at 2.`
+    : `The steps can run in ${all.schedules} different orders. Only ${all.counters[2]} of them end with the counter at 2.`
+  : all.deadlocks
+    ? `The steps can run in ${all.schedules} different orders. ${all.deadlocks} of them end in deadlock.`
+    : `The steps can run in ${all.schedules} different orders. None of them deadlocks.`;
+---
+
+<interleave-demo class="playground interleave" data-scenario={name}>
+  <dl class="readouts" aria-live="polite">
+    {scenario.counter && <div><dt>Shared counter</dt><dd data-out="counter">0</dd></div>}
+    {scenario.locks.map((lock) => <div><dt>Lock {lock}</dt><dd data-lock={lock}>free</dd></div>)}
+  </dl>
+  <div class="threads">
+    {
+      scenario.programs.map((program, t) => (
+        <section data-thread={t}>
+          <h4>Thread {names[t]}</h4>
+          <ol>{program.map((op, i) => <li class={i === 0 ? 'now' : ''}><code>{text(op)}</code></li>)}</ol>
+          {scenario.counter && <p class="local" data-out="local">tmp is not set</p>}
+          <button type="button" data-step={t}>Run {names[t]}'s next step</button>
+        </section>
+      ))
+    }
+  </div>
+  <p class="tries">
+    Try:
+    <button type="button" data-run="turn">One after the other</button>
+    <button type="button" data-run="alternate">Taking turns</button>
+    <button type="button" data-run="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Choose which thread runs next.</p>
+  <p class="hint">{summary}</p>
+</interleave-demo>
+
+<script>
+  import {
+    allFinished,
+    canStep,
+    deadlocked,
+    finished,
+    scenarios,
+    start,
+    step,
+    waitingFor,
+    type ScenarioName,
+  } from '../lib/concurrency';
+
+  const names = ['A', 'B'];
+
+  class InterleaveDemo extends HTMLElement {
+    connectedCallback() {
+      const scenario = scenarios[this.dataset.scenario as ScenarioName];
+      let state = start(scenario);
+      const status = this.querySelector('[data-out="status"]')!;
+
+      const verdict = () => {
+        if (deadlocked(scenario, state)) {
+          const stuck = state.threads.map((_, t) => {
+            const wants = waitingFor(scenario, state, t);
+            const holds = scenario.locks.filter((lock) => state.owner[lock] === t);
+            return `${names[t]} holds ${holds.join(' and ')} and waits for ${wants}`;
+          });
+          return `Deadlock. ${stuck.join('. ')}. Neither can ever move again.`;
+        }
+        if (!allFinished(scenario, state)) return 'Choose which thread runs next.';
+        if (!scenario.counter) return 'Both threads finished. No deadlock this time.';
+        const retries = state.threads.reduce((n, thread) => n + thread.retries, 0);
+        if (state.counter === 2) {
+          return retries
+            ? 'Both increments were counted. One compare-and-swap failed, and that thread started again with the fresh value.'
+            : 'Both increments were counted.';
+        }
+        return `Two increments ran and the counter is ${state.counter}. One update was lost.`;
+      };
+
+      const render = () => {
+        const counter = this.querySelector('[data-out="counter"]');
+        if (counter) counter.textContent = String(state.counter);
+        for (const el of this.querySelectorAll<HTMLElement>('[data-lock]')) {
+          const owner = state.owner[el.dataset.lock!];
+          el.textContent = owner === null ? 'free' : `held by ${names[owner]}`;
+        }
+        for (const section of this.querySelectorAll<HTMLElement>('[data-thread]')) {
+          const t = Number(section.dataset.thread);
+          const thread = state.threads[t];
+          section.querySelectorAll('li').forEach((li, i) => {
+            li.className = i < thread.pc ? 'done' : i === thread.pc ? 'now' : '';
+          });
+          const local = section.querySelector('[data-out="local"]');
+          if (local) {
+            local.textContent =
+              thread.local === null
+                ? thread.retries
+                  ? 'The swap failed. Starting again.'
+                  : 'tmp is not set'
+                : `tmp = ${thread.local}`;
+          }
+          const button = section.querySelector('button')!;
+          const wants = waitingFor(scenario, state, t);
+          button.disabled = !canStep(scenario, state, t);
+          button.textContent = finished(scenario, state, t)
+            ? 'Finished'
+            : wants
+              ? `Blocked, waiting for ${wants}`
+              : `Run ${names[t]}'s next step`;
+        }
+        status.textContent = verdict();
+      };
+
+      const run = (order: 'turn' | 'alternate') => {
+        state = start(scenario);
+        let t = 0;
+        while (!allFinished(scenario, state) && !deadlocked(scenario, state)) {
+          if (canStep(scenario, state, t)) state = step(scenario, state, t);
+          if (order === 'alternate' || !canStep(scenario, state, t)) t = 1 - t;
+        }
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.step) state = step(scenario, state, Number(button.dataset.step));
+        if (button.dataset.run === 'reset') state = start(scenario);
+        if (button.dataset.run === 'turn' || button.dataset.run === 'alternate') run(button.dataset.run);
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('interleave-demo', InterleaveDemo);
+</script>

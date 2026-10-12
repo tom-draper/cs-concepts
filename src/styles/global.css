@@ -2297,3 +2297,183 @@ main {
 .unit.c3 { background: var(--series-5); }
 .unit.c4 { background: var(--series-6); }
 .unit.c5 { background: var(--text-2); }
+
+/* ---------- Concurrency widgets ---------- */
+
+.playground h4,
+.event-loop h4 {
+  margin: 0 0 0.35rem;
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.interleave .readouts {
+  margin-top: 0;
+}
+
+.interleave .threads {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem 1.5rem;
+  margin-top: 1rem;
+}
+
+.interleave ol,
+.loop-code {
+  margin: 0 0 0.6rem;
+  padding: 0;
+  list-style: none;
+}
+
+.interleave li,
+.loop-code li {
+  margin: 0;
+  padding: 0.2rem 0.5rem;
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.interleave li code,
+.loop-code li code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.interleave li.now,
+.loop-code li.now {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.interleave li.done {
+  opacity: 0.45;
+}
+
+.interleave .local {
+  margin: 0 0 0.6rem !important;
+  color: var(--text-2);
+  font: 0.82rem var(--mono);
+}
+
+.playground button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.workers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0 !important;
+}
+
+.playground .workers button {
+  flex-direction: column;
+  gap: 0;
+  width: 4.4rem;
+  height: 3.4rem;
+}
+
+.workers button b {
+  font: 700 1rem var(--mono);
+}
+
+.workers button small {
+  color: var(--text-2);
+  font-size: 0.7rem;
+}
+
+.workers button[data-state='in'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.workers button[data-state='waiting'] {
+  border-style: dashed;
+  border-color: var(--alt);
+  background: var(--alt-soft);
+}
+
+.channel,
+.loop-boxes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.8rem 1.2rem;
+  margin-top: 0.9rem;
+}
+
+.slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-height: 2rem;
+  margin: 0 !important;
+}
+
+.slots i {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent-soft);
+  font: 600 0.82rem/2rem var(--mono);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.slots i.empty {
+  border: 1px dashed var(--viz-stroke);
+  background: none;
+}
+
+.slots i.blocked {
+  border: 1px dashed var(--alt);
+  background: var(--alt-soft);
+}
+
+.slots i.none {
+  border-color: transparent;
+  background: none;
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.event-loop {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+}
+
+.loop-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+.loop-boxes {
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0;
+}
+
+/* The stack grows upwards, so the newest call is drawn on top. */
+.slots[data-out='stack'] {
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+}
+
+.slots.output i {
+  border-color: transparent;
+  background: var(--border);
+}
+
+.event-loop .frame-caption {
+  min-height: 4.5em;
+  margin: 0.9rem 0 0.5rem !important;
+}

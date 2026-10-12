@@ -1,0 +1,59 @@
+---
+// Steps a four-line JavaScript program through the call stack, the microtask
+// queue and the task queue.
+import Controls from './Controls.astro';
+import { loopProgram, loopTrace } from '../lib/concurrency';
+
+const first = loopTrace[0];
+---
+
+<event-loop class="player event-loop" tabindex="0" role="group" aria-label="Event loop step-through">
+  <div class="loop-layout">
+    <ol class="loop-code">
+      {loopProgram.map((line) => <li><code>{line}</code></li>)}
+    </ol>
+    <div class="loop-boxes">
+      <div><h4>Call stack</h4><p class="slots" data-out="stack">{first.stack.map((item) => <i>{item}</i>)}</p></div>
+      <div><h4>Microtask queue</h4><p class="slots" data-out="microtasks"></p></div>
+      <div><h4>Task queue</h4><p class="slots" data-out="tasks"></p></div>
+      <div><h4>Output</h4><p class="slots output" data-out="output"></p></div>
+    </div>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">{first.note}</p>
+  <Controls />
+</event-loop>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { loopTrace } from '../lib/concurrency';
+
+  class EventLoop extends HTMLElement {
+    connectedCallback() {
+      const lines = [...this.querySelectorAll('.loop-code li')];
+      const fill = (name: string, items: string[]) => {
+        this.querySelector(`[data-out="${name}"]`)!.replaceChildren(
+          ...items.map((item) => {
+            const el = document.createElement('i');
+            el.textContent = item;
+            return el;
+          }),
+        );
+      };
+      attachStepper(this, {
+        count: () => loopTrace.length,
+        interval: 2200,
+        render: (index) => {
+          const frame = loopTrace[index];
+          lines.forEach((line, i) => line.classList.toggle('now', i === frame.line));
+          fill('stack', frame.stack);
+          fill('microtasks', frame.microtasks);
+          fill('tasks', frame.tasks);
+          fill('output', frame.output);
+          this.querySelector('[data-out="note"]')!.textContent = frame.note;
+        },
+      });
+    }
+  }
+
+  customElements.define('event-loop', EventLoop);
+</script>
