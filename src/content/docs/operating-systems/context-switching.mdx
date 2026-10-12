@@ -1,0 +1,106 @@
+---
+description: How the operating system stops one process and starts another on the same processor, saving and restoring enough state that neither one notices.
+difficulty: intermediate
+---
+
+A computer runs far more [processes](/operating-systems/processes/) and [threads](/operating-systems/threads/) than it has processor cores. It manages this by running each for a short time and then switching to another, quickly enough that they all seem to run at once.
+
+The act of switching is a **context switch**. The operating system saves everything about the running task that it will need to resume it later, and loads the saved state of another.
+
+## What has to be saved
+
+A running program's state lives in the processor's [registers](/architecture/flip-flops-and-registers/). To pause it without it noticing, the kernel must preserve:
+
+- the **program counter**, so it knows where to continue;
+- the **stack pointer**, locating the task's [stack](/foundations/stack-and-heap/);
+- all the **general-purpose registers**, which hold its intermediate values;
+- the **status flags**;
+- any floating-point and [SIMD](/architecture/simd/) registers in use, which can be several kilobytes.
+
+The task's memory does not need saving. It simply stays where it is until the task runs again.
+
+## The steps
+
+<Steps>
+<Step title="Something hands control to the kernel">
+
+A timer [interrupt](/operating-systems/interrupts/) fires, or the running task makes a [system call](/operating-systems/system-calls/). The processor switches to kernel mode and starts running kernel code.
+
+</Step>
+<Step title="The kernel saves the outgoing task's registers">
+
+They are stored in that task's entry in the kernel's tables, the [process control block](/operating-systems/processes/#what-a-process-is-made-of).
+
+</Step>
+<Step title="The scheduler picks the next task">
+
+It chooses from the tasks that are ready to run. See [CPU scheduling](/operating-systems/cpu-scheduling/).
+
+</Step>
+<Step title="If the new task belongs to a different process, the address space is switched">
+
+The processor is told to use the new process's page tables, so that the same virtual addresses now refer to that process's memory. See [virtual memory](/operating-systems/virtual-memory/).
+
+</Step>
+<Step title="The kernel restores the incoming task's registers and returns to user mode">
+
+The last register restored is the program counter. The task carries on from exactly where it was interrupted, as though nothing had happened.
+
+</Step>
+</Steps>
+
+## When it happens
+
+**Involuntary switches.** The kernel programs a hardware timer to interrupt many times a second. Each time, it can decide that the running task has had its turn. Taking the processor away like this is called **preemption**, and it is what stops one program from hogging the machine.
+
+**Voluntary switches.** A task asks for something it has to wait for, such as reading from a disk or acquiring a lock that is held. There is no point keeping it on the processor, so the kernel switches to something else straight away.
+
+Early personal computer systems used *cooperative* multitasking, in which a program ran until it chose to give up the processor. One misbehaving program could freeze the whole machine. Every general-purpose operating system now uses preemption.
+
+## What it costs
+
+A context switch has two kinds of cost.
+
+### The direct cost
+
+Entering the kernel, saving and restoring registers, and running the scheduler takes on the order of a microsecond. That is thousands of processor cycles, but small in everyday terms.
+
+### The indirect cost
+
+This is usually much larger, and harder to see. The processor has several caches tuned to whatever has been running recently, and a new task finds them full of the wrong things.
+
+- The **[CPU caches](/architecture/cpu-caches/)** hold the previous task's data. The new task starts with a run of cache misses while its own data is loaded.
+- The **TLB**, a small cache of address translations, is largely or wholly invalid after a switch to a different process. See [paging](/operating-systems/paging/#the-tlb).
+- The **[branch predictor](/architecture/branch-prediction/)** has learned the previous task's patterns.
+
+The task runs slowly until these have warmed up again. For a program that depends heavily on cached data, that slowdown can cost far more than the switch itself.
+
+### Threads are cheaper than processes
+
+Switching between two threads of the **same** process skips the fourth step. The address space does not change, so the TLB stays valid and shared data may still be in the cache. This is one of the main reasons threads are considered lighter than processes.
+
+Switching between **user-level** tasks, such as goroutines or async tasks, is cheaper again. It happens inside the program without entering the kernel at all, and saves only a few registers. That takes tens of nanoseconds, which is why a program can afford to have hundreds of thousands of them.
+
+| Switch between | Rough cost | Why |
+| --- | --- | --- |
+| Async tasks or green threads | tens of nanoseconds | no kernel involved |
+| Threads of one process | around a microsecond | kernel entry, registers |
+| Different processes | a microsecond or more, plus cache effects | also a new address space |
+
+## Why it matters
+
+**Too many busy threads is slower, not faster.** With more runnable threads than cores, the extra ones do not get any more work done. They only add switching. A program with a thousand threads all competing for eight cores can spend a serious share of its time switching between them and refilling caches. This is why thread pools are sized to roughly the number of cores for computational work.
+
+**Switching limits how responsive a system can be.** The scheduler has to balance two aims. Switching often makes the system feel responsive, because no task waits long for a turn. Switching rarely wastes less time on overhead. See [CPU scheduling](/operating-systems/cpu-scheduling/).
+
+**It drives the design of high-performance servers.** Handling each connection in its own thread means a context switch whenever a connection has to wait. Servers built to handle very large numbers of connections avoid this, using [non-blocking I/O](/operating-systems/blocking-and-non-blocking-io/) and an [event loop](/concurrency/event-loops/) so that a few threads serve everything.
+
+You can watch this on a running system. On Linux, `vmstat 1` shows context switches per second for the whole machine, and `pidstat -w` shows them per process, split into voluntary and involuntary.
+
+## Key takeaways
+
+- A context switch saves the registers of the running task and restores those of another, so that each resumes exactly where it stopped.
+- It is triggered by a timer interrupt (preemption) or by the task waiting for something.
+- The direct cost is about a microsecond. The indirect cost, from cold caches, is often larger.
+- Switching between threads of one process is cheaper than between processes, and switching between user-level tasks is cheaper still.
+- Having many more runnable threads than cores wastes time on switching.
