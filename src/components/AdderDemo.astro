@@ -1,0 +1,76 @@
+---
+// Two 4-bit numbers you can edit, added bit by bit with the carries shown.
+import { rippleAdd } from '../lib/hardware';
+
+const a = 0b1011;
+const b = 0b0110;
+const { sum, carries } = rippleAdd(a, b);
+const bit = (value: number, i: number) => (value >> i) & 1;
+const places = [3, 2, 1, 0];
+---
+
+<adder-demo class="playground adder-demo" data-a={a} data-b={b}>
+  <div class="adder-grid">
+    <span class="row-name">Carry</span>
+    <div class="bit-row" data-row="carry">
+      {[4, 3, 2, 1].map((i) => <span class="bit carry" data-on={carries[i] ? '' : undefined}><b>{carries[i]}</b></span>)}
+      <span class="bit spacer"></span>
+    </div>
+    <span class="row-value"></span>
+
+    <span class="row-name">A</span>
+    <div class="bit-row" data-row="a">
+      <span class="bit spacer"></span>
+      {places.map((i) => <button type="button" class="bit" data-weight={2 ** i} aria-pressed={bit(a, i) ? 'true' : 'false'}><b>{bit(a, i)}</b></button>)}
+    </div>
+    <span class="row-value" data-out="a">{a}</span>
+
+    <span class="row-name">B</span>
+    <div class="bit-row" data-row="b">
+      <span class="bit spacer"></span>
+      {places.map((i) => <button type="button" class="bit" data-weight={2 ** i} aria-pressed={bit(b, i) ? 'true' : 'false'}><b>{bit(b, i)}</b></button>)}
+    </div>
+    <span class="row-value" data-out="b">{b}</span>
+
+    <span class="row-name">Sum</span>
+    <div class="bit-row total" data-row="sum">
+      {[4, 3, 2, 1, 0].map((i) => {
+        const value = i === 4 ? carries[4] : bit(sum, i);
+        return <span class="bit" data-on={value ? '' : undefined}><b>{value}</b></span>;
+      })}
+    </div>
+    <span class="row-value" data-out="sum">{a + b}</span>
+  </div>
+</adder-demo>
+
+<script>
+  import { rippleAdd } from '../lib/hardware';
+
+  class AdderDemo extends HTMLElement {
+    connectedCallback() {
+      const values: Record<string, number> = { a: Number(this.dataset.a), b: Number(this.dataset.b) };
+      const cells = (row: string) => [...this.querySelectorAll<HTMLElement>(`[data-row="${row}"] .bit:not(.spacer)`)];
+      const set = (cell: HTMLElement, on: number) => {
+        cell.querySelector('b')!.textContent = String(on);
+        if (cell.tagName === 'BUTTON') cell.setAttribute('aria-pressed', String(on === 1));
+        else cell.toggleAttribute('data-on', on === 1);
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        const row = button.closest<HTMLElement>('[data-row]')!.dataset.row!;
+        values[row] ^= Number(button.dataset.weight);
+        const { sum, carries } = rippleAdd(values.a, values.b);
+        for (const row of ['a', 'b']) {
+          cells(row).forEach((cell, n) => set(cell, (values[row] >> (3 - n)) & 1));
+          this.querySelector(`[data-out="${row}"]`)!.textContent = String(values[row]);
+        }
+        cells('carry').forEach((cell, n) => set(cell, carries[4 - n]));
+        cells('sum').forEach((cell, n) => set(cell, n === 0 ? carries[4] : (sum >> (4 - n)) & 1));
+        this.querySelector('[data-out="sum"]')!.textContent = String(values.a + values.b);
+      });
+    }
+  }
+
+  customElements.define('adder-demo', AdderDemo);
+</script>

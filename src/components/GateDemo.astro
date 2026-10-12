@@ -1,0 +1,54 @@
+---
+// One logic gate with inputs you can flip. Choose the gate and watch the output.
+import { gates, gateSvg, type Gate } from '../lib/hardware';
+
+const names = Object.keys(gates) as Gate[];
+---
+
+<gate-demo class="playground gate-demo">
+  <p class="tries" role="group" aria-label="Gate">
+    {names.map((gate, i) => <button type="button" data-gate={gate} aria-pressed={i === 0 ? 'true' : 'false'}>{gates[gate].name}</button>)}
+  </p>
+  <div class="gate-stage">
+    <div class="gate-inputs">
+      <button type="button" data-input="a" aria-pressed="true">A = <b>1</b></button>
+      <button type="button" data-input="b" aria-pressed="false">B = <b>0</b></button>
+    </div>
+    <svg class="viz-svg gate" viewBox="0 0 110 40" width="275" height="100" aria-hidden="true" set:html={gateSvg('and', true, false)} />
+    <p class="gate-output" aria-live="polite">Output = <b data-out="value">0</b></p>
+  </div>
+</gate-demo>
+
+<script>
+  import { gates, gateSvg, type Gate } from '../lib/hardware';
+
+  class GateDemo extends HTMLElement {
+    connectedCallback() {
+      let gate: Gate = 'and';
+      const state: Record<string, boolean> = { a: true, b: false };
+      const svg = this.querySelector('svg')!;
+      const render = () => {
+        svg.innerHTML = gateSvg(gate, state.a, state.b);
+        this.querySelector('[data-out="value"]')!.textContent = gates[gate].f(state.a, state.b) ? '1' : '0';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-gate]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.gate === gate));
+        }
+        for (const button of this.querySelectorAll<HTMLElement>('[data-input]')) {
+          const key = button.dataset.input!;
+          button.setAttribute('aria-pressed', String(state[key]));
+          button.querySelector('b')!.textContent = state[key] ? '1' : '0';
+          button.hidden = key === 'b' && gates[gate].inputs === 1;
+        }
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.gate) gate = button.dataset.gate as Gate;
+        if (button.dataset.input) state[button.dataset.input] = !state[button.dataset.input];
+        render();
+      });
+    }
+  }
+
+  customElements.define('gate-demo', GateDemo);
+</script>
