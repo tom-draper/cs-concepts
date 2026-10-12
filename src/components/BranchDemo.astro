@@ -1,0 +1,72 @@
+---
+// Feed a pattern of taken / not-taken branches to two simple predictors and compare them.
+import { predictBranches } from '../lib/hardware';
+
+const presets: [string, string][] = [
+  ['A loop', 'TTTTTTTN'.repeat(3)],
+  ['Mostly taken', 'TTTTNTTTTNTTTT'],
+  ['Alternating', 'TN'.repeat(8)],
+  ['Always taken', 'T'.repeat(12)],
+];
+const initial = presets[0][1];
+const runs = { 1: predictBranches(initial, 1), 2: predictBranches(initial, 2) };
+---
+
+<branch-demo class="playground branch-demo">
+  <label>
+    <span>History</span>
+    <input type="text" value={initial} maxlength="40" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries">
+    Try:
+    {presets.map(([name, pattern]) => <button type="button" data-key={pattern}>{name}</button>)}
+  </p>
+  {
+    ([1, 2] as const).map((bits) => (
+      <div class="branch-row" data-bits={bits}>
+        <div class="hash-meta">
+          <span class="hash-name">{bits}-bit predictor</span>
+          <code class="hash-value">{Math.round(runs[bits].accuracy * 100)}% right</code>
+        </div>
+        <div class="marks" aria-hidden="true">
+          {runs[bits].correct.map((ok) => <i class={ok ? 'ok' : 'miss'}>{ok ? '✓' : '✗'}</i>)}
+        </div>
+      </div>
+    ))
+  }
+</branch-demo>
+
+<script>
+  import { predictBranches } from '../lib/hardware';
+
+  class BranchDemo extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const update = () => {
+        // T for taken, N for not taken; anything else is ignored.
+        const history = input.value.toUpperCase().replace(/[^TN]/g, '');
+        for (const row of this.querySelectorAll<HTMLElement>('.branch-row')) {
+          const run = predictBranches(history, Number(row.dataset.bits) as 1 | 2);
+          row.querySelector('.hash-value')!.textContent = `${Math.round(run.accuracy * 100)}% right`;
+          row.querySelector('.marks')!.replaceChildren(
+            ...run.correct.map((ok) => {
+              const mark = document.createElement('i');
+              mark.className = ok ? 'ok' : 'miss';
+              mark.textContent = ok ? '✓' : '✗';
+              return mark;
+            }),
+          );
+        }
+      };
+      input.addEventListener('input', update);
+      this.addEventListener('click', (event) => {
+        const key = (event.target as HTMLElement).closest('button')?.dataset.key;
+        if (key === undefined) return;
+        input.value = key;
+        update();
+      });
+    }
+  }
+
+  customElements.define('branch-demo', BranchDemo);
+</script>

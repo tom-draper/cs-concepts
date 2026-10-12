@@ -1,0 +1,62 @@
+---
+// A one-register computer running a short program, one phase of the cycle at a time.
+import Controls from './Controls.astro';
+import { dataNames, dataStart, program, runCpu, show } from '../lib/hardware';
+
+const first = runCpu()[0];
+---
+
+<cpu-demo class="cpu-demo" tabindex="0" role="group" aria-label="A simple processor, step by step">
+  <div class="cpu-layout">
+    <table class="cpu-memory">
+      <thead><tr><th>Address</th><th>Contents</th><th></th></tr></thead>
+      <tbody>
+        {program.map((instruction, address) => <tr data-address={address}><td>{address}</td><td>{show(instruction)}</td><td></td></tr>)}
+        {first.memory.map((value, i) => <tr data-address={dataStart + i} class={i === 0 ? "data first" : "data"}><td>{dataStart + i}</td><td data-cell={i}>{value}</td><td>{dataNames[i]}</td></tr>)}
+      </tbody>
+    </table>
+    <dl class="cpu-registers">
+      <div><dt>Program counter</dt><dd data-out="pc">{first.pc}</dd></div>
+      <div><dt>Instruction register</dt><dd data-out="ir">empty</dd></div>
+      <div><dt>Accumulator</dt><dd data-out="acc">{first.acc}</dd></div>
+      <div><dt>Phase</dt><dd data-out="phase">{first.phase}</dd></div>
+    </dl>
+  </div>
+  <p class="sort-note" aria-live="polite">{first.note}</p>
+  <Controls />
+</cpu-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { dataStart, runCpu } from '../lib/hardware';
+
+  class CpuDemo extends HTMLElement {
+    connectedCallback() {
+      const steps = runCpu();
+      const rows = [...this.querySelectorAll<HTMLElement>('[data-address]')];
+      const cells = [...this.querySelectorAll<HTMLElement>('[data-cell]')];
+      const out = (name: string, text: string | number) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = String(text));
+      attachStepper(this, {
+        interval: 900,
+        count: () => steps.length,
+        render: (index) => {
+          const step = steps[index];
+          for (const row of rows) {
+            const address = Number(row.dataset.address);
+            row.classList.toggle('next', address === step.pc && address < dataStart);
+            row.classList.toggle('touched', address === step.touched);
+          }
+          cells.forEach((cell, i) => (cell.textContent = String(step.memory[i])));
+          out('pc', step.pc);
+          out('ir', step.ir || 'empty');
+          out('acc', step.acc);
+          out('phase', step.phase);
+          this.querySelector('.sort-note')!.textContent = step.note;
+        },
+      });
+    }
+  }
+
+  customElements.define('cpu-demo', CpuDemo);
+</script>
