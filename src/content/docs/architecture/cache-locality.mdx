@@ -1,0 +1,137 @@
+---
+description: Arranging data and the order you visit it so that the processor's caches can keep up. It routinely makes a bigger difference to speed than the choice of algorithm.
+difficulty: advanced
+---
+
+Two programs can execute exactly the same number of instructions and differ in speed by a factor of ten. The cause is nearly always memory. A value already in the [CPU cache](/architecture/cpu-caches/) costs about a nanosecond to read. One that has to come from main memory costs about a hundred.
+
+**Locality** is the property of a program that makes caching effective. Code with good locality keeps its memory accesses close together, in time and in space, so that most of them are cache hits.
+
+## A demonstration
+
+Add up every element of a large two-dimensional array. There are two obvious ways to write the loops.
+
+```c
+// Version A: along each row
+for (int row = 0; row < N; row++)
+    for (int col = 0; col < N; col++)
+        total += grid[row][col];
+
+// Version B: down each column
+for (int col = 0; col < N; col++)
+    for (int row = 0; row < N; row++)
+        total += grid[row][col];
+```
+
+Both visit every element exactly once. Both are O(N²). For a large grid, version A is typically several times faster, and sometimes more than ten times.
+
+### Why
+
+A two-dimensional array is stored in memory as one long line, **row after row**. This is called *row-major order*.
+
+<ArrayViz
+  values={['0,0', '0,1', '0,2', '0,3', '1,0', '1,1', '1,2', '1,3']}
+  highlight={[0, 1, 2, 3]}
+  alt={[4, 5, 6, 7]}
+  indices={false}
+  caption="A grid in memory. All of row 0 comes first, then all of row 1."
+/>
+
+**Version A** walks straight along that line. Each cache miss loads 64 bytes, which is the next 16 integers. The following 15 accesses are hits. The hardware prefetcher also sees the steady pattern and loads the next lines ahead of time.
+
+**Version B** reads one element, then jumps a whole row's width ahead to reach the element below it. When a row is wider than a cache line, every access lands on a different line. When the grid is larger than the cache, every access is a miss.
+
+<Steps>
+<Step title="Along the rows: consecutive addresses">
+
+<ArrayViz values={['0,0', '0,1', '0,2', '0,3', '1,0', '1,1', '1,2', '1,3']} pointers={{ '1st': 0, '2nd': 1, '3rd': 2, '4th': 3 }} highlight={[0, 1, 2, 3]} indices={false} />
+
+</Step>
+<Step title="Down the columns: jumping back and forth">
+
+<ArrayViz values={['0,0', '0,1', '0,2', '0,3', '1,0', '1,1', '1,2', '1,3']} pointers={{ '1st': 0, '2nd': 4, '3rd': 1, '4th': 5 }} alt={[0, 4, 1, 5]} indices={false} />
+
+</Step>
+</Steps>
+
+Not every language uses the same order. C, C++, Rust, Java and NumPy store arrays row by row. Fortran, MATLAB and R store them **column by column**, so there the fast loop order is the other way round.
+
+## The two kinds of locality
+
+**Spatial locality** means using data that sits near data you have just used. The row-by-row loop has it; the column-by-column loop does not.
+
+**Temporal locality** means reusing the same data soon, while it is still in the cache.
+
+Good performance comes from having both: work through memory in order, and finish with a piece of data before moving on.
+
+## Choosing data structures
+
+Locality explains why the simplest structures so often win.
+
+| Structure | Memory layout | Locality |
+| --- | --- | --- |
+| [Array](/data-structures/arrays/), [dynamic array](/data-structures/dynamic-arrays/) | one contiguous block | excellent |
+| [Hash table](/data-structures/hash-tables/) with open addressing | one contiguous block | good |
+| [B-tree](/data-structures/b-trees/) | many keys packed in each node | good |
+| [Linked list](/data-structures/linked-lists/) | one allocation per node, anywhere | poor |
+| [Binary tree](/data-structures/binary-search-trees/) | one allocation per node, anywhere | poor |
+| Hash table with chaining | a chain of scattered nodes per bucket | poor |
+
+Walking a linked list means following a pointer to an unpredictable address at every step. Each step may be a miss, and the processor cannot prefetch, because it does not know the next address until the current node has arrived. This is called **pointer chasing**, and it is the most common cause of poor locality.
+
+That is why an array usually beats a linked list even for operations where the list has the better Big-O. Inserting into the middle of an array of a few thousand elements means shifting them, but shifting contiguous memory is something hardware does extremely quickly. Finding the insertion point in a linked list means chasing pointers.
+
+## Techniques
+
+### Keep data contiguous
+
+Prefer arrays of values to arrays of pointers to separately allocated objects. In languages where every object is a separate heap allocation, an array of a million objects is a million scattered blocks, and looping over it chases a million pointers.
+
+### Separate hot data from cold
+
+If a loop reads only one field of each record, the other fields are dead weight, pulled into the cache and never used.
+
+| Layout | Cache line contains |
+| --- | --- |
+| Array of structs | one or two whole records, mostly fields the loop ignores |
+| Struct of arrays | sixteen consecutive values of the one field the loop wants |
+
+Storing each field in its own array, or at least moving rarely used fields elsewhere, can speed up such a loop several times over. See [memory layout and alignment](/foundations/memory-layout-and-alignment/#layout-and-the-cache). Column-oriented databases are built entirely around this idea.
+
+### Make the data smaller
+
+More items per cache line means fewer misses. Use a 32-bit integer where the values fit in one. Use an index into an array instead of a 64-bit pointer. [Order struct fields](/foundations/memory-layout-and-alignment/#reordering-to-save-space) to remove padding.
+
+### Work in blocks
+
+When an algorithm has to sweep over a large dataset several times, do all the work on one cache-sized piece before moving to the next. For multiplying large matrices, processing them in small square blocks instead of whole rows and columns gives a large speed-up, because each block stays in the cache while it is being used.
+
+### Access memory predictably
+
+A sequential scan, or any steady stride, is recognised by the prefetcher. Random access is not. Sorting a list of lookups before performing them can turn random access into something close to sequential.
+
+## Algorithms designed for the cache
+
+Some algorithms are shaped by these concerns from the start.
+
+- **[B-trees](/data-structures/b-trees/)** put many keys in each node so that one fetch, whether from disk or from memory, does as much work as possible.
+- **[Quicksort](/algorithms/quicksort/)** partitions by sweeping through contiguous memory, which is a major reason it outruns [heapsort](/algorithms/heapsort/), whose accesses jump around the array.
+- **[Merge sort](/algorithms/merge-sort/)** reads and writes strictly in order, which is why it is the basis of sorting data too large for memory.
+- **Open-addressed hash tables** keep everything in one array and probe neighbouring slots, so a lookup usually touches one or two cache lines.
+
+## Measure before changing anything
+
+Cache behaviour is hard to predict by reading code. Measure.
+
+- On Linux, `perf stat` reports cache misses for a whole program run, and `perf record` shows where they occur.
+- **Benchmark with realistic sizes.** A layout problem is invisible on a test dataset that fits in L1 and dominant on production data that does not.
+
+A reasonable order of priorities: first choose an algorithm with the right Big-O, then choose data structures with good locality, and only then consider anything more intricate.
+
+## Key takeaways
+
+- Memory access cost varies a hundredfold depending on whether the data is in cache.
+- Visiting memory in order (spatial locality) and reusing data promptly (temporal locality) keep accesses in cache.
+- Loop over a two-dimensional array in the order it is stored: row by row in most languages.
+- Contiguous structures such as arrays have good locality; pointer-linked structures do not.
+- Keep data compact and contiguous, separate hot fields from cold, and measure with real data sizes.
