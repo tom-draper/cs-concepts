@@ -1,0 +1,169 @@
+---
+title: Async/Await
+description: Async and await let a function pause at a slow operation and resume when the result is ready, without holding a thread while it waits. The code reads like ordinary sequential code and runs on an event loop.
+difficulty: intermediate
+---
+
+An [event loop](/concurrency/event-loops/) can serve thousands of connections on one thread, as long as nothing ever waits. The cost is code chopped into callbacks. **Async/await** keeps the efficiency and gives back the straightforward shape.
+
+```python
+async def show_orders(user_id):
+    user = await get_user(user_id)       # pause here until the user arrives
+    orders = await get_orders(user)      # and here until the orders arrive
+    return render(user, orders)
+```
+
+Three steps, in order, with ordinary variables, and an ordinary `try` would catch an error from any of them. Yet no thread sits idle while the network replies. At each `await`, the function steps aside and lets the loop run something else.
+
+## Two keywords
+
+**`async`** marks a function as one that can pause. Calling it does not run it. It returns an object that represents the work still to be done, called a **coroutine** in Python, a **promise** in JavaScript and a **future** in Rust.
+
+**`await`** is where the pausing happens. It means: "if this result is not ready, suspend this function, let the loop do other things, and resume me right here when it is".
+
+Everything between two awaits runs without interruption, exactly like a callback. An `await` is the only place where other code can get in.
+
+## A function that can pause
+
+An ordinary function runs from call to return in one go, and its local variables live on the [stack](/foundations/stack-and-heap/) for exactly that long. A function that can stop in the middle and continue later needs somewhere else to keep them.
+
+Python's generators show the mechanism in its plainest form.
+
+```python
+def task():
+    print("step 1")
+    yield                    # pause, handing control back to the caller
+    print("step 2")
+    yield
+    print("step 3")
+
+t = task()
+next(t)                      # prints "step 1", then pauses
+print("-- elsewhere --")
+next(t)                      # resumes where it left off: "step 2"
+```
+
+The function's position and its local variables are saved in an object on the heap between the calls to `next`. An `async` function is the same thing, with the event loop calling `next` whenever the awaited result becomes ready.
+
+Compilers do this by rewriting the function as a **state machine**: an object with a field for each local variable and a number recording which `await` it is paused at. That object is typically a few dozen to a few hundred bytes, against a megabyte or so of reserved stack for a thread. It is why a program can have a million suspended tasks.
+
+## Sequential or concurrent
+
+Awaiting one thing after another runs them one after another.
+
+```python
+a = await fetch("a", 1)      # 1 second
+b = await fetch("b", 1)      # then 1 more second
+```
+
+That takes two seconds. `await` does not make things concurrent. It makes waiting cheap. To overlap the two waits, start both and then wait for both.
+
+```python
+import asyncio, time
+
+async def fetch(name, seconds):
+    print("start", name)
+    await asyncio.sleep(seconds)     # stands in for a network request
+    print("done", name)
+    return name.upper()
+
+async def main():
+    start = time.time()
+    results = await asyncio.gather(fetch("a", 1), fetch("b", 1), fetch("c", 1))
+    print(results, round(time.time() - start, 1))
+
+asyncio.run(main())
+```
+
+This prints `start a`, `start b`, `start c`, then the three `done` lines, then `['A', 'B', 'C'] 1.0`. Three one-second waits, one second in total, on a single thread.
+
+| Pattern | Python | JavaScript | Time for three 1 s requests |
+| --- | --- | --- | --- |
+| One after another | `await` each in turn | `await` each in turn | 3 s |
+| All together | `asyncio.gather(...)` | `Promise.all([...])` | 1 s |
+
+Awaiting in a loop when the requests are independent is the commonest performance mistake in async code.
+
+## Blocking in an async function
+
+`async` does not make code non-blocking. It only allows it to pause at an `await`. A slow call with no `await` in front of it holds the loop, and everything else with it.
+
+```python
+async def bad():
+    time.sleep(1)                    # blocks the whole event loop
+
+async def good():
+    await asyncio.sleep(1)           # pauses only this task
+```
+
+Three `bad` tasks run with `gather` take three seconds. Three `good` ones take one. Long calculations and blocking libraries have to be handed to a thread pool, with `asyncio.to_thread` in Python or a worker in JavaScript.
+
+## Function colouring
+
+An `await` can only appear inside an `async` function. So a function that calls an async function and wants the result must be async too, and so must its callers, all the way up.
+
+This splits a codebase into two kinds of function that do not mix freely, often described as functions having a **colour**. Converting one low-level function to async can force changes through every layer above it, and libraries end up needing an async version and a blocking version of the same thing.
+
+Languages with lightweight threads built into the runtime avoid the split. In Go every function can pause at any blocking call, and the runtime moves goroutines between threads, so there is no keyword. Java's virtual threads do the same. The switches are still there. They are just not marked in the source.
+
+| | Async/await | Green threads | Kernel threads |
+| --- | --- | --- | --- |
+| Examples | JavaScript, Python, Rust, C# | Go, Java virtual threads, Erlang | C, C++, Java platform threads |
+| Pause points | explicit `await` | any blocking call | anywhere at all |
+| Memory per task | a small object | a few kilobytes of growable stack | around a megabyte reserved |
+| Two kinds of function | yes | no | no |
+| Parallel across cores | depends on the runtime | yes | yes |
+
+Explicit awaits have one real advantage: reading the code tells you exactly where other tasks can interleave.
+
+## Races are still possible
+
+Between awaits a task cannot be interrupted, so most [race conditions](/concurrency/race-conditions/) disappear. An `await` in the middle of a read-modify-write brings them straight back.
+
+```python
+async def increment():
+    global counter
+    value = counter
+    await asyncio.sleep(0)           # every other task runs here
+    counter = value + 1
+```
+
+A hundred of these run together leave the counter at 1, not 100. Every task reads 0 before any writes. The fix is the same as with threads: do not pause inside a critical section, or guard it with an async [lock](/concurrency/mutexes/).
+
+In runtimes that run tasks on several threads at once, such as Rust's Tokio or C#, ordinary thread-safety rules apply as well.
+
+## Tasks, cancellation and timeouts
+
+Awaiting a coroutine runs it as part of the current task. To have something run in the background, it is wrapped as a separate **task** that the loop schedules independently.
+
+Background tasks raise questions that sequential code never does. What if one fails while nobody is awaiting it? What if the caller no longer wants the result?
+
+**Structured concurrency** answers by tying tasks to a block of code. The block does not finish until every task started in it has finished, and if one fails the rest are cancelled.
+
+```python
+async with asyncio.TaskGroup() as group:
+    a = group.create_task(fetch("a", 1))
+    b = group.create_task(fetch("b", 1))
+# both are finished here, or an error was raised
+
+async with asyncio.timeout(5):
+    await fetch("slow", 60)          # cancelled after 5 seconds
+```
+
+Cancellation arrives at an `await`: the suspended function is resumed with an error instead of a result, so that it can clean up.
+
+## What await does not do
+
+- It does not create parallelism. On a single-threaded loop only one piece of code runs at a time.
+- It does not speed up calculation. It helps only with waiting.
+- It does not stop a slow function from blocking the loop.
+
+Async is the right tool for programs that mostly wait on the network or disk: web servers, clients making many requests, user interfaces. For heavy calculation, use threads or processes.
+
+## Key takeaways
+
+- An `async` function can pause at each `await` and resume later, without occupying a thread in between.
+- Its local variables are kept in a small heap object, which is why tasks are so much cheaper than threads.
+- Awaiting things in turn is sequential. Start them together with `gather` or `Promise.all` to overlap the waiting.
+- A call that blocks without `await` stalls the whole loop.
+- Code between awaits runs uninterrupted, so races can only occur across an `await`.
