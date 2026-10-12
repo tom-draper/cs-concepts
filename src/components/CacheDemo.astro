@@ -1,0 +1,83 @@
+---
+// A tiny direct-mapped cache. Access addresses and watch what hits, misses and gets evicted.
+const presets: [string, number[]][] = [
+  ['Walk forward', [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]],
+  ['Small loop', [0, 4, 8, 0, 4, 8, 0, 4, 8]],
+  ['Two that clash', [0, 16, 0, 16, 0, 16]],
+];
+---
+
+<cache-demo class="playground cache-demo">
+  <p class="tries">
+    Run:
+    {presets.map(([name, addresses]) => <button type="button" data-run={JSON.stringify(addresses)}>{name}</button>)}
+    <button type="button" data-reset>Empty the cache</button>
+  </p>
+  <p class="tries">
+    Or access one address:
+    {[0, 2, 5, 9, 16, 17, 21, 33].map((address) => <button type="button" data-address={address}>{address}</button>)}
+  </p>
+  <table class="cache-lines">
+    <thead><tr><th>Line</th><th>Tag</th><th>Holds bytes</th></tr></thead>
+    <tbody>
+      {[0, 1, 2, 3].map((line) => <tr data-line={line}><td>{line}</td><td>none</td><td>empty</td></tr>)}
+    </tbody>
+  </table>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Last access</dt><dd data-out="last">nothing yet</dd></div>
+    <div><dt>Hits</dt><dd data-out="rate">0 of 0</dd></div>
+  </dl>
+  <div class="marks" aria-hidden="true"></div>
+</cache-demo>
+
+<script>
+  import { DirectMappedCache } from '../lib/hardware';
+
+  class CacheDemo extends HTMLElement {
+    connectedCallback() {
+      let cache = new DirectMappedCache();
+      const rows = [...this.querySelectorAll<HTMLElement>('[data-line]')];
+      const marks = this.querySelector('.marks')!;
+      const out = (name: string, text: string) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = text);
+      const render = () => {
+        const last = cache.log[cache.log.length - 1];
+        rows.forEach((row, i) => {
+          const line = cache.lines[i];
+          row.children[1].textContent = line.valid ? String(line.tag) : 'none';
+          row.children[2].textContent = cache.range(i);
+          row.className = last && last.index === i ? (last.hit ? 'hit' : 'miss') : '';
+        });
+        const hits = cache.log.filter((a) => a.hit).length;
+        out('rate', `${hits} of ${cache.log.length}`);
+        out(
+          'last',
+          last
+            ? `address ${last.address} is tag ${last.tag}, line ${last.index}, offset ${last.offset}: ` +
+                (last.hit ? 'a hit' : `a miss, because ${last.reason}`)
+            : 'nothing yet',
+        );
+        marks.replaceChildren(
+          ...cache.log.slice(-40).map((access) => {
+            const mark = document.createElement('i');
+            mark.className = access.hit ? 'ok' : 'miss';
+            mark.textContent = String(access.address);
+            return mark;
+          }),
+        );
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if ('reset' in button.dataset) cache = new DirectMappedCache();
+        else if (button.dataset.run) {
+          cache = new DirectMappedCache();
+          for (const address of JSON.parse(button.dataset.run)) cache.access(address);
+        } else if (button.dataset.address) cache.access(Number(button.dataset.address));
+        render();
+      });
+    }
+  }
+
+  customElements.define('cache-demo', CacheDemo);
+</script>
