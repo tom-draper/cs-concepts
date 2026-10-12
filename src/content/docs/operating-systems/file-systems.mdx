@@ -1,0 +1,126 @@
+---
+description: The layer that turns a storage device's numbered blocks into named files arranged in folders, and keeps them consistent even if the power fails mid-write.
+difficulty: intermediate
+---
+
+A [storage device](/architecture/storage-devices/) offers something very plain: a long row of fixed-size **blocks**, each identified by a number. You can read block 81,225 or write block 12. That is all.
+
+People want named files, organised in folders, that can grow and shrink, with owners and permissions, and that are still intact after a crash. A **file system** is the software that builds the second thing out of the first.
+
+## What has to be solved
+
+A file system must answer a set of questions.
+
+- Which blocks hold the contents of this file, and in what order?
+- Which blocks are free?
+- How do names map to files?
+- What happens if the machine loses power half-way through a change?
+
+## Files and inodes
+
+In the Unix tradition, each file is described by a small record called an **inode**. It holds everything about the file **except its name and its contents**.
+
+| An inode records | |
+| --- | --- |
+| Size | in bytes |
+| Owner and permissions | who may read, write or execute it |
+| Timestamps | created, modified, last accessed |
+| Link count | how many names refer to it |
+| Block locations | where the contents are on the device |
+
+The file's data lives in separate **data blocks**, typically 4 KB each. The inode says where they are.
+
+### Finding the blocks
+
+Listing every block number in the inode would not work for large files. Two approaches are used.
+
+Older file systems store a few block numbers directly in the inode, enough for small files, and then a pointer to an **indirect block**, which is a whole block full of further block numbers. For larger files still, there are doubly and triply indirect blocks, forming a shallow tree.
+
+Modern file systems use **extents**. Instead of listing blocks one by one, an extent records a run: "1,000 blocks starting at block 50,000". A large file stored contiguously needs one short entry. Extents are more compact, and they encourage keeping a file's blocks together, which matters for reading it quickly.
+
+## Directories
+
+A **directory** is simply a file whose contents are a table of names and inode numbers.
+
+<Tree
+  root={{ k: '/', c: [{ k: 'home', c: [{ k: 'ana', c: ['notes.txt', 'photo.jpg'] }] }, { k: 'etc', c: ['hosts'] }] }}
+  highlight={['/', 'home', 'ana']}
+  alt={['notes.txt']}
+  caption="Opening /home/ana/notes.txt means reading three directories in turn, each giving the inode number of the next step."
+/>
+
+To open `/home/ana/notes.txt`, the file system starts at the root directory, whose inode number is fixed. It looks up `home` there to get an inode, reads that directory, looks up `ana`, reads that one, and finally looks up `notes.txt`. Each step is a small lookup. Directories with huge numbers of entries are organised as [B-trees](/data-structures/b-trees/) or hash tables so that this stays fast.
+
+### Names are not files
+
+Because the name lives in the directory and everything else lives in the inode, **a file and its name are separate things**. That has some consequences worth knowing.
+
+- A **hard link** is a second directory entry pointing at the same inode. The file now has two names, neither more "real" than the other.
+- **Deleting** a file removes a directory entry and lowers the inode's link count. The data is only freed when the count reaches zero *and* no program has the file open. That is why a running program can keep using a file that has been deleted, and why a deleted file can still be occupying disk space.
+- **Renaming** within one file system only changes directory entries. It does not copy any data, so it is instant even for a huge file.
+- A **symbolic link** is different: it is a tiny file containing the *path* of another file. It can point across file systems, and it can be left dangling if its target is removed.
+
+## Tracking free space
+
+The file system has to know which blocks and inodes are unused. The simplest record is a **bitmap**: one bit per block, 1 if in use. Checking or changing one is a single [bit operation](/foundations/bitwise-operations/), and a terabyte of 4 KB blocks needs only about 32 MB of bitmap. Others keep free space in B-trees of extents.
+
+When allocating, a file system tries to give a file blocks that are **next to each other**, and to place a file near the other files in its directory. On a hard disk this avoids slow seeks. On any device it allows larger, more efficient reads.
+
+## Surviving a crash
+
+A single operation, such as appending to a file, changes several things on disk: a data block, the inode's size and block list, and the free-space record. They cannot all be written at the same instant.
+
+If the power fails in between, the structures disagree. A block might be marked as used but belong to no file, which wastes space. Or, far worse, a block might belong to two files at once.
+
+Early file systems coped by scanning the entire disk after a crash, checking everything for consistency. On large disks that took hours.
+
+### Journaling
+
+The standard solution is the **journal**, the same idea as a database's [write-ahead log](/databases/write-ahead-logging/).
+
+1. Before changing anything, write a description of the intended changes to a dedicated area of the disk, the journal, and mark it complete.
+2. Then make the changes in their real locations.
+3. Then mark the journal entry as done.
+
+After a crash, the file system reads the journal. Complete entries are **replayed**, finishing whatever was in progress. Incomplete entries are discarded, as though the operation never started. Either way the structures are consistent, and recovery takes seconds whatever the size of the disk.
+
+Most journaling file systems protect only their **metadata** this way by default, meaning inodes, directories and free-space records, because journaling all file contents would mean writing everything twice.
+
+### Copy-on-write
+
+Newer designs go further and **never overwrite anything in place**. A change writes new blocks elsewhere. Then the block that points to them is rewritten, and its parent, up to the root. Finally a single pointer is switched to the new root.
+
+Until that final switch, the old version is completely intact. So the file system moves from one consistent state to the next in a single step, with no possibility of being caught in between.
+
+This approach brings two valuable features nearly for free.
+
+- **Snapshots.** Keeping an old root pointer preserves the entire file system as it was at that moment, sharing all unchanged blocks with the current version.
+- **Checksums.** Each pointer can carry a checksum of the block it points to, so silent corruption is detected on read. The whole structure forms a [Merkle tree](/data-structures/merkle-trees/).
+
+| File system | Used by | Approach |
+| --- | --- | --- |
+| ext4 | Linux | journaling, extents |
+| XFS | Linux, large servers | journaling, B-trees throughout |
+| NTFS | Windows | journaling |
+| APFS | Apple devices | copy-on-write, snapshots |
+| Btrfs, ZFS | Linux, servers, storage appliances | copy-on-write, snapshots, checksums |
+| FAT32, exFAT | memory cards, USB drives | simple tables, no journal |
+
+## The view from a program
+
+Programs do not deal with any of this. They use a handful of [system calls](/operating-systems/system-calls/): open, read, write, close.
+
+Above the individual file systems, the kernel provides a common interface called the **virtual file system**, so the same calls work whatever the underlying format. That generality is why Unix treats so many things as files: devices, pipes, and even live information about the system, exposed on Linux under `/proc`.
+
+The kernel also keeps recently used file data in spare memory, the **page cache**, so that reading the same file twice does not touch the device, and writes can be collected and sent in batches.
+
+That last point is a trap. A successful write means the data has reached the page cache, not the device. Data that must survive a power failure has to be flushed explicitly, with `fsync`. See [storage devices](/architecture/storage-devices/#making-sure-data-is-really-saved).
+
+## Key takeaways
+
+- A file system turns numbered blocks into named files in a tree of directories.
+- An inode holds a file's metadata and the locations of its blocks. The name lives separately, in a directory.
+- A directory is a table mapping names to inode numbers, which is why renaming is instant and hard links are possible.
+- Journaling records intended changes first so that a crash can be recovered from in seconds.
+- Copy-on-write file systems never overwrite in place, giving atomic updates, snapshots and checksums.
+- Writes go to an in-memory cache first, and are not durable until flushed.
