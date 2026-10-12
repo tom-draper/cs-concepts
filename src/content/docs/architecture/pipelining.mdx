@@ -1,0 +1,121 @@
+---
+description: Overlapping the execution of instructions like stations on an assembly line. Each instruction still takes several steps, but a new one can start on every clock tick.
+difficulty: advanced
+---
+
+The simple processor in the [fetch-decode-execute cycle](/architecture/fetch-decode-execute-cycle/) finishes one instruction completely before starting the next. For most of that time, most of its circuitry is idle: while an instruction is being executed, the part that fetches instructions has nothing to do.
+
+**Pipelining** puts that idle hardware to work. It is the single most important idea in processor design.
+
+## The laundry analogy
+
+Suppose washing takes 30 minutes, drying 30 and folding 30. One load takes 90 minutes.
+
+For four loads, you could finish each completely before starting the next: six hours. Or you could start the second load washing as soon as the first moves to the dryer. Then a finished load comes out every 30 minutes, and four loads take three hours.
+
+Each load still takes 90 minutes. Nothing got faster. What improved is the **throughput**: the number completed per hour.
+
+## The five stages
+
+The classic design splits the work of an instruction into five stages, each taking one clock cycle.
+
+| Stage | | Work |
+| --- | --- | --- |
+| **IF** | instruction fetch | read the instruction from memory |
+| **ID** | instruction decode | work out what it is, and read the registers it needs |
+| **EX** | execute | do the arithmetic in the ALU |
+| **MEM** | memory access | read or write memory, if the instruction needs to |
+| **WB** | write back | store the result in a register |
+
+[Registers](/architecture/flip-flops-and-registers/) between the stages hold each instruction's partial results, so that every stage can hand its work to the next on the clock tick and immediately accept something new.
+
+Step through four instructions entering the pipeline.
+
+export const instructions = ['add', 'load', 'sub', 'store'];
+
+<Player>
+  {Array.from({ length: 8 }, (_, i) => (
+    <Frame
+      caption={
+        i === 0
+          ? 'Cycle 1: the first instruction is fetched. The other four stages are empty.'
+          : i < 4
+            ? `Cycle ${i + 1}: every instruction moves along one stage and a new one is fetched. ${i + 1} instructions are in progress at once.`
+            : i === 4
+              ? 'Cycle 5: the first instruction finishes. From now on, one instruction completes every cycle.'
+              : `Cycle ${i + 1}: another instruction completes.`
+      }
+    >
+      <Pipeline instructions={instructions} cycle={i + 1} />
+    </Frame>
+  ))}
+</Player>
+
+Without a pipeline, four instructions of five steps each would take 20 cycles. With one, they take 8. For a long program the saving approaches a factor of five, the number of stages.
+
+## A faster clock, too
+
+There is a second benefit. The [clock speed](/architecture/flip-flops-and-registers/#what-limits-the-clock-speed) of a circuit is limited by the longest chain of logic between two registers. Cutting the work of an instruction into five short stages means each stage has far less logic to get through, so the clock can tick much faster.
+
+That is the basic trade: **more stages allow a faster clock**. It is why pipelines grew over time, from 5 stages to around 14 to 20 in current designs. One famous processor line pushed past 30 stages in pursuit of high clock speeds, and ran into the problems described next.
+
+## Hazards
+
+The assembly-line picture assumes each instruction is independent of its neighbours. Often they are not. Situations where the overlap would give a wrong answer are called **hazards**.
+
+### Data hazards
+
+```asm
+add r1, r2, r3      ; r1 = r2 + r3
+sub r4, r1, r5      ; r4 = r1 - r5      needs the new r1
+```
+
+The `sub` reaches the stage where it reads `r1` before the `add` has written its result back. Left alone, it would read a stale value.
+
+There are two fixes.
+
+- **Forwarding** (or bypassing). The result of the `add` exists at the end of its execute stage, well before it is written back. Extra wiring delivers it straight to the instruction that needs it. This solves most cases at no cost in time.
+- **Stalling.** When forwarding is not enough, such as when the value comes from a memory load that has not finished, the pipeline holds the later instruction back for a cycle. The empty slot that results is called a **bubble**.
+
+### Control hazards
+
+```asm
+cmp  r1, r2
+jg   somewhere      ; jump, or not?
+add  r3, r4, r5     ; is this the next instruction?
+```
+
+A conditional jump's outcome is not known until it is executed, several stages in. By then the processor has already fetched the following instructions. If the jump is taken, those were the wrong ones. They have to be thrown away, and the work on them is wasted. This is called **flushing** the pipeline.
+
+The deeper the pipeline, the more is discarded each time. Roughly one instruction in five is a branch, so this would be crippling. The answer is to **guess** which way each branch will go, and that is the subject of [branch prediction](/architecture/branch-prediction/).
+
+### Structural hazards
+
+Two instructions need the same piece of hardware in the same cycle, for instance one fetching an instruction while another reads data from the same memory. Designs avoid this by duplicating the resource, which is one reason processors have separate instruction and data [caches](/architecture/cpu-caches/).
+
+## Beyond the basic pipeline
+
+Modern processors build several further ideas on top.
+
+- **Superscalar execution.** Several pipelines side by side, so that four or more instructions are fetched, executed and completed in each cycle.
+- **Out-of-order execution.** If an instruction is waiting, for example on slow memory, later instructions that do not depend on it are run in the meantime. The results are then committed in the original order, so that the program behaves as written.
+- **Register renaming.** The processor has many more physical registers than the instruction set exposes, and maps between them on the fly, removing false dependencies between instructions that merely reuse the same register name.
+- **Speculative execution.** Running instructions past a predicted branch before knowing whether they should run at all, and discarding them if the guess was wrong.
+
+Together these let a current processor have hundreds of instructions in progress at once.
+
+## What it means for software
+
+You do not program a pipeline directly, but its behaviour shows up in performance.
+
+- **Unpredictable branches are expensive**, because each wrong guess flushes the pipeline. Code whose conditions follow a pattern runs faster than code whose conditions are effectively random.
+- **Dependency chains limit speed.** If every operation needs the result of the previous one, the processor cannot overlap them. Independent operations can run side by side.
+- **Slow memory stalls everything.** A [cache miss](/architecture/cpu-caches/) can hold up an instruction for hundreds of cycles, and eventually everything behind it.
+
+## Key takeaways
+
+- Pipelining overlaps instructions by splitting their execution into stages, so a new instruction starts every cycle.
+- It improves throughput, not the time for one instruction, and shorter stages also allow a faster clock.
+- Data hazards arise when an instruction needs a result that is not ready; forwarding and stalling deal with them.
+- Control hazards arise at branches; a wrong guess means flushing the pipeline.
+- Superscalar and out-of-order execution extend the idea, keeping hundreds of instructions in flight.
