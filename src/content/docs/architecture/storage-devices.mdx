@@ -1,0 +1,112 @@
+---
+description: Where data lives when the power is off. Hard disks, SSDs and the rest differ by orders of magnitude in speed, and that difference shapes how databases and file systems are designed.
+difficulty: intermediate
+---
+
+Main memory forgets everything when the power goes off. Anything that needs to survive, such as files, databases and the operating system itself, has to be written to **storage**: devices that keep their contents without power.
+
+Storage is far larger and cheaper than memory, and far slower. How much slower is the single most important fact for anyone designing software that handles data.
+
+## The hierarchy
+
+Every level of the memory hierarchy is bigger, cheaper and slower than the one above it.
+
+| | Typical access time | If a CPU cycle took one second |
+| --- | --- | --- |
+| [L1 cache](/architecture/cpu-caches/) | 1 ns | a few seconds |
+| Main memory | 100 ns | a few minutes |
+| NVMe SSD | 20 to 100 µs | a day or more |
+| SATA SSD | about 100 µs | several days |
+| Hard disk | 5 to 10 ms | about a year |
+| A network round trip across a continent | about 50 ms | years |
+
+A read from a hard disk takes about a hundred thousand times longer than a read from memory. No amount of clever instruction-level optimisation matters next to that. Software that touches storage is designed around one goal: **do as few storage operations as possible, and make each one count.**
+
+## Hard disk drives
+
+A hard disk stores data as magnetic patterns on spinning platters. A read/write head on a moving arm floats just above the surface.
+
+To read a piece of data, two mechanical things must happen.
+
+1. The arm moves the head to the right track. This is the **seek**, taking several milliseconds.
+2. The platter turns until the data passes under the head. At 7,200 revolutions per minute, that takes about 4 milliseconds on average.
+
+These are physical movements, and they are why disks are slow.
+
+The consequence is a huge difference between two ways of reading.
+
+| | Hard disk |
+| --- | --- |
+| **Sequential** read (data laid out in order) | 100 to 250 MB per second |
+| **Random** reads (each one a seek) | about 100 to 200 per second |
+
+Reading in order is fast, because the head stays where it is while the data streams past. Jumping around is catastrophically slow. A hard disk can read a 100 MB file in a second, but a hundred thousand small scattered records would take ten minutes or more.
+
+Hard disks remain in use because they are the cheapest way to store large amounts of data: bulk storage, backups and archives.
+
+## Solid-state drives
+
+An SSD has no moving parts. It stores each bit as an electrical charge trapped in a **flash memory** cell. With nothing to move, there is no seek time.
+
+| | Hard disk | SATA SSD | NVMe SSD |
+| --- | --- | --- | --- |
+| Random read latency | 5 to 10 ms | about 0.1 ms | 0.02 to 0.1 ms |
+| Random operations per second | 100 to 200 | tens of thousands | hundreds of thousands |
+| Sequential throughput | 100 to 250 MB/s | about 550 MB/s | several GB/s |
+
+SATA is an interface designed for hard disks, and it limits what an SSD can do. **NVMe** is an interface designed for flash, connecting directly to the processor's high-speed bus and allowing many requests in parallel.
+
+Random access on an SSD is hundreds to thousands of times faster than on a disk. That change, more than raw speed, reshaped how storage software is written.
+
+### Flash has its own quirks
+
+Flash behaves quite differently from a disk, and the differences matter.
+
+**It cannot overwrite in place.** Flash is organised into small *pages*, grouped into much larger *blocks*. A page can be written only when it is empty, and it can be emptied only by erasing the whole block it belongs to.
+
+So an SSD never updates data where it sits. It writes the new version to a fresh page elsewhere, and marks the old one as stale. A layer of software inside the drive keeps a map from the addresses the computer uses to the pages where the data currently lives.
+
+**It needs garbage collection.** In the background, the drive copies the still-valid pages out of a mostly stale block, then erases the block to make it available again. This means one write from the computer can cause several writes inside the drive, which is called **write amplification**.
+
+**It wears out.** Each cell survives only a limited number of erase cycles, from a few hundred to tens of thousands depending on the type. The drive spreads writes evenly across all its cells, a technique called **wear levelling**, so that no part fails early.
+
+**It needs to be told what is free.** When a file is deleted, the file system tells the drive which pages are no longer needed, using a command called TRIM. Without that, the drive would keep carefully preserving deleted data.
+
+A drive that is nearly full has few empty blocks to work with, so garbage collection gets harder and writes slow down. Keeping some space free keeps an SSD fast.
+
+If this design sounds familiar, it should. Never overwriting in place, writing sequentially and cleaning up in the background is exactly the idea behind [LSM trees](/data-structures/lsm-trees/), which apply it one level up.
+
+## How this shapes software
+
+The shape of storage performance explains a great deal of system design.
+
+**Batch and buffer.** Programs and operating systems collect many small writes in memory and send them as one large one.
+
+**Cache aggressively.** The operating system keeps recently read file data in spare memory, called the *page cache*, so that reading the same file again does not touch the device. A database does the same with its own buffer pool.
+
+**Match the block size.** Storage is read and written in fixed blocks, typically 4 KB. A [B-tree](/data-structures/b-trees/) makes each node exactly one block, so that every read brings in as many keys as possible. That is the whole reason B-trees have wide nodes.
+
+**Prefer sequential access.** Databases append changes to a log, which is sequential, before updating their main files. See [write-ahead logging](/databases/write-ahead-logging/). [LSM trees](/data-structures/lsm-trees/) take this to its conclusion and only ever write sequentially.
+
+## Making sure data is really saved
+
+Because writes are buffered at several levels, a write that your program believes has finished may still be sitting in memory. If the power fails at that moment, it is lost.
+
+When data must survive, a program asks the operating system to flush it all the way to the device and wait until that is done. On Unix systems the call is `fsync`.
+
+That guarantee is expensive, because it defeats the buffering that makes writes fast. Deciding how often to pay for it is a central trade-off in every database. A system that calls it on every transaction is safe and slow. One that calls it once a second is fast and may lose the last second of work in a crash. See [ACID](/databases/acid/).
+
+## Other kinds of storage
+
+- **Tape** is still used for long-term archives. It is the cheapest medium per byte and lasts for decades. It can only be read in order, and finding a particular spot takes minutes.
+- **Network and cloud storage** presents remote disks as if they were local. It adds network latency to every operation, and offers durability by keeping several copies in different places.
+- **RAID** combines several drives so that data survives the failure of one or more of them, and sometimes for speed. It protects against a drive dying. It is not a backup: it faithfully copies an accidental deletion to every drive.
+
+## Key takeaways
+
+- Storage keeps data without power, and is thousands to hundreds of thousands of times slower than memory.
+- Hard disks are mechanical. Sequential access is fast and random access is extremely slow.
+- SSDs have no moving parts, making random access hundreds of times faster. NVMe is the interface built for them.
+- Flash cannot overwrite in place, wears out, and needs background garbage collection, all handled inside the drive.
+- Storage software minimises the number of operations, by buffering, caching, using block-sized structures and writing sequentially.
+- A write is only safe once it has been flushed to the device, which is slow.
