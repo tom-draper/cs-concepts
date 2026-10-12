@@ -1,4 +1,4 @@
-# cs-concepts
+# Visual Computer Science
 
 A complete guide for Computer Science concepts: one page per concept, read front to back like a book.
 
