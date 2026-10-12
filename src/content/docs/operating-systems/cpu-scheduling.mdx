@@ -1,0 +1,128 @@
+---
+description: How an operating system decides which program gets the processor next. Different policies favour throughput, responsiveness or fairness, and no single one is best at all three.
+difficulty: intermediate
+---
+
+There are almost always more tasks ready to run than processors to run them. The part of the operating system that decides which goes next, and for how long, is the **scheduler**.
+
+The decision sounds mundane and has large effects. It is the difference between a computer that stays responsive while compiling and one that freezes.
+
+## What a scheduler is trying to achieve
+
+There are several reasonable goals, and they pull in different directions.
+
+| Goal | Meaning | Matters most for |
+| --- | --- | --- |
+| **Throughput** | jobs completed per hour | batch processing |
+| **Turnaround time** | time from a job arriving to it finishing | batch jobs |
+| **Waiting time** | time a job spends ready but not running | everything |
+| **Response time** | time from a request to the first reaction | interactive programs |
+| **Fairness** | every task gets a reasonable share | shared machines |
+
+Tasks also differ in character. A **CPU-bound** task, such as video encoding, wants the processor for long stretches. An **I/O-bound** task, such as a text editor, runs briefly, then waits for the user or the disk. A good scheduler treats them differently: I/O-bound tasks should get the processor promptly when they wake, because they will not hold it for long.
+
+## Try the classic policies
+
+Four processes arrive at different times, each needing a certain amount of processor time. Use the − and + buttons to change how much.
+
+<SchedulerDemo />
+
+Each block in the timeline is one unit of time, labelled with the process that ran. Things to try:
+
+- **First come, first served.** P3 needs only one unit, but has to wait behind two longer jobs.
+- **Shortest job first.** P3 jumps ahead of P2. The average wait falls.
+- **Shortest remaining time.** P1 is interrupted as soon as shorter jobs arrive. The average wait is the lowest of all, but P1 waits a long time.
+- **Round robin.** Everyone gets regular turns of two units. The average wait is the *worst* here, yet no process goes long without running.
+- Raise P1's time to 9 under first come, first served, and watch everyone else's wait grow.
+
+## The policies
+
+### First come, first served
+
+Run tasks in the order they arrive, each to completion.
+
+It is simple and fair in one narrow sense. Its flaw is the **convoy effect**: one long job at the front holds up every short job behind it, like a slow lorry on a single-lane road.
+
+### Shortest job first
+
+Always run the task that needs the least time.
+
+For jobs that are all available together, this gives the **lowest possible average waiting time**. Putting short jobs first means fewer tasks are kept waiting behind each one.
+
+It has two problems. The scheduler does not know how long a task will run. Real systems estimate it from the task's recent behaviour. And a long job can be postponed indefinitely if short jobs keep arriving, which is called **starvation**.
+
+### Shortest remaining time
+
+The same idea with **preemption**: if a new task arrives needing less time than the current one has left, switch to it. It improves on shortest job first when jobs arrive at different times, and makes starvation of long jobs more likely.
+
+### Round robin
+
+Give each task a fixed slice of time, the **quantum**, in turn. A task that has not finished when its slice ends goes to the back of the queue.
+
+This is the basis of interactive systems, because it bounds how long any task waits for a turn. With n tasks and a quantum of q, no task waits more than (n − 1) × q.
+
+Everything depends on the size of the quantum.
+
+| Quantum | Effect |
+| --- | --- |
+| Very long | behaves like first come, first served; poor responsiveness |
+| Very short | very responsive, but much of the time is spent on [context switches](/operating-systems/context-switching/) |
+| A few milliseconds | the usual compromise |
+
+Round robin is fair, and that fairness has a price. In the demo its average wait is the highest of the four, because every job is stretched out by taking turns with the others.
+
+| Policy | Preemptive | Best at | Weakness |
+| --- | --- | --- | --- |
+| First come, first served | no | simplicity | convoys behind long jobs |
+| Shortest job first | no | average waiting time | needs to know run times; starves long jobs |
+| Shortest remaining time | yes | average waiting time | starves long jobs even more |
+| Round robin | yes | response time and fairness | higher average waiting; switching overhead |
+
+## Priorities
+
+Some tasks matter more than others: audio playback should not stutter because a backup is running. A **priority scheduler** always runs the highest-priority ready task.
+
+On its own that starves low-priority tasks. The standard remedy is **aging**: gradually raise the priority of anything that has waited a long time, so that it eventually gets a turn.
+
+Priorities also create a notorious trap called **priority inversion**. A low-priority task holds a lock. A high-priority task needs that lock and has to wait. Meanwhile a medium-priority task, which needs no lock at all, runs instead of the low one. The high-priority task is now effectively stuck behind the medium one. This exact problem caused repeated system resets on the Mars Pathfinder lander in 1997. The fix, called *priority inheritance*, temporarily raises the lock holder to the priority of whoever is waiting for it.
+
+## What real systems do
+
+No real operating system uses any one of the classic policies. They combine them.
+
+### Multilevel feedback queues
+
+The classic design keeps several queues at different priorities, with round robin inside each. The clever part is how tasks move between them.
+
+- A new task starts at the top priority.
+- A task that **uses its whole time slice** is moved down. It is probably CPU-bound.
+- A task that **gives up the processor early** to wait for something stays near the top. It is probably interactive.
+
+Without being told anything, the scheduler learns which tasks are interactive and favours them, which approximates shortest job first. This is why typing stays smooth while a heavy calculation runs.
+
+### Fair-share scheduling
+
+Linux takes a different approach. Rather than fixed time slices, it tracks how much processor time each task has received, weighted by its priority, and always runs the task that has had the **least**.
+
+A task that has been asleep, waiting for input, has had little time. So when it wakes, it is first in line. Interactive tasks get prompt service without any special rule for them. The ready tasks are kept in a [balanced tree](/data-structures/red-black-trees/) ordered by time received, so the next one to run is always at one end.
+
+### Several cores
+
+With many cores, each usually has its own queue of tasks, to avoid every core contending for one shared queue. Two further concerns appear.
+
+- **Affinity.** A task runs fastest on the core it last ran on, where its data may still be in the [cache](/architecture/cpu-caches/). The scheduler tries to keep it there.
+- **Balancing.** If one core is overloaded while another sits idle, work must be moved across. An idle core can also **steal** tasks from a busy one.
+
+These two aims conflict, and tuning the balance between them is a large part of scheduler engineering.
+
+### Real-time scheduling
+
+Some systems must meet **deadlines**: an airbag controller, an audio buffer, a robot arm. Real-time schedulers aim for predictability instead of throughput. A common policy is *earliest deadline first*: always run the task whose deadline is nearest.
+
+## Key takeaways
+
+- The scheduler chooses which ready task runs next. Its goals, such as throughput, responsiveness and fairness, conflict.
+- First come, first served is simple but lets long jobs block short ones.
+- Shortest job first minimises average waiting but needs to guess run times and can starve long jobs.
+- Round robin gives regular turns, trading a higher average wait for good response time.
+- Real schedulers favour interactive tasks automatically, either by demoting tasks that use full time slices or by always running whichever task has had the least processor time.
