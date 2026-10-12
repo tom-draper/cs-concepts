@@ -1,0 +1,151 @@
+---
+description: The human-readable form of machine code. Each line is one processor instruction, and reading it shows exactly what a program asks the hardware to do.
+difficulty: advanced
+---
+
+A processor executes numbers. `0x48 0x01 0xC8` means "add one register to another" to an x86 chip, but nobody wants to read or write that.
+
+**Assembly language** is the same instructions written as text. `add rax, rcx` is that same instruction. There is a direct, one-to-one correspondence: a program called an **assembler** turns each line of assembly into the bytes of one machine instruction, and a *disassembler* turns them back.
+
+Each [instruction set](/architecture/instruction-sets/) has its own assembly language. This page uses x86-64, with ARM64 for comparison.
+
+## Why learn to read it
+
+Almost nobody writes large programs in assembly any more. Reading it is still valuable.
+
+- **Debugging.** When a program crashes with no source code available, or a debugger stops inside a library, assembly is what you see.
+- **Performance.** Looking at what the compiler produced is the only way to know whether a loop was optimised the way you hoped.
+- **Security.** Analysing malware and finding vulnerabilities both happen at this level.
+- **Understanding.** It removes the mystery from what function calls, loops and variables really are.
+
+## The building blocks
+
+**Registers** are the processor's own storage slots. x86-64 has sixteen general-purpose ones, each 64 bits wide, with names inherited from history: `rax`, `rbx`, `rcx`, `rdx`, `rsi`, `rdi`, `rsp`, `rbp` and `r8` to `r15`. The name `eax` refers to the lower 32 bits of `rax`.
+
+**Instructions** have a short name, the *mnemonic*, followed by operands.
+
+| Instruction | Meaning |
+| --- | --- |
+| `mov rax, 5` | put 5 in `rax` |
+| `mov rax, rcx` | copy `rcx` into `rax` |
+| `mov rax, [rdi]` | load from memory at the address in `rdi` |
+| `add rax, rcx` | `rax = rax + rcx` |
+| `cmp rcx, rdi` | compare, setting the flags |
+| `jg label` | jump if the last comparison was "greater" |
+| `call f` | call the function `f` |
+| `ret` | return from the current function |
+
+Square brackets mean "the memory at this address". They are how a [pointer](/foundations/pointers-and-references/) is followed.
+
+**Labels** are names for positions in the code, used as the targets of jumps.
+
+**Flags** are single bits set by arithmetic and comparison instructions: was the result zero, negative, and so on. A conditional jump reads them. This is how an `if` works: compare, then jump or do not. See [adders](/architecture/adders/#overflow).
+
+## A complete example
+
+Here is a function that adds the whole numbers from 1 to n.
+
+```c
+long sum(long n) {
+    long total = 0;
+    for (long i = 1; i <= n; i++)
+        total += i;
+    return total;
+}
+```
+
+And a direct translation into x86-64 assembly. By convention on Linux and macOS, the first argument arrives in `rdi` and the result is returned in `rax`.
+
+```asm
+sum:
+    xor  eax, eax        ; total = 0
+    mov  ecx, 1          ; i = 1
+.loop:
+    cmp  rcx, rdi        ; compare i with n
+    jg   .done           ; if i > n, leave the loop
+    add  rax, rcx        ; total += i
+    inc  rcx             ; i += 1
+    jmp  .loop           ; go round again
+.done:
+    ret                  ; the result is in rax
+```
+
+Several things are worth pointing out.
+
+- **There is no loop construct.** A loop is a label, a conditional jump out, and an unconditional jump back.
+- **There are no variables.** `total` and `i` have become registers. The compiler chose `rax` and `rcx`.
+- **`xor eax, eax`** sets `rax` to zero. Any value XORed with itself is zero, and the instruction is shorter than `mov rax, 0`. Compilers always use it.
+- **Writing to `eax` also clears the top half of `rax`.** That is a rule of x86-64, and the reason the 32-bit names appear in 64-bit code.
+
+### The same function for ARM64
+
+```asm
+sum:
+    mov  x1, #0          // total = 0
+    mov  x2, #1          // i = 1
+loop:
+    cmp  x2, x0          // compare i with n
+    b.gt done            // if i > n, leave the loop
+    add  x1, x1, x2      // total = total + i
+    add  x2, x2, #1      // i = i + 1
+    b    loop
+done:
+    mov  x0, x1          // the result goes in x0
+    ret
+```
+
+The structure is identical and the details differ. ARM64 names its registers `x0` to `x30`. Its `add` takes three operands, a destination and two sources, where x86's takes two and overwrites one of them. The argument and the result both use `x0`.
+
+### What an optimising compiler does
+
+Compile that C function with optimisation switched on, and the loop may disappear altogether. Compilers recognise this pattern and replace it with the formula n(n + 1) / 2, a few instructions with no jumps at all.
+
+That is the main reason not to write assembly by hand for speed. Compilers know a great many such tricks, apply them consistently, and choose instructions with a detailed model of the processor. Hand-written assembly survives in a few places: the very start of an operating system's boot process, the innermost loops of codecs and cryptographic libraries, and code that needs instructions the compiler will not generate.
+
+## Functions and the stack
+
+A function call needs to remember where to return to, and each call needs somewhere to keep its local variables. Both use the **[stack](/foundations/stack-and-heap/)**, a region of memory tracked by the stack pointer register, `rsp`.
+
+- `call f` pushes the address of the next instruction onto the stack, then jumps to `f`.
+- `ret` pops that address off and jumps back to it.
+- A function makes room for its local variables by moving the stack pointer, and puts it back before returning.
+
+The rules for which registers hold arguments, which hold the result, and which a function must leave unchanged form the **calling convention**. It is what lets code from different compilers and languages call each other.
+
+Because the return address sits on the stack next to local variables, writing past the end of a local array can overwrite it. Redirecting a program that way is the classic [buffer overflow](/security/buffer-overflows/) attack.
+
+## Two syntaxes for x86
+
+x86 assembly is written in two styles, which is a frequent source of confusion.
+
+| | Intel syntax | AT&T syntax |
+| --- | --- | --- |
+| Operand order | destination first | destination last |
+| Example | `mov rax, 5` | `movq $5, %rax` |
+| Registers | `rax` | `%rax` |
+| Memory | `[rdi + 8]` | `8(%rdi)` |
+| Used by default in | Windows tools, most documentation | GCC and other Unix tools |
+
+They describe exactly the same instructions. This page uses Intel syntax.
+
+## Seeing it for yourself
+
+- **Compiler Explorer** (godbolt.org) shows the assembly a compiler produces for code you type, side by side, for many languages and processors. It is the best way to learn.
+- `gcc -S file.c` writes the assembly to a file instead of compiling it further.
+- `objdump -d program` disassembles an existing program.
+- Any debugger can step through a program one instruction at a time.
+
+## From source to running program
+
+1. The **[compiler](/languages/compilers-and-interpreters/)** translates source code to assembly.
+2. The **assembler** translates assembly to machine code, in an *object file*.
+3. The **linker** combines object files and libraries, filling in the addresses of functions defined elsewhere.
+4. The **loader**, part of the operating system, copies the result into memory and jumps to its first instruction.
+
+## Key takeaways
+
+- Assembly is machine code written as text, one line per instruction.
+- It has registers, memory accesses, arithmetic, comparisons and jumps, and nothing else. Loops and conditions are built from compare-and-jump.
+- Each instruction set has its own assembly language, and x86 has two written syntaxes.
+- Function calls use the stack to hold return addresses and local variables, following a calling convention.
+- Reading it is useful for debugging, performance work and security. Writing it by hand is rarely worthwhile, because compilers do it better.
