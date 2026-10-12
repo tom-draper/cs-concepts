@@ -1,0 +1,110 @@
+---
+description: Small, fast memories that sit between the processor and main memory, holding copies of recently used data. They are the reason the same algorithm can run ten times faster or slower depending on how it touches memory.
+difficulty: advanced
+---
+
+A modern processor can execute several instructions in a billionth of a second. Fetching a value from main memory takes about a hundred times longer than that. If every memory access went all the way to RAM, the processor would spend nearly all its time waiting.
+
+**Caches** close that gap. They are small, very fast memories built into the processor, holding copies of the data it is most likely to need next.
+
+## The gap
+
+| | Typical size | Access time | In processor cycles |
+| --- | --- | --- | --- |
+| Register | a few hundred bytes | instant | under 1 |
+| L1 cache | 32 to 64 KB | about 1 ns | 4 |
+| L2 cache | 256 KB to 2 MB | about 4 ns | 12 to 15 |
+| L3 cache | 8 to 64 MB or more | about 10 to 40 ns | 40 to 100 |
+| Main memory | gigabytes | about 100 ns | 200 to 300 |
+
+There is no way to build a memory that is both as large as RAM and as fast as L1. Speed needs small size, physically close to the logic that uses it. So processors use a **hierarchy**: each level is larger and slower than the one above, and acts as a cache for the one below.
+
+A typical processor has three levels. L1 and L2 belong to each core. L3 is shared by all cores.
+
+When the processor needs a value, it checks L1. If the value is there, that is a **hit**, and it takes about a nanosecond. If not, that is a **miss**, and the search continues outward to L2, then L3, then RAM, getting slower at each step.
+
+## Why caching works: locality
+
+A cache holding a tiny fraction of memory would be useless if programs accessed memory at random. They do not. They follow two patterns.
+
+- **Temporal locality.** Something used recently is likely to be used again soon: a loop counter, the variables of the current function, the instructions of the loop itself.
+- **Spatial locality.** Something *near* a recently used address is likely to be used soon: the next element of an array, the next field of a struct, the next instruction.
+
+Caches are built to exploit both. In real programs they answer well over 90% of accesses from L1.
+
+## Cache lines
+
+To exploit spatial locality, a cache does not store individual bytes. It stores fixed-size blocks called **cache lines**, almost always **64 bytes**.
+
+When a program reads one byte that is not cached, the processor fetches the entire 64-byte line containing it. The neighbouring 63 bytes arrive for free.
+
+For an array of 4-byte integers, one miss brings in 16 elements. Walking through the array costs one miss per 16 elements, not one per element. And the processor does better still: its **prefetcher** notices a steady march through memory and starts fetching lines before they are asked for.
+
+## How a cache finds things
+
+A cache has to answer "do I have this address?" extremely quickly, with no time to search. It uses the address itself to decide where to look, in the same way a [hash table](/data-structures/hash-tables/) does.
+
+The simplest design is **direct-mapped**. The bits of an address are split into three fields.
+
+| Field | Says |
+| --- | --- |
+| **Offset** | which byte within the line |
+| **Index** | which cache line to look in |
+| **Tag** | which block of memory is currently in that line |
+
+To look up an address, go straight to the line given by the index, and compare the tag stored there with the tag of the address. If they match, it is a hit.
+
+This toy cache has 4 lines of 4 bytes each, so it holds 16 bytes in total.
+
+<CacheDemo />
+
+Things to try:
+
+- **Walk forward.** Addresses 0 to 11 in order. One miss per line, then three hits: the rest of the line came along with it.
+- **Small loop.** Three addresses, repeated. Three misses the first time round and nothing but hits afterwards. That is temporal locality.
+- **Two that clash.** Addresses 0 and 16 have the same index but different tags. They are forced to share one line, and each access evicts the other. Every access misses, although three of the four lines are sitting empty.
+
+### Associativity
+
+That last case is called a **conflict miss**, and it is the weakness of a direct-mapped cache. The fix is to give each block a choice of places.
+
+In a **set-associative** cache, the index selects a small *set* of lines, typically 4 to 16, and a block may go in any of them. All the tags in the set are compared at once. Two blocks with the same index can now coexist.
+
+When a set is full and something new arrives, one line has to be evicted. The usual policy is to drop the one **least recently used**.
+
+Real caches are nearly all set-associative. L1 is typically 8-way or 12-way.
+
+## Three kinds of miss
+
+| Miss | Cause | Reduced by |
+| --- | --- | --- |
+| **Cold** | the data has never been loaded | prefetching |
+| **Capacity** | the program is using more data than the cache can hold | a bigger cache, or more compact data |
+| **Conflict** | too many blocks map to the same set | more associativity |
+
+## Caches and multiple cores
+
+Each core has its own L1 and L2. When two cores hold copies of the same line and one writes to it, the other's copy becomes stale and must be invalidated. Keeping the copies consistent is done automatically by the hardware.
+
+That has a surprising side effect called **false sharing**. Suppose two threads each update their own, completely separate, variable, and the two variables happen to lie in the same 64-byte line. Every write by one core invalidates the line in the other. The line bounces back and forth, and both threads run many times slower than they should, although they share no data. The cure is to keep such variables at least a cache line apart.
+
+## Why programmers should care
+
+For data that fits in cache, a program is limited by how fast the processor can compute. For data that does not, it is limited by memory, and can be ten or more times slower with the same number of instructions.
+
+This is why:
+
+- an [array](/data-structures/arrays/) is so much faster to scan than a [linked list](/data-structures/linked-lists/), whose nodes are scattered;
+- a [B-tree](/data-structures/b-trees/) with many keys per node beats a binary tree, even in memory;
+- [quicksort](/algorithms/quicksort/) usually outruns [heapsort](/algorithms/heapsort/) despite the same Big-O;
+- how you [lay out a struct](/foundations/memory-layout-and-alignment/) affects speed.
+
+[Big-O notation](/foundations/big-o-notation/) counts operations as though each cost the same. On real hardware, a memory access can cost one cycle or three hundred. The practical consequences are the subject of [cache locality](/architecture/cache-locality/).
+
+## Key takeaways
+
+- Caches are small, fast memories holding copies of recently used data, because main memory is about 100 times slower than the processor.
+- They come in levels: L1 is the smallest and fastest, L3 the largest and slowest.
+- They work because programs reuse data (temporal locality) and use neighbouring data (spatial locality).
+- Data is cached in 64-byte lines, so touching one byte brings in its neighbours.
+- A cache finds a block from the bits of its address. Blocks that compete for the same place cause conflict misses, which associativity reduces.
