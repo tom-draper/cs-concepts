@@ -1,0 +1,162 @@
+---
+description: In the actor model a program is a set of independent actors, each with private state and a mailbox. Actors affect one another only by sending messages, and each handles one message at a time, so there is no shared memory to protect.
+difficulty: intermediate
+---
+
+[Locks](/concurrency/mutexes/) let threads share memory carefully. [Channels](/concurrency/channels/) let them pass data instead. The **actor model** takes the second idea all the way: there is no shared memory at all, and every part of the program is an isolated unit that can only be reached by sending it a message.
+
+## What an actor is
+
+An **actor** has three things.
+
+- **Private state.** Nothing outside the actor can read or change it.
+- **A mailbox.** A [queue](/data-structures/queues/) of messages sent to it.
+- **Behaviour.** Code that handles one message.
+
+It takes messages from its mailbox one at a time. In response to each, it can do exactly three kinds of thing.
+
+1. Send messages to actors it knows the address of.
+2. Create new actors.
+3. Change its own state, which decides how it will handle the next message.
+
+<Graph
+  directed
+  nodes={{ client: [0, 0.6], orders: [1.8, 0.6], stock: [3.6, 0], payments: [3.6, 1.2] }}
+  edges={[['client', 'orders', 'place'], ['orders', 'stock', 'reserve'], ['orders', 'payments', 'charge']]}
+  highlight={['orders']}
+  caption="Each actor owns its data. The orders actor cannot read the stock levels. It can only send the stock actor a message and wait for one back."
+/>
+
+## Why there are no races
+
+A [race condition](/concurrency/race-conditions/) on memory needs two threads touching the same data. An actor's state is touched only by the actor, and the actor handles one message at a time. Handling a message is therefore a critical section that needs no lock.
+
+Many actors run at the same moment on different cores. Each is sequential on the inside.
+
+## A counter as an actor
+
+```python
+import threading, queue
+
+class Actor:
+    def __init__(self):
+        self.mailbox = queue.Queue()
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def send(self, message):
+        self.mailbox.put(message)    # returns at once
+
+    def _run(self):
+        while True:
+            self.receive(self.mailbox.get())   # one message at a time
+
+class Counter(Actor):
+    def __init__(self):
+        self.count = 0               # private: only the actor's thread touches it
+        super().__init__()
+
+    def receive(self, message):
+        match message:
+            case ("add", amount):
+                self.count += amount
+            case ("get", reply_to):
+                reply_to.put(self.count)
+
+counter = Counter()
+
+def work():
+    for _ in range(10_000):
+        counter.send(("add", 1))
+
+threads = [threading.Thread(target=work) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+
+reply = queue.Queue()
+counter.send(("get", reply))
+print(reply.get())                   # 40000
+```
+
+Four threads send 10,000 messages each and the count comes to exactly 40,000, with no lock around `self.count += amount`. Only one thread ever runs that line.
+
+This sketch uses a thread per actor to keep it short. Real actor systems do not. They run very many actors on a small pool of threads, giving each a turn when it has mail, so an actor costs a few hundred bytes and a system can hold millions.
+
+## Messages are asynchronous
+
+Sending returns immediately. The sender does not wait for the message to be handled, or learn whether it was.
+
+That makes a question and its answer two separate messages. To ask the counter for its value, the caller includes a place to reply to, and the answer arrives later as a message of its own. The asking actor is free to handle other mail in between.
+
+Messages should be immutable values. A message that carried a reference to the sender's changeable data would be shared memory by the back door.
+
+## Compared with channels
+
+| | Channels | Actors |
+| --- | --- | --- |
+| What has an identity | the channel | the actor |
+| You send to | a channel, whoever is reading it | a particular actor's address |
+| Queues per receiver | as many as it likes | one mailbox |
+| Sending | blocks when the buffer is full | returns at once |
+| Backpressure | built in | has to be designed |
+| Across machines | not directly | the same as locally |
+
+The two models can each be built from the other. They differ in what they make easy.
+
+## Let it crash
+
+The actor model's most distinctive idea is about failure. Because actors share nothing, one can fail without corrupting any other. That makes it safe to respond to an unexpected error by letting the actor die and starting a fresh one.
+
+Actors are arranged in a tree. Each has a **supervisor**, the actor that created it, which is told when it fails and decides what to do.
+
+<Tree
+  root={{ k: 'supervisor', c: ['orders', 'stock', { k: 'payments', c: ['worker 1', 'worker 2'] }] }}
+  alt={['worker 2']}
+  caption="When worker 2 fails, the payments actor is notified. It can restart that worker, restart all its workers, or give up and pass the failure to its own supervisor."
+/>
+
+| Decision | Effect |
+| --- | --- |
+| Restart | replace the failed actor with a new one in its initial state |
+| Restart the siblings too | when the children depend on one another |
+| Stop | give up on that actor |
+| Escalate | fail in turn, and let the next supervisor up decide |
+
+Instead of defensive code for every possible error scattered through the program, the ordinary path is written plainly, and recovery lives in the supervisors. A fault that depended on some rare corrupt state usually does not recur after a restart with clean state.
+
+This approach comes from Erlang, built at Ericsson in the 1980s for telephone exchanges that had to keep running through hardware faults and software upgrades.
+
+## Across machines
+
+An actor is addressed, not referenced. Sending a message looks the same whether the receiver is in the same process or on another continent, which is called **location transparency**. An actor system can be spread over many machines without changing the code that sends.
+
+The catch is that messages between machines can be lost, delayed or delivered twice, and the model does not hide that. Actor systems generally promise at-most-once delivery: a message arrives once or not at all. Code that needs more has to ask for acknowledgements and resend.
+
+## Where actors are used
+
+| System | Notes |
+| --- | --- |
+| Erlang and Elixir | the model is the language. Processes are actors |
+| Akka and Pekko | actor libraries for Java and Scala |
+| Orleans | "virtual actors" for .NET, created on demand and addressed by key |
+| Swift | `actor` types in the language, with the compiler checking isolation |
+
+Messaging apps, telephone switches, multiplayer game servers and other systems with huge numbers of independent, long-lived things, one per user, call or device, fit the model well.
+
+## What it costs
+
+- **Everything is asynchronous.** A simple call and return becomes a request message, a reply message and state to remember in between. Flows that touch several actors are harder to follow and debug.
+- **Mailboxes can overflow.** Sending never blocks, so a slow actor's mailbox grows without limit unless the system adds bounds or flow control.
+- **[Deadlock](/concurrency/deadlock/) is still possible.** Two actors each waiting for a reply from the other wait for ever.
+- **Ordering is limited.** Messages from one sender to one receiver arrive in order. Messages from different senders interleave unpredictably, which is a race at the level of messages.
+- **Consistency across actors.** An update that must change two actors together cannot be done atomically. It needs a protocol.
+- **Overhead.** Copying a message and queueing it is far slower than a function call. Actors suit coarse units of work.
+
+## Key takeaways
+
+- An actor has private state, a mailbox and code that handles one message at a time.
+- Actors interact only by sending immutable messages, so there is no shared memory and no need for locks.
+- Sending is asynchronous. A reply, if any, is another message.
+- Supervisors restart actors that fail, which isolates faults and keeps error handling in one place.
+- The same message passing works across machines, with the usual caveat that messages can be lost.
