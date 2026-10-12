@@ -1,0 +1,109 @@
+---
+description: A process is a program while it is running. The operating system gives each one its own private memory and a share of the processor, and keeps them from interfering with one another.
+difficulty: beginner
+---
+
+A **program** is a file on disk: a list of instructions and some data. It does nothing by itself. A **process** is what you get when the operating system loads that program into memory and starts running it.
+
+The distinction matters because one program can be many processes. Open three terminal windows and there are three processes running the same shell program, each with its own state and each unaware of the others.
+
+## What a process is made of
+
+The operating system keeps track of several things for every process.
+
+| | |
+| --- | --- |
+| **An address space** | its own private view of memory, holding its code, data, [heap and stack](/foundations/stack-and-heap/) |
+| **Processor state** | the contents of the registers, including the program counter, saved whenever it is not running |
+| **Open resources** | files, network connections, and other things it has asked the system for |
+| **Identity** | a process ID (PID), the user it belongs to, and its parent process |
+| **Bookkeeping** | its priority, how much CPU time it has used, what it is waiting for |
+
+All of this is recorded in a structure the kernel keeps for each process, called the **process control block**.
+
+## Two illusions
+
+A process is given two convenient fictions.
+
+**It has the processor to itself.** In reality there are usually far more processes than processor cores. The operating system runs each for a few milliseconds and then switches to another, fast enough that they all appear to run at once. See [context switching](/operating-systems/context-switching/) and [CPU scheduling](/operating-systems/cpu-scheduling/).
+
+**It has memory to itself.** Each process sees a large, private range of addresses starting from zero. Address 1000 in one process and address 1000 in another refer to completely different physical memory. This is [virtual memory](/operating-systems/virtual-memory/).
+
+## Isolation
+
+Because each process has its own address space, one process **cannot read or write another's memory**. This is the most important thing an operating system provides.
+
+- A bug that corrupts memory damages only the process it is in. One crashed application does not bring down the others, or the system.
+- A malicious program cannot simply read your password out of another program's memory.
+
+Isolation is enforced by hardware. The processor runs in one of two modes. Ordinary programs run in **user mode**, where instructions that could affect other processes are forbidden. The operating system's core, the **kernel**, runs in **kernel mode**, where everything is allowed. When a process needs something it cannot do itself, such as reading a file, it asks the kernel through a [system call](/operating-systems/system-calls/).
+
+## The life of a process
+
+A process moves between a small number of states.
+
+<Graph
+  directed
+  nodes={{ new: [0, 0], ready: [1.5, 0], running: [3.2, 0], waiting: [2.35, 1.2], finished: [5, 0] }}
+  edges={[['new', 'ready'], ['ready', 'running'], ['running', 'ready'], ['running', 'waiting'], ['waiting', 'ready'], ['running', 'finished']]}
+  caption="A process is ready when it could run but is waiting for a turn, and waiting when it cannot continue until something happens."
+/>
+
+- **Ready.** It could run right now, but every processor is busy with something else.
+- **Running.** It is executing on a processor.
+- **Waiting** (or blocked). It has asked for something that takes time, such as data from disk or a key press, and cannot continue until that arrives. It uses no processor time at all while waiting.
+
+The arrow from *running* back to *ready* is the operating system taking the processor away to give another process a turn. The arrow from *waiting* goes to *ready*, not straight to *running*: when the data arrives, the process rejoins the queue.
+
+At any moment most processes on a typical computer are waiting. That is why a machine can have hundreds of processes and still be idle.
+
+## Creating processes
+
+Every process is created by another, its **parent**. The result is a tree, with a single first process at the root, started by the kernel when the system boots.
+
+On Unix-like systems creation happens in two steps.
+
+- **`fork`** makes a copy of the calling process. The copy, the *child*, is nearly identical: same code, same data, same open files. The two then continue separately.
+- **`exec`** replaces the program a process is running with a different one, keeping the same process.
+
+```python
+import os
+
+pid = os.fork()
+if pid == 0:
+    os.execvp('ls', ['ls', '-l'])    # in the child: become the `ls` program
+else:
+    os.waitpid(pid, 0)               # in the parent: wait for the child to finish
+```
+
+This is exactly what a shell does when you type a command. Separating the two steps lets the parent adjust the child's environment in between, for example redirecting its output to a file, before the new program starts.
+
+Copying a whole process sounds expensive. In practice `fork` copies almost nothing. Parent and child share the same physical memory, marked read-only, and a page is copied only when one of them tries to change it. This is called **copy-on-write**.
+
+When a process finishes, it returns an **exit code** to its parent: by convention, 0 for success and anything else for failure.
+
+## Talking to each other
+
+Isolation means processes cannot share data by accident. When they need to cooperate, they use mechanisms provided by the kernel, collectively called **inter-process communication**.
+
+| Mechanism | What it is |
+| --- | --- |
+| **Pipes** | a one-way stream from one process to another, as in `ls \| grep txt` |
+| **Signals** | a small notification, such as "please terminate" |
+| **Sockets** | a two-way channel, working locally or across a network |
+| **Shared memory** | a region of memory deliberately mapped into more than one process |
+| **Files** | one process writes, another reads |
+
+## Processes and threads
+
+A process can contain several [threads](/operating-systems/threads/): independent paths of execution that share the process's memory. Threads are cheaper to create and can share data directly, at the cost of the isolation that separate processes have.
+
+A web browser shows the trade-off well. Modern browsers run each site in its own process, so that a crash or a security hole in one page cannot reach another, and accept the extra memory this uses.
+
+## Key takeaways
+
+- A process is a running instance of a program, with its own memory, processor state and resources.
+- The operating system gives each process the illusion of a private processor and private memory.
+- Processes are isolated from one another, enforced by hardware, so that faults and attacks are contained.
+- A process is running, ready, or waiting. Most are waiting most of the time.
+- On Unix, `fork` copies a process and `exec` replaces its program. Processes cooperate through pipes, sockets and other channels provided by the kernel.
