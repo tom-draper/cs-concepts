@@ -1,0 +1,137 @@
+---
+description: Single instruction, multiple data. One processor instruction operates on a whole group of values at once, which is how numerical code gets several times more work out of each clock cycle.
+difficulty: advanced
+---
+
+An ordinary processor instruction works on one value at a time: add this number to that number. To add two arrays of a million numbers takes a million additions.
+
+**SIMD**, short for "single instruction, multiple data", provides instructions that work on a whole group of values together. A single instruction adds four, eight or sixteen pairs of numbers in one go.
+
+## The idea
+
+A SIMD register is wide, 128 to 512 bits, and holds several values side by side, each in its own **lane**. One instruction applies the same operation to every lane at once.
+
+<Steps>
+<Step title="Ordinary (scalar) code adds one pair per instruction">
+
+Four additions need four instructions.
+
+<ArrayViz values={[1, 2, 3, 4]} highlight={[0]} indices={false} caption="A" />
+
+<ArrayViz values={[10, 20, 30, 40]} highlight={[0]} indices={false} caption="B" />
+
+<ArrayViz values={[11, null, null, null]} alt={[0]} indices={false} caption="A + B, after one instruction" />
+
+</Step>
+<Step title="SIMD code adds every lane in a single instruction">
+
+<ArrayViz values={[1, 2, 3, 4]} highlight={[0, 1, 2, 3]} indices={false} caption="A, in one wide register" />
+
+<ArrayViz values={[10, 20, 30, 40]} highlight={[0, 1, 2, 3]} indices={false} caption="B, in another" />
+
+<ArrayViz values={[11, 22, 33, 44]} alt={[0, 1, 2, 3]} indices={false} caption="A + B, after one instruction" />
+
+</Step>
+</Steps>
+
+The hardware really does contain several adders side by side. It is a different kind of parallelism from using several processor cores: one core, one stream of instructions, with each instruction doing more.
+
+## How wide
+
+Each generation of [instruction set](/architecture/instruction-sets/) extensions has widened the registers.
+
+| Extension | Found on | Register width | 32-bit numbers per register |
+| --- | --- | --- | --- |
+| SSE | x86, since 1999 | 128 bits | 4 |
+| AVX2 | x86, since 2013 | 256 bits | 8 |
+| AVX-512 | some x86 processors | 512 bits | 16 |
+| NEON | ARM | 128 bits | 4 |
+| SVE | newer ARM | 128 to 2,048 bits, chosen by the chip | 4 or more |
+
+The same register can be divided up in different ways. A 256-bit register holds 4 numbers of 64 bits, 8 of 32 bits, or 32 single bytes. Operating on bytes is where SIMD is most dramatic: one instruction can examine 32 or 64 characters of text.
+
+## What speed-up to expect
+
+Processing 8 values per instruction suggests code that is 8 times faster. In practice the gain is usually smaller, and sometimes larger.
+
+- **Memory, not arithmetic, is often the limit.** If the data does not fit in the [cache](/architecture/cpu-caches/), the processor spends its time waiting for memory, and wider instructions do not help.
+- **Not every step vectorises.** The parts that remain scalar set a ceiling on the overall gain.
+- **Some processors slow their clock** slightly when running the widest instructions, because of the power they draw.
+
+A realistic range is 2 to 8 times for arithmetic on numbers, and occasionally far more for byte-level tasks such as searching text.
+
+## Who writes SIMD code
+
+### The compiler, sometimes
+
+Modern compilers perform **auto-vectorisation**: they recognise loops that can be done in lanes and emit SIMD instructions without being asked.
+
+```c
+for (int i = 0; i < n; i++)
+    c[i] = a[i] + b[i];
+```
+
+That loop vectorises well. Each iteration is independent of the others, the arrays are contiguous, and there are no branches.
+
+Compilers give up easily, though. Common obstacles:
+
+- **A dependency between iterations.** If each step needs the result of the previous one, the steps cannot be done side by side.
+- **Possible overlap.** If the compiler cannot prove that the output array does not overlap the inputs, it must assume it might.
+- **Branches** in the loop body, and calls to functions it cannot see into.
+- **Data that is not laid out contiguously.**
+
+### Libraries, usually
+
+Most programmers benefit from SIMD without ever seeing it, by calling code that was written to use it.
+
+```python
+import numpy as np
+
+c = a + b              # one call; the loop inside is vectorised machine code
+```
+
+That NumPy expression can be a hundred times faster than a Python `for` loop over the same data. Part of that is avoiding the interpreter, and part is SIMD. The same is true of image libraries, video codecs, compression libraries, cryptography and the standard routines for copying and comparing memory.
+
+### People, when it matters
+
+For the most performance-critical code, programmers write SIMD explicitly, using *intrinsics*: functions that correspond one-to-one with SIMD instructions. It is fiddly and specific to one processor family, so it tends to be confined to the innermost loops of libraries.
+
+## Layout matters
+
+SIMD wants the values it operates on to be **next to each other** in memory, so that one load fills a register.
+
+Consider a million particles, each with x, y and z coordinates.
+
+| Layout | In memory | Loading eight x values |
+| --- | --- | --- |
+| Array of structs | `x y z x y z x y z …` | the x values are spread out, with y and z between them |
+| Struct of arrays | `x x x x …` `y y y y …` `z z z z …` | eight consecutive x values: one load |
+
+The second layout is far friendlier to SIMD, and to the cache. This is the main reason high-performance code, from game engines to databases, stores data in columns. See [memory layout and alignment](/foundations/memory-layout-and-alignment/#layout-and-the-cache).
+
+## Conditions without branches
+
+A loop body containing an `if` seems to rule out doing every lane together, since different lanes might take different paths.
+
+SIMD handles this by doing both. A comparison produces a **mask**, with every bit of a lane set to 1 where the condition is true and 0 where it is false. Both possible results are computed for every lane, and the mask selects between them using [bitwise operations](/foundations/bitwise-operations/).
+
+It does more arithmetic than strictly needed, but it has no branches at all, so there is nothing for the [branch predictor](/architecture/branch-prediction/) to get wrong.
+
+## Where it shows up
+
+- **Media**: decoding images, audio and video. Much of what makes video playback possible on ordinary hardware.
+- **Scientific computing and machine learning**: linear algebra on large arrays of numbers.
+- **Databases**: scanning and filtering whole columns of values.
+- **Text processing**: searching for a character, validating UTF-8, and parsing JSON, at gigabytes per second.
+- **Cryptography and hashing.**
+- **Graphics and physics** in games.
+
+Graphics processors take the same idea much further, applying one operation across thousands of values at once.
+
+## Key takeaways
+
+- SIMD instructions apply one operation to several values held side by side in a wide register.
+- Registers are 128 to 512 bits wide, giving 4 to 16 lanes of 32-bit numbers, or up to 64 bytes.
+- Compilers vectorise simple, independent loops automatically, and give up when iterations depend on each other.
+- Most programs get SIMD through libraries such as NumPy, codecs and standard memory routines.
+- It needs contiguous data, which favours storing values in columns.
