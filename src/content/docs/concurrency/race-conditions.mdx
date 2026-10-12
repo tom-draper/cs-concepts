@@ -1,0 +1,127 @@
+---
+description: A race condition is a bug where the result depends on the order in which concurrent steps happen to run. The code is correct for most orders and wrong for a few, which is what makes it so hard to find.
+difficulty: intermediate
+---
+
+When two [threads](/operating-systems/threads/) share memory, the operating system decides, moment by moment, which of them runs. The program has no say. If the answer the program produces depends on that choice, it has a **race condition**.
+
+## A lost update
+
+Two threads each add 1 to a shared counter. The line `counter += 1` is not one step. It is three.
+
+1. Read the counter into a temporary value.
+2. Add 1 to the temporary value.
+3. Write the temporary value back.
+
+A switch to the other thread can come between any two of them. Run the steps below in whatever order you like and see what the counter ends as.
+
+<InterleaveDemo scenario="race" />
+
+Try "Taking turns". Both threads read 0, both compute 1, both write 1. Two increments ran and one of them vanished.
+
+Six steps from two threads can be ordered in 20 ways. Only two of them, all of A then all of B or the reverse, give the right answer. Every other order loses an update.
+
+## Why real programs mostly get away with it
+
+In the demo the bad orders are 18 out of 20. In a real program they are rare, and that is the trouble.
+
+The three steps take a few nanoseconds. A thread typically runs for milliseconds before it is [switched out](/operating-systems/context-switching/). The chance that the switch lands inside those particular nanoseconds is tiny, so the program passes its tests, and then fails once a week in production, under load, on a machine with more cores.
+
+Here is the lost update in Python.
+
+```python
+import threading, time
+
+counter = 0
+
+def work():
+    global counter
+    for _ in range(1000):
+        value = counter          # read
+        time.sleep(0)            # invite a switch to another thread
+        counter = value + 1      # add, then write
+
+threads = [threading.Thread(target=work) for _ in range(4)]
+for t in threads:
+    t.start()
+for t in threads:
+    t.join()
+print(counter)                   # 4000 if no update was lost
+```
+
+Three runs on one machine printed 1000, 1000 and 1041. About three quarters of the updates were lost, and the number is not even the same each time.
+
+The `sleep(0)` is there to make the bug show. Without it, the standard Python interpreter happens to switch threads at moments that fall outside the read and the write, and the same program prints 4000 on every run. The race is still there. It is waiting for a different interpreter version, or a build of Python without the global lock, to expose it.
+
+<Aside title="Hidden is not the same as absent">
+
+A race that never shows up in testing is the dangerous kind. Timing changes with the hardware, the load, the compiler and the version of the runtime. Adding a print statement or running under a debugger changes it too, often enough to make the bug disappear while you are looking for it.
+
+</Aside>
+
+## Check, then act
+
+Lost updates are one shape of race. The other common one is checking a condition and then acting on it, when the condition can change in between.
+
+```python
+def withdraw(amount):
+    global balance
+    if balance >= amount:        # check
+        balance -= amount        # act
+```
+
+With a balance of 100, two threads each withdraw 80. Both check, both see 100, both subtract. The balance ends at -60, which the check was supposed to make impossible.
+
+The same pattern appears far from threads.
+
+| Check | Act | What can happen in between |
+| --- | --- | --- |
+| Is the seat free? | Book it | Somebody else books it |
+| Does the file exist? | Create it | Another program creates it |
+| Is the username taken? | Insert the row | Another request inserts it |
+| Is the key in the cache? | Compute and store it | Another thread computes it too |
+
+Two web requests racing in a database, or two programs racing on a file, are race conditions just as much as two threads on a counter. When a race on a file is used to break security, by swapping the file between a permission check and its use, it is called a time-of-check to time-of-use bug.
+
+## Critical sections
+
+The steps that must not be interleaved are a **critical section**. In the counter it is read, add, write. In the withdrawal it is the check together with the subtraction.
+
+A race condition is fixed by making the critical section **atomic**: it runs as if it were one indivisible step, so that no other thread can see or change the data halfway through.
+
+## Data races
+
+A related and narrower term is **data race**: two threads access the same memory at the same time, at least one of them writes, and nothing coordinates them.
+
+| | Data race | Race condition |
+| --- | --- | --- |
+| What it is | unsynchronised access to the same memory | a result that depends on timing |
+| Level | a single memory access | the logic of the program |
+| Detectable by tools | yes, mechanically | not in general |
+
+The two overlap without being the same thing. The withdrawal example can be written with every individual access protected, and still be wrong, because the check and the act are protected separately and another thread can slip between them.
+
+In C, C++ and Rust a data race is worse than a wrong value. The language gives it no defined meaning at all, and the compiler is free to assume it never happens. Rust's type system rejects programs with data races at compile time. Tools such as ThreadSanitizer find them at run time in C, C++ and Go.
+
+## Ways to remove a race
+
+Every fix either stops the sharing or controls it.
+
+| Approach | Idea | Covered in |
+| --- | --- | --- |
+| Do not share | give each thread its own data and combine results at the end | |
+| Do not change | data that is never modified can be read by any number of threads | |
+| Lock | let one thread at a time into the critical section | [Mutexes](/concurrency/mutexes/) |
+| Atomic operations | have the processor do the read, change and write as one step | [Atomics and compare-and-swap](/concurrency/atomics-and-compare-and-swap/) |
+| Pass messages | let one thread own the data and have the others ask it | [Channels](/concurrency/channels/), [the actor model](/concurrency/the-actor-model/) |
+| One thread | run everything on a single thread and never be interrupted mid-step | [Event loops](/concurrency/event-loops/) |
+
+The first two are the best when they are possible, because they leave nothing to get wrong.
+
+## Key takeaways
+
+- A race condition is a result that depends on the order in which concurrent steps happen to run.
+- `counter += 1` is a read, an add and a write. Two threads doing it at once can lose an update.
+- Checking a condition and then acting on it is a race whenever something else can change the condition in between.
+- Races are rare and timing dependent, so they pass tests and resist debugging.
+- The fix is to make the critical section atomic, or to avoid sharing changeable data in the first place.
