@@ -1,0 +1,135 @@
+---
+description: An atomic operation reads, changes and writes a value as one indivisible step in hardware. Compare-and-swap, the most general of them, updates a value only if nobody else has changed it, and is the building block for everything that avoids locks.
+difficulty: advanced
+---
+
+The [lost update](/concurrency/race-conditions/) happens because read, add and write are three steps. A [mutex](/concurrency/mutexes/) fixes it by keeping other threads out while the three steps run. There is a more direct fix: have the processor do all three as one step.
+
+An operation is **atomic** if no other thread can ever observe it half done. It has either not happened yet or happened completely.
+
+## Atomic operations
+
+Processors provide a small set of atomic instructions on a single machine word, and languages expose them as atomic types.
+
+| Operation | What it does in one step |
+| --- | --- |
+| Load | read the value |
+| Store | write a value |
+| Exchange | write a value and return the old one |
+| Fetch-and-add | add to the value and return the old one |
+| Compare-and-swap | write a new value only if the current one is what was expected |
+
+A shared counter needs only fetch-and-add. In C++ that is `counter.fetch_add(1)` on a `std::atomic<int>`, in Java `counter.incrementAndGet()` on an `AtomicInteger`, in Rust `counter.fetch_add(1, Ordering::Relaxed)` on an `AtomicUsize`, in Go `atomic.AddInt64(&counter, 1)`. No lock, no waiting, and no lost updates.
+
+## Compare-and-swap
+
+Fetch-and-add covers adding. For any other change, the general tool is **compare-and-swap**, usually shortened to CAS. It takes three things: a location, the value you expect to find there, and the value you want to put there.
+
+```python
+def compare_and_swap(location, expected, new):   # all of this is ONE atomic step
+    if location.value != expected:
+        return False             # somebody changed it: do nothing
+    location.value = new
+    return True
+```
+
+It is a conditional write: "change this to `new`, but only if it is still `expected`". The return value says whether the write happened.
+
+The processor does this in a single instruction, `lock cmpxchg` on x86. ARM and RISC-V build it from a pair of instructions, one that reads and marks a location and one that writes only if the mark is still intact.
+
+## The retry loop
+
+CAS is used in a loop with a standard shape.
+
+<Steps>
+<Step title="Read">Load the current value and remember it.</Step>
+<Step title="Compute">Work out the new value from what was read. This can take as long as it likes and holds nothing.</Step>
+<Step title="Swap">Compare-and-swap from the remembered value to the new one.</Step>
+<Step title="Retry">If the swap failed, another thread got in first. Go back to the start with the fresh value.</Step>
+</Steps>
+
+```python
+def increment(atom):
+    while True:
+        seen = atom.load()
+        if atom.compare_and_swap(seen, seen + 1):
+            return               # nobody interfered
+        # otherwise loop and try again with the fresh value
+```
+
+Here are two threads each running that loop on a counter. Try to lose an update.
+
+<InterleaveDemo scenario="cas" />
+
+"Taking turns" is the order that broke the unprotected counter. Both threads see 0 and both compute 1. A's swap succeeds, making the counter 1. B's swap then fails, because the counter is no longer the 0 that B saw. B starts again, sees 1, and swaps in 2.
+
+Nothing was ever blocked. A thread that loses the race does some work again, and that is all.
+
+This is **optimistic** concurrency. A lock is pessimistic: it assumes there will be a conflict and keeps everyone else out in advance. CAS assumes there will not be, goes ahead, and checks at the last moment. The same idea appears in databases as a version number on a row: "update this row, but only if its version is still 7".
+
+## Costs
+
+<Ops
+  items={[
+    ['Atomic load or store', 'O(1)', 'about as fast as a plain one'],
+    ['Fetch-and-add, CAS', 'O(1)', 'a few nanoseconds uncontended'],
+    ['CAS loop under contention', 'retries', 'one thread always succeeds'],
+  ]}
+/>
+
+Atomics are fast but not free. To change a value, a core must have exclusive ownership of the [cache line](/architecture/cpu-caches/) that contains it. When several cores update the same atomic, that line is passed from core to core on every operation, each transfer costing tens of nanoseconds. A hot shared counter can be the slowest thing in a program even though it never blocks.
+
+The same effect catches two different variables that happen to sit in the same cache line. Two threads each updating their own counter slow each other down as if they were sharing one. This is **false sharing**, and the cure is to pad the variables apart.
+
+## The ABA problem
+
+CAS checks that a value is the same as before. It cannot tell whether the value changed and then changed back.
+
+<Steps>
+<Step title="Thread 1 reads A">It is switched out before it can swap.</Step>
+<Step title="Thread 2 changes A to B">And then, after some more work, back to A.</Step>
+<Step title="Thread 1 swaps">The value is A, as expected, so the swap succeeds. But the world is not as thread 1 left it.</Step>
+</Steps>
+
+For a counter this is harmless: 5 is 5. It matters when the value is a pointer, because the same address can come to mean a different thing once the object there has been freed and the memory reused. The [lock-free stack](/concurrency/lock-free-data-structures/) shows how this corrupts a data structure.
+
+The usual defence is to pair the value with a version number that only ever increases, and compare both. A to B to A becomes (A, 1) to (B, 2) to (A, 3), and the stale swap fails.
+
+## Memory ordering
+
+Languages close to the hardware make you say how strongly an atomic operation must be ordered relative to other memory accesses. In C++ and Rust this is the `Ordering` argument.
+
+| Ordering | Guarantee | Use |
+| --- | --- | --- |
+| Sequentially consistent | all threads agree on one order of all such operations | the safe default |
+| Acquire and release | a release store is seen, with everything before it, by an acquire load | handing data from one thread to another |
+| Relaxed | only that the operation itself is atomic | plain counters and statistics |
+
+Processors and compilers reorder memory operations for speed, and the weaker orderings allow more of it. The differences are subtle and wrong choices produce bugs that appear on some processors and not others. Use sequential consistency unless measurement shows a need, and the code has been reviewed by someone who knows the rules.
+
+## Where atomics are used
+
+- **Counters and flags.** Request counts, a "stop now" flag checked by worker threads.
+- **Reference counts.** Shared pointers such as C++ `shared_ptr` and Rust `Arc` count their owners atomically.
+- **Inside locks.** Taking an uncontended mutex is a single CAS from "free" to "held".
+- **[Lock-free data structures](/concurrency/lock-free-data-structures/).** Queues, stacks and maps that many threads use without blocking.
+
+## Atomics or a lock
+
+| | Atomic | Mutex |
+| --- | --- | --- |
+| Protects | one word | any amount of data |
+| Several values consistent together | no | yes |
+| Blocks | never | when contended |
+| [Deadlock](/concurrency/deadlock/) | impossible | possible |
+| Difficulty beyond a counter | high | moderate |
+
+An atomic makes one variable safe. It does nothing to keep two variables consistent with each other. For a single counter, flag or pointer, use an atomic. For anything larger, a lock is simpler and usually fast enough.
+
+## Key takeaways
+
+- An atomic operation is indivisible. No thread can see it half done.
+- Compare-and-swap writes a new value only if the current one is what was expected, and reports whether it did.
+- The CAS loop reads, computes and tries to swap, starting again if another thread changed the value first.
+- Atomics never block, but contended ones are slowed by cache lines moving between cores.
+- CAS cannot see that a value changed and changed back. That is the ABA problem, solved with version numbers.
