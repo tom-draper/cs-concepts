@@ -1,0 +1,76 @@
+---
+// A counting semaphore guarding a pool: workers acquire and release permits.
+interface Props {
+  permits?: number;
+  workers?: number;
+}
+
+const { permits = 3, workers = 6 } = Astro.props;
+---
+
+<semaphore-demo class="playground semaphore-demo" data-permits={permits}>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Permits left</dt><dd data-out="permits">{permits}</dd></div>
+    <div><dt>Inside</dt><dd data-out="inside">0</dd></div>
+    <div><dt>Waiting</dt><dd data-out="waiting">nobody</dd></div>
+  </dl>
+  <p class="workers">
+    {Array.from({ length: workers }, (_, i) => <button type="button" data-worker={i + 1} data-state="idle"><b>{i + 1}</b><small>acquire</small></button>)}
+  </p>
+  <p class="tries">
+    Permits:
+    {[1, 2, 3].map((n) => <button type="button" data-permits={n} aria-pressed={n === permits ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Click a worker to have it acquire a permit. Click it again to release.</p>
+</semaphore-demo>
+
+<script>
+  import { Semaphore } from '../lib/concurrency';
+
+  class SemaphoreDemo extends HTMLElement {
+    connectedCallback() {
+      let total = Number(this.dataset.permits);
+      let semaphore = new Semaphore(total);
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (status?: string) => {
+        out('permits').textContent = String(semaphore.permits);
+        out('inside').textContent = String(semaphore.holders.length);
+        out('waiting').textContent = semaphore.queue.length ? semaphore.queue.join(', ') : 'nobody';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-worker]')) {
+          const id = Number(button.dataset.worker);
+          const state = semaphore.holders.includes(id) ? 'in' : semaphore.queue.includes(id) ? 'waiting' : 'idle';
+          button.dataset.state = state;
+          button.querySelector('small')!.textContent = { in: 'release', waiting: 'blocked', idle: 'acquire' }[state];
+        }
+        for (const button of this.querySelectorAll<HTMLElement>('[data-permits]')) {
+          button.setAttribute('aria-pressed', String(Number(button.dataset.permits) === total));
+        }
+        if (status) out('status').textContent = status;
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.permits) {
+          total = Number(button.dataset.permits);
+          semaphore = new Semaphore(total);
+          render(total === 1 ? 'With one permit, a semaphore lets in one worker at a time, like a mutex.' : `Up to ${total} workers can be inside at once.`);
+          return;
+        }
+        const id = Number(button.dataset.worker);
+        if (semaphore.holders.includes(id)) {
+          const next = semaphore.queue[0];
+          semaphore.release(id);
+          render(next === undefined ? `Worker ${id} releases. The permit goes back to the semaphore.` : `Worker ${id} releases. Its permit goes straight to worker ${next}, which had waited longest.`);
+        } else if (semaphore.queue.includes(id)) {
+          render(`Worker ${id} is blocked. It can do nothing until somebody releases.`);
+        } else {
+          const free = semaphore.permits > 0;
+          semaphore.acquire(id);
+          render(free ? `Worker ${id} takes a permit and goes in.` : `No permits are left, so worker ${id} blocks and joins the queue.`);
+        }
+      });
+    }
+  }
+
+  customElements.define('semaphore-demo', SemaphoreDemo);
+</script>

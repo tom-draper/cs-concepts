@@ -1,0 +1,92 @@
+---
+// A channel with a small buffer: send and receive, and watch each side block.
+interface Props {
+  capacity?: number;
+}
+
+const { capacity = 2 } = Astro.props;
+---
+
+<channel-demo class="playground channel-demo" data-capacity={capacity}>
+  <p class="tries">
+    Buffer size:
+    {[0, 1, 2, 3].map((n) => <button type="button" data-capacity={n} aria-pressed={n === capacity ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <div class="channel">
+    <div>
+      <h4>Blocked senders</h4>
+      <p class="slots" data-out="senders"></p>
+    </div>
+    <div>
+      <h4>Buffer</h4>
+      <p class="slots buffer" data-out="buffer">{Array.from({ length: capacity }, () => <i class="empty" />)}</p>
+    </div>
+    <div>
+      <h4>Blocked receivers</h4>
+      <p class="slots" data-out="receivers"></p>
+    </div>
+  </div>
+  <p class="tries">
+    <button type="button" data-act="send">Send</button>
+    <button type="button" data-act="receive">Receive</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts">
+    <div><dt>Received so far</dt><dd data-out="received">nothing</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Each send carries the next number. Try sending more than the buffer holds.</p>
+</channel-demo>
+
+<script>
+  import { Channel } from '../lib/concurrency';
+
+  class ChannelDemo extends HTMLElement {
+    connectedCallback() {
+      let capacity = Number(this.dataset.capacity);
+      let channel = new Channel(capacity);
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const slot = (text: string | number, className = '') => {
+        const el = document.createElement('i');
+        el.textContent = String(text);
+        el.className = className;
+        return el;
+      };
+      const render = (status: string) => {
+        out('senders').replaceChildren(...channel.senders.map((value) => slot(value, 'blocked')));
+        out('buffer').replaceChildren(
+          ...(capacity === 0
+            ? [slot('none', 'none')]
+            : Array.from({ length: capacity }, (_, i) =>
+                i < channel.buffer.length ? slot(channel.buffer[i]) : slot('', 'empty'),
+              )),
+        );
+        out('receivers').replaceChildren(...Array.from({ length: channel.receivers }, () => slot('?', 'blocked')));
+        out('received').textContent = channel.received.length ? channel.received.join(', ') : 'nothing';
+        out('status').textContent = status;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-capacity]')) {
+          button.setAttribute('aria-pressed', String(Number(button.dataset.capacity) === capacity));
+        }
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.capacity) {
+          capacity = Number(button.dataset.capacity);
+          channel = new Channel(capacity);
+          render(capacity === 0 ? 'With no buffer, every send has to meet a receive.' : `The buffer holds ${capacity}.`);
+        } else if (button.dataset.act === 'reset') {
+          channel = new Channel(capacity);
+          render('Emptied.');
+        } else if (button.dataset.act === 'send') {
+          if (channel.senders.length >= 4) return render('That is enough blocked senders. Try receiving.');
+          render(channel.send());
+        } else if (button.dataset.act === 'receive') {
+          if (channel.receivers >= 4) return render('That is enough blocked receivers. Try sending.');
+          render(channel.receive());
+        }
+      });
+    }
+  }
+
+  customElements.define('channel-demo', ChannelDemo);
+</script>

@@ -8,10 +8,12 @@ import BloomDemo from './BloomDemo.astro';
 import BitwiseDemo from './BitwiseDemo.astro';
 import BranchDemo from './BranchDemo.astro';
 import CacheDemo from './CacheDemo.astro';
+import ChannelDemo from './ChannelDemo.astro';
 import CountingDemo from './CountingDemo.astro';
 import CountMinDemo from './CountMinDemo.astro';
 import CpuDemo from './CpuDemo.astro';
 import EditDistanceDemo from './EditDistanceDemo.astro';
+import EventLoopDemo from './EventLoopDemo.astro';
 import FloatDemo from './FloatDemo.astro';
 import Frame from './Frame.astro';
 import GateDemo from './GateDemo.astro';
@@ -19,6 +21,7 @@ import GraphDemo from './GraphDemo.astro';
 import GridSearch from './GridSearch.astro';
 import HashPlayground from './HashPlayground.astro';
 import HllDemo from './HllDemo.astro';
+import InterleaveDemo from './InterleaveDemo.astro';
 import Link from './Link.astro';
 import LogicDemo from './LogicDemo.astro';
 import MatchDemo from './MatchDemo.astro';
@@ -31,6 +34,7 @@ import Player from './Player.astro';
 import QueensPlayer from './QueensPlayer.astro';
 import RegisterDemo from './RegisterDemo.astro';
 import SchedulerDemo from './SchedulerDemo.astro';
+import SemaphoreDemo from './SemaphoreDemo.astro';
 import SortDemo from './SortDemo.astro';
 import Step from './Step.astro';
 import Steps from './Steps.astro';
@@ -48,6 +52,10 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  ChannelDemo,
+  EventLoopDemo,
+  InterleaveDemo,
+  SemaphoreDemo,
   AllocatorDemo,
   PageReplacementDemo,
   PagingDemo,
