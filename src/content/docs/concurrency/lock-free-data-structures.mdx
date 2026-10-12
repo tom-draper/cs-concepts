@@ -1,0 +1,146 @@
+---
+description: A lock-free data structure lets many threads use it at once without any of them holding a lock. Threads change it with compare-and-swap and retry when they collide, so a stalled thread can never hold up the rest.
+difficulty: advanced
+---
+
+A structure protected by a [mutex](/concurrency/mutexes/) has a weakness. If the thread holding the lock is [switched out](/operating-systems/context-switching/), every other thread that needs the structure waits until it runs again. If it is stuck, they are all stuck.
+
+A **lock-free** structure has no lock to hold. Threads read it and change it directly, using [compare-and-swap](/concurrency/atomics-and-compare-and-swap/) to make each change atomic. A thread that loses a collision tries again. A thread that is paused in the middle delays nobody.
+
+## A lock-free stack
+
+The simplest example is a [stack](/data-structures/stacks/) kept as a [linked list](/data-structures/linked-lists/), with one atomic pointer to the top. It is known as the Treiber stack.
+
+<LinkedList values={['C', 'B', 'A']} labels={{ top: 0 }} caption="Push and pop both happen at the top, so the only thing threads compete for is the top pointer." />
+
+To push, a thread builds its node privately and then swings the top pointer across in one atomic step.
+
+<Steps>
+<Step title="Read the top">Remember which node it is.</Step>
+<Step title="Build the new node">Point its `next` at the node just read. Nothing shared has changed yet, so no other thread can see this.</Step>
+<Step title="Compare-and-swap the top">From the remembered node to the new one. If the top is still what was read, the node is now in the stack.</Step>
+<Step title="Or retry">If the top has moved, another thread pushed or popped first. Start again.</Step>
+</Steps>
+
+```python
+class Node:
+    def __init__(self, value, next):
+        self.value = value
+        self.next = next
+
+class Stack:
+    def __init__(self):
+        self.top = AtomicRef(None)                   # an atomic pointer
+
+    def push(self, value):
+        while True:
+            old = self.top.load()                    # 1. look at the top
+            node = Node(value, old)                  # 2. new node points at it
+            if self.top.compare_and_swap(old, node): # 3. swing the top across
+                return                               #    unless it moved
+
+    def pop(self):
+        while True:
+            old = self.top.load()
+            if old is None:
+                return None
+            if self.top.compare_and_swap(old, old.next):
+                return old.value
+```
+
+Python has no atomic pointer type, so `AtomicRef` here stands for one, with `load` and `compare_and_swap` as its two operations. Java's `AtomicReference`, C++'s `std::atomic<T*>` and Rust's `AtomicPtr` are the real thing.
+
+The whole design rests on one observation. The structure changes in a single atomic step, the swap of `top`. Before that step the new node is invisible. After it the node is fully in place. There is no moment when another thread can see a half-finished push.
+
+## What lock-free guarantees
+
+The term has a precise meaning. It is one of a ladder of progress guarantees.
+
+| Guarantee | Promise | A stalled thread can |
+| --- | --- | --- |
+| Blocking (uses locks) | none | stop everyone |
+| Obstruction-free | a thread finishes if it runs alone for long enough | cause others to keep retrying |
+| Lock-free | at any time, some thread is making progress | not stop the system as a whole |
+| Wait-free | every thread finishes in a bounded number of its own steps | not delay anyone |
+
+In the stack, a compare-and-swap fails only because another thread's succeeded. So whenever threads collide, at least one of them completes its operation. The system as a whole always moves forward. That is lock-freedom.
+
+It does not promise that a particular thread ever gets through. An unlucky thread could, in principle, lose every time. **Wait-free** structures rule that out, at a considerable cost in complexity, and are mainly used in hard real-time systems.
+
+Lock-free does not mean faster, either. The guarantee is about progress, not speed.
+
+## The ABA problem
+
+The stack above is correct in a language with garbage collection. In a language where memory is freed by hand, it has a famous flaw.
+
+A pop reads the top node and its `next`, and then swaps. Between the read and the swap, other threads can change the stack and leave the same node address on top.
+
+<Player>
+<Frame caption="Thread 1 begins a pop. It reads the top, A, and A's next, B. It intends to swap the top from A to B. Then it is paused.">
+<LinkedList values={['A', 'B', 'C']} labels={{ top: 0 }} highlight={[0]} />
+</Frame>
+<Frame caption="Thread 2 pops A and then pops B. Both nodes are freed. The stack is just C.">
+<LinkedList values={['C']} labels={{ top: 0 }} />
+</Frame>
+<Frame caption="Thread 2 pushes a new value. The allocator reuses the memory that A occupied, so the new node has A's old address.">
+<LinkedList values={['A', 'C']} labels={{ top: 0 }} alt={[0]} />
+</Frame>
+<Frame caption="Thread 1 resumes. The top is at address A, as expected, so its swap succeeds, and the top now points at B, a node that was freed. C is unreachable and the stack is corrupt.">
+<LinkedList values={['B']} labels={{ top: 0 }} alt={[0]} />
+</Frame>
+</Player>
+
+The compare-and-swap asked "is the top still A?" and the honest answer was yes. The question it needed to ask was "has anything changed?".
+
+There are two standard defences.
+
+- **A version counter.** Store a counter beside the pointer and increase it on every change. Compare both together. The stale swap fails because the counter has moved on.
+- **Do not reuse memory too early.** If node A cannot be freed while thread 1 still holds a reference to it, its address cannot come back. A garbage collector gives this for free, which is why the Python and Java versions are safe.
+
+## Freeing memory
+
+That second point is the hardest part of lock-free programming in languages without a garbage collector. A thread that removes a node cannot simply free it, because another thread may have read a pointer to it a moment before and be about to use it.
+
+| Scheme | Idea |
+| --- | --- |
+| Garbage collection | the runtime frees a node only when nothing refers to it |
+| Hazard pointers | each thread publishes the nodes it is using, and nobody frees those |
+| Epoch-based reclamation | removed nodes are freed only after every thread has passed a checkpoint |
+| Reference counting | each node counts its users |
+
+Read-copy-update, used heavily inside the Linux kernel, is a form of the epoch idea: readers never wait, and writers publish a new version and free the old one once all earlier readers are done.
+
+## Queues, maps and beyond
+
+The pattern extends, with rapidly growing difficulty.
+
+- **Queues.** The Michael-Scott queue has atomic head and tail pointers. An enqueue takes two swaps, so threads that find the queue half updated help finish the other thread's operation before doing their own.
+- **Ring buffers.** A fixed [array](/data-structures/arrays/) with one producer and one consumer needs only two atomic indices, and is the fastest way to pass data between two threads.
+- **Hash maps and [skip lists](/data-structures/skip-lists/).** Used for concurrent maps and sorted sets, as in Java's `ConcurrentHashMap` and `ConcurrentSkipListMap`.
+
+Each of these was a research result. The stack is a dozen lines and took this page to explain, with a bug in it. Published lock-free algorithms have been found wrong years later.
+
+## When to use one
+
+| | Lock-based | Lock-free |
+| --- | --- | --- |
+| Difficulty | moderate | very high |
+| A paused thread | stalls the others | stalls nobody |
+| [Deadlock](/concurrency/deadlock/) | possible | impossible |
+| Low contention | fast | fast |
+| High contention | threads sleep | threads retry and burn processor time |
+| Usable in interrupt and signal handlers | no | yes |
+
+The practical advice has two parts.
+
+**Use them freely.** Concurrent queues and maps from a standard library or a well-tested package are the right choice whenever threads share a collection.
+
+**Do not write them.** A mutex around an ordinary structure is correct, readable and fast enough for nearly every program. Reach for a custom lock-free design only when measurement shows the lock is the bottleneck, and then test it with tools built to explore thread interleavings.
+
+## Key takeaways
+
+- A lock-free structure is changed with compare-and-swap instead of locks, and threads retry when they collide.
+- The trick is to arrange for each operation to take effect in a single atomic step.
+- Lock-free means some thread always makes progress. Wait-free means every thread does.
+- The ABA problem and safe memory reclamation are the main hazards in languages without garbage collection.
+- Use library implementations. Writing your own is rarely worth the risk.
