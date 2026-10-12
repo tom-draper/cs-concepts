@@ -1,0 +1,60 @@
+---
+// A 4-bit register: change the inputs freely, but the stored value only updates on a clock pulse.
+---
+
+<register-demo class="playground register-demo">
+  <div class="adder-grid">
+    <span class="row-name">Input (D)</span>
+    <div class="bit-row" data-row="d">
+      {[8, 4, 2, 1].map((weight, i) => <button type="button" class="bit" data-weight={weight} aria-pressed={i === 1 || i === 3 ? 'true' : 'false'}><b>{i === 1 || i === 3 ? 1 : 0}</b></button>)}
+    </div>
+    <span class="row-value" data-out="d">5</span>
+
+    <span class="row-name">Stored (Q)</span>
+    <div class="bit-row total" data-row="q">
+      {[0, 0, 0, 0].map((value) => <span class="bit"><b>{value}</b></span>)}
+    </div>
+    <span class="row-value" data-out="q">0</span>
+  </div>
+  <p class="tries">
+    <button type="button" data-clock>Clock pulse</button>
+    <span data-out="note" aria-live="polite">Change the input bits. Nothing is stored until the clock pulses.</span>
+  </p>
+</register-demo>
+
+<script>
+  class RegisterDemo extends HTMLElement {
+    connectedCallback() {
+      let d = 5;
+      let q = 0;
+      let pulses = 0;
+      const out = (name: string, text: string | number) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = String(text));
+      const paint = (row: string, value: number) =>
+        this.querySelectorAll<HTMLElement>(`[data-row="${row}"] .bit`).forEach((cell, i) => {
+          const on = (value >> (3 - i)) & 1;
+          cell.querySelector('b')!.textContent = String(on);
+          if (cell.tagName === 'BUTTON') cell.setAttribute('aria-pressed', String(on === 1));
+          else cell.toggleAttribute('data-on', on === 1);
+        });
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.weight) {
+          d ^= Number(button.dataset.weight);
+          out('note', d === q ? 'The input matches what is stored.' : `The input is now ${d}, but the register still holds ${q}.`);
+        } else {
+          q = d;
+          pulses++;
+          out('note', `Pulse ${pulses}: the register captured ${q}. It will hold it until the next pulse.`);
+        }
+        paint('d', d);
+        paint('q', q);
+        out('d', d);
+        out('q', q);
+      });
+    }
+  }
+
+  customElements.define('register-demo', RegisterDemo);
+</script>
