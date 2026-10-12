@@ -1,0 +1,137 @@
+---
+description: Deadlock is when a group of threads each wait for something that another member of the group holds, so none of them can ever continue. It needs four conditions at once, and removing any one prevents it.
+difficulty: intermediate
+---
+
+A [mutex](/concurrency/mutexes/) makes a thread wait. Usually the wait ends when the holder unlocks. **Deadlock** is when it cannot end, because the holder is itself waiting for something the first thread has.
+
+## Two threads, two locks
+
+Thread A takes lock `a` and then lock `b`. Thread B takes them in the opposite order. Step them and try to get both stuck.
+
+<InterleaveDemo scenario="deadlock" />
+
+Run A's first step, then B's first step. A now holds `a` and wants `b`. B holds `b` and wants `a`. Each is waiting for the other to release, and neither will, because releasing comes after the step it is stuck on.
+
+Nothing crashes. No error is raised. The two threads simply stop, for ever, using no processor time. In a server, the requests they were handling never answer, and every later thread that needs either lock joins them.
+
+As with [race conditions](/concurrency/race-conditions/), timing decides. "One after the other" works. Of the 6 orders in which these steps can run, 2 deadlock, and in a real program the dangerous window is far narrower, so the code can run for months before it happens.
+
+## The picture of a deadlock
+
+Draw an arrow from each thread to the lock it is waiting for, and from each lock to the thread that holds it. A deadlock is a **cycle** in that [graph](/foundations/graph-theory/).
+
+<Graph
+  directed
+  nodes={{ 'Thread A': [0, 0], 'lock b': [2, 0], 'Thread B': [2, 1.2], 'lock a': [0, 1.2] }}
+  edges={[['Thread A', 'lock b'], ['lock b', 'Thread B'], ['Thread B', 'lock a'], ['lock a', 'Thread A']]}
+  highlight={['Thread A', 'Thread B']}
+  caption="A waits for b, which is held by B, which waits for a, which is held by A. Following the arrows leads round in a circle."
+/>
+
+The cycle can be longer. Five threads can each wait for the next, with the last waiting for the first.
+
+## The four conditions
+
+A deadlock needs all four of these to hold at the same time.
+
+| Condition | Meaning |
+| --- | --- |
+| Mutual exclusion | a resource can be held by only one thread at a time |
+| Hold and wait | a thread holds one resource while waiting for another |
+| No preemption | a resource cannot be taken away from the thread holding it |
+| Circular wait | there is a cycle of threads, each waiting for the next |
+
+This list is the useful part of the theory, because it turns "avoid deadlock" into four concrete options. Break any one condition and deadlock is impossible.
+
+## Breaking circular wait: lock ordering
+
+The most practical fix is to give every lock a position in one global order, and always acquire locks in that order.
+
+Here both threads take `a` before `b`.
+
+<InterleaveDemo scenario="ordered" />
+
+Whichever thread gets `a` first, the other blocks at once, holding nothing. It cannot be holding `b` while waiting for `a`, because the rule says `a` comes first. With no thread holding a later lock while waiting for an earlier one, no cycle can form.
+
+The order must be the same everywhere, including when the locks are chosen at run time. A bank transfer is the standard trap.
+
+```python
+def transfer(source, target, amount):
+    with source.lock:
+        with target.lock:
+            source.balance -= amount
+            target.balance += amount
+```
+
+A transfer from X to Y locks X then Y. A transfer from Y to X at the same moment locks Y then X. That is the two-lock deadlock, hidden behind parameter names. The cure is to order by something fixed, such as the account number.
+
+```python
+def transfer(source, target, amount):
+    # Always lock the account with the smaller id first.
+    first, second = sorted([source, target], key=lambda account: account.id)
+    with first.lock:
+        with second.lock:
+            source.balance -= amount
+            target.balance += amount
+```
+
+## Breaking the other conditions
+
+**Hold and wait.** Take every lock needed in one go, or take none. Or avoid holding a lock while calling code you do not control, since you cannot know what locks it takes. Calling a callback, or a method on another object, with a lock held is the commonest way large programs deadlock.
+
+**No preemption.** Use a try-lock or a lock with a timeout. If the second lock cannot be had, release the first, wait a moment and start again.
+
+```python
+with a:
+    if b.acquire(timeout=1):
+        try:
+            ...                      # have both
+        finally:
+            b.release()
+    else:
+        ...                          # give up, release a, retry later
+```
+
+**Mutual exclusion.** Do not lock. Use [atomic operations](/concurrency/atomics-and-compare-and-swap/), immutable data, or a design where one thread owns the data and others send it [messages](/concurrency/channels/).
+
+| Strategy | Breaks | Cost |
+| --- | --- | --- |
+| Global lock order | circular wait | discipline across the whole codebase |
+| One coarse lock | hold and wait | less parallelism |
+| Try-lock and back off | no preemption | retries, and possible livelock |
+| No shared locks | mutual exclusion | a different design |
+
+## Detecting and recovering
+
+Some systems do not prevent deadlock. They let it happen and clear it.
+
+A database tracks which transaction waits for which. When it finds a cycle in that graph, it picks one transaction as the victim, aborts it and undoes its work, which releases its locks and lets the others continue. The application sees an error saying the transaction was chosen as a deadlock victim, and is expected to try again.
+
+This works for databases because a transaction can be undone. An arbitrary thread cannot be rolled back, so general-purpose programs have to prevent deadlock instead.
+
+## Relatives of deadlock
+
+| | What happens | Threads are |
+| --- | --- | --- |
+| Deadlock | each waits for another, for ever | blocked |
+| Livelock | each keeps reacting to the other and none progresses | running, uselessly |
+| Starvation | one thread never gets its turn while others do | some progress, one does not |
+
+**Livelock** is two people in a corridor who each step aside in the same direction, again and again. It arises from back-off schemes where both sides give up and retry in step. Waiting a random time before retrying breaks the symmetry.
+
+## The dining philosophers
+
+The standard illustration has five philosophers at a round table with one fork between each pair. A philosopher needs both neighbouring forks to eat.
+
+If every philosopher picks up the left fork and then waits for the right one, all five hold one fork and wait for ever. All four conditions hold: a fork has one user, each holds one while waiting for another, nobody lets go, and the waiting goes round the table.
+
+The fixes are the ones above. Number the forks and always take the lower number first, which makes one philosopher reach the other way and breaks the circle. Or let at most four sit down at once, using a [semaphore](/concurrency/semaphores/) with four permits.
+
+## Key takeaways
+
+- Deadlock is a cycle of threads each waiting for a resource held by the next.
+- It needs mutual exclusion, hold and wait, no preemption and circular wait, all together.
+- Acquiring locks in one fixed global order prevents the cycle and is the standard defence.
+- Do not call unknown code while holding a lock.
+- Deadlocked threads do not crash or use the processor. They are silent, so the symptom is a program that stops responding.
