@@ -1,0 +1,164 @@
+---
+description: An event loop runs one small piece of code at a time, taken from a queue, on a single thread. Nothing is ever interrupted halfway, and nothing is allowed to wait, which is how one thread can serve thousands of connections.
+difficulty: intermediate
+---
+
+[Threads](/operating-systems/threads/) handle many things at once by having many paths of execution, and pay for it with [race conditions](/concurrency/race-conditions/) and [locks](/concurrency/mutexes/). An **event loop** takes the opposite approach: one thread, doing one thing at a time, very quickly.
+
+It is how JavaScript runs in every browser and in Node.js, how Python's `asyncio` works, and how servers such as nginx and Redis handle tens of thousands of connections on a single thread.
+
+## The loop
+
+At its heart is a [queue](/data-structures/queues/) of things to do and a loop that works through it.
+
+```python
+while True:
+    event = wait_for_next_event()    # a click, a timer, data on a socket
+    handler = handlers[event.kind]
+    handler(event)                   # run it to completion, then loop
+```
+
+Programs written for an event loop are a collection of **callbacks**: functions registered to run when something happens. The loop waits for the next event, runs the matching callback from beginning to end, and goes back for another.
+
+Two rules follow from that, and they define the whole style.
+
+**Run to completion.** A callback is never interrupted to run another one. Once it starts, it has the thread until it returns.
+
+**Never block.** While a callback is running, nothing else can. So a callback must not wait for anything. Instead of waiting for a reply, it registers another callback to run when the reply arrives, and returns.
+
+## Stepping through one
+
+This four-line JavaScript program prints its letters in an order that surprises most people the first time.
+
+<EventLoopDemo />
+
+The output is A, D, C, B. `setTimeout` and `then` do not run their callbacks. They hand them to the loop to run later, and "later" always means after the code that is running now has finished, even with a delay of zero.
+
+The step-through also shows that JavaScript has two queues.
+
+| Queue | Holds | When it is served |
+| --- | --- | --- |
+| Task queue | timers, input events, network events | one task per turn of the loop |
+| Microtask queue | promise callbacks | emptied completely after every task |
+
+That is why C comes before B. The promise callback is a microtask, and all microtasks run before the loop takes its next task.
+
+## Where the waiting goes
+
+A program that cannot wait still has to deal with slow things. The trick is that the loop does all the waiting, in one place, for everything at once.
+
+A callback that wants data from the network makes a [non-blocking](/operating-systems/blocking-and-non-blocking-io/) request and returns. At the top of the loop, the thread asks the operating system a single question: "of all the thousands of sockets and timers I care about, which are ready?" The kernel answers with a list, using `epoll` on Linux, `kqueue` on macOS and BSD, or I/O completion ports on Windows. The loop runs the callbacks for those and asks again.
+
+So ten thousand idle connections cost ten thousand small records in a table, not ten thousand threads each with its own [stack](/foundations/stack-and-heap/).
+
+## A loop in thirty lines
+
+```python
+import heapq, time
+from collections import deque
+
+class Loop:
+    def __init__(self):
+        self.ready = deque()         # callbacks that can run now
+        self.timers = []             # (when, order, callback), a heap
+        self.count = 0
+
+    def call_soon(self, callback):
+        self.ready.append(callback)
+
+    def call_later(self, delay, callback):
+        self.count += 1
+        heapq.heappush(self.timers, (time.monotonic() + delay, self.count, callback))
+
+    def run(self):
+        while self.ready or self.timers:
+            now = time.monotonic()
+            while self.timers and self.timers[0][0] <= now:
+                self.ready.append(heapq.heappop(self.timers)[2])
+            if self.ready:
+                self.ready.popleft()()           # run ONE callback to completion
+            else:
+                time.sleep(self.timers[0][0] - now)   # nothing to do: wait
+
+loop = Loop()
+loop.call_later(0.2, lambda: print("two"))
+loop.call_later(0.1, lambda: print("one"))
+loop.call_soon(lambda: print("start"))
+loop.run()                           # start, one, two
+```
+
+Timers are kept in a [heap](/data-structures/heaps/) so the soonest is always on top. A real loop replaces the `sleep` with the call that waits for sockets and timers together.
+
+## No locks, mostly
+
+With one thread and run-to-completion, a callback cannot be interrupted between a read and a write. `counter += 1` is safe. So is a check followed by an act, as long as both are in the same callback. Most of the hazards of [shared-state concurrency](/concurrency/race-conditions/) are simply absent.
+
+Not all of them. A race needs only that something else can run between two steps, and in an event loop that happens whenever an operation is split across two callbacks.
+
+```js
+if (!cache.has(key)) {
+  const value = await load(key);     // other callbacks run while this waits
+  cache.set(key, value);             // two requests may both get here
+}
+```
+
+Between the check and the `set`, the loop is free to run another request for the same key. Both load it. The rule is that state is consistent within a callback and can be anything by the time the next one runs.
+
+## Blocking the loop
+
+The price of one thread is that one slow callback stops everything.
+
+```js
+app.get('/report', (request, response) => {
+  const total = sumTenMillionRows();   // 2 seconds of calculation
+  response.send(total);
+});
+```
+
+For those two seconds the server accepts no connections, answers no other requests and fires no timers. In a browser the page freezes, because drawing the screen is one of the loop's jobs as well. Every user waits for the one slow request.
+
+| Kind of work | On the loop? | Instead |
+| --- | --- | --- |
+| Waiting for the network, disk or a timer | yes, with non-blocking calls | |
+| Short calculations | yes | |
+| Long calculations | no | a worker thread or another process |
+| A blocking library call | no | a thread pool |
+
+Runtimes help with the last two. Node.js quietly runs file operations and DNS lookups on a small pool of threads and delivers the results back to the loop as events.
+
+## One loop, one core
+
+An event loop uses one core. To use eight, a program runs eight loops, typically as eight [processes](/operating-systems/processes/) or worker threads, each with its own loop and its own memory, with the operating system sharing incoming connections among them.
+
+| | Threads | Event loop |
+| --- | --- | --- |
+| Suited to | calculation on many cores | very many things that mostly wait |
+| Memory per task | a stack, around a megabyte reserved | a small object |
+| Switching | by the operating system, at any moment | by the program, only between callbacks |
+| Shared state | needs locks | safe within a callback |
+| One slow task | slows only itself | stalls everything |
+| Uses many cores | yes | one per loop |
+
+## Callbacks and what replaced them
+
+Written directly, event-loop code turns into callbacks inside callbacks, with error handling repeated at every level.
+
+```js
+getUser(id, (error, user) => {
+  if (error) return fail(error);
+  getOrders(user, (error, orders) => {
+    if (error) return fail(error);
+    render(user, orders);
+  });
+});
+```
+
+The logic is three steps in sequence, and the code does not look like it. [Async/await](/concurrency/async-await/) is the answer: the same event loop underneath, with code that reads from top to bottom.
+
+## Key takeaways
+
+- An event loop is a single thread that takes one callback at a time from a queue and runs it to completion.
+- Callbacks must never block. Waiting is done by the loop, which asks the kernel which of many sockets and timers are ready.
+- Code scheduled for later always runs after the current code finishes, even with a delay of zero.
+- Within one callback there are no races and no need for locks. Across callbacks, state can change.
+- A long-running callback stalls everything, so heavy calculation belongs on other threads.
