@@ -1,0 +1,96 @@
+---
+// Four processes on one CPU under different scheduling policies, drawn as a timeline.
+import { schedule, type Process } from '../lib/os';
+
+const processes: Process[] = [
+  { name: 'P1', arrival: 0, burst: 7 },
+  { name: 'P2', arrival: 2, burst: 4 },
+  { name: 'P3', arrival: 4, burst: 1 },
+  { name: 'P4', arrival: 5, burst: 4 },
+];
+const policies = [
+  ['fcfs', 'First come, first served'],
+  ['sjf', 'Shortest job first'],
+  ['srtf', 'Shortest remaining time'],
+  ['rr', 'Round robin'],
+];
+const first = schedule(processes, 'fcfs');
+---
+
+<scheduler-demo class="playground scheduler-demo" data-processes={JSON.stringify(processes)}>
+  <p class="tries" role="group" aria-label="Scheduling policy">
+    {policies.map(([id, name], i) => <button type="button" data-policy={id} aria-pressed={i === 0 ? 'true' : 'false'}>{name}</button>)}
+  </p>
+  <table class="jobs">
+    <thead><tr><th>Process</th><th>Arrives at</th><th>CPU time needed</th><th>Waited</th></tr></thead>
+    <tbody>
+      {
+        processes.map((p, i) => (
+          <tr>
+            <td><i class={`swatch p${i + 1}`}></i>{p.name}</td>
+            <td>{p.arrival}</td>
+            <td>
+              <button type="button" data-burst={`${i}:-1`} aria-label={`Less time for ${p.name}`}>−</button>
+              <b data-out={`burst${i}`}>{p.burst}</b>
+              <button type="button" data-burst={`${i}:1`} aria-label={`More time for ${p.name}`}>+</button>
+            </td>
+            <td data-out={`wait${i}`}>{first.stats[i].waiting}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+  <div class="gantt" aria-hidden="true">
+    {first.timeline.map((name) => <i class={name ? `p${name.slice(1)}` : 'idle'}>{name.slice(1)}</i>)}
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Average wait</dt><dd data-out="average">{first.averageWaiting.toFixed(2)}</dd></div>
+    <div><dt>Switches between processes</dt><dd data-out="switches">{first.switches}</dd></div>
+  </dl>
+</scheduler-demo>
+
+<script>
+  import { schedule, type Policy, type Process } from '../lib/os';
+
+  class SchedulerDemo extends HTMLElement {
+    connectedCallback() {
+      const processes: Process[] = JSON.parse(this.dataset.processes!);
+      let policy: Policy = 'fcfs';
+      const out = (name: string, text: string | number) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = String(text));
+      const gantt = this.querySelector('.gantt')!;
+      const render = () => {
+        const result = schedule(processes, policy);
+        gantt.replaceChildren(
+          ...result.timeline.map((name) => {
+            const cell = document.createElement('i');
+            cell.className = name ? `p${name.slice(1)}` : 'idle';
+            cell.textContent = name.slice(1);
+            return cell;
+          }),
+        );
+        processes.forEach((p, i) => {
+          out(`burst${i}`, p.burst);
+          out(`wait${i}`, result.stats[i].waiting);
+        });
+        out('average', result.averageWaiting.toFixed(2));
+        out('switches', result.switches);
+        for (const button of this.querySelectorAll<HTMLElement>('[data-policy]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.policy === policy));
+        }
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.policy) policy = button.dataset.policy as Policy;
+        if (button.dataset.burst) {
+          const [index, delta] = button.dataset.burst.split(':').map(Number);
+          processes[index].burst = Math.max(1, Math.min(9, processes[index].burst + delta));
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('scheduler-demo', SchedulerDemo);
+</script>

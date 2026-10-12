@@ -1,5 +1,6 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import AllocatorDemo from './AllocatorDemo.astro';
 import Aside from './Aside.astro';
 import BirthdayDemo from './BirthdayDemo.astro';
 import BitsDemo from './BitsDemo.astro';
@@ -24,9 +25,12 @@ import MatchDemo from './MatchDemo.astro';
 import ModClock from './ModClock.astro';
 import Utf8Demo from './Utf8Demo.astro';
 import Ops from './Ops.astro';
+import PageReplacementDemo from './PageReplacementDemo.astro';
+import PagingDemo from './PagingDemo.astro';
 import Player from './Player.astro';
 import QueensPlayer from './QueensPlayer.astro';
 import RegisterDemo from './RegisterDemo.astro';
+import SchedulerDemo from './SchedulerDemo.astro';
 import SortDemo from './SortDemo.astro';
 import Step from './Step.astro';
 import Steps from './Steps.astro';
@@ -44,6 +48,10 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  AllocatorDemo,
+  PageReplacementDemo,
+  PagingDemo,
+  SchedulerDemo,
   AdderDemo,
   BranchDemo,
   CacheDemo,

@@ -1,0 +1,101 @@
+---
+// Replay a sequence of page references through a few frames and count the page faults.
+import { replacePages, type Replacement } from '../lib/os';
+
+const initial = '7 0 1 2 0 3 0 4 2 3 0 3 2';
+const references = initial.split(' ').map(Number);
+const frameCount = 3;
+const policies: [Replacement, string][] = [
+  ['fifo', 'First in, first out'],
+  ['lru', 'Least recently used'],
+  ['optimal', 'Optimal (knows the future)'],
+];
+const run = replacePages(references, frameCount, 'fifo');
+---
+
+<page-replacement class="playground page-replacement" data-frames={frameCount}>
+  <label>
+    <span>Pages used</span>
+    <input type="text" value={initial} maxlength="60" autocomplete="off" spellcheck="false" />
+  </label>
+  <p class="tries" role="group" aria-label="Replacement policy">
+    {policies.map(([id, name], i) => <button type="button" data-policy={id} aria-pressed={i === 0 ? 'true' : 'false'}>{name}</button>)}
+  </p>
+  <p class="tries">
+    Frames:
+    <button type="button" data-frames="-1" aria-label="Fewer frames">−</button>
+    <b data-out="frames">{frameCount}</b>
+    <button type="button" data-frames="1" aria-label="More frames">+</button>
+    <span>Try: <button type="button" data-key="1 2 3 4 1 2 5 1 2 3 4 5">A surprising sequence</button></span>
+  </p>
+  <div class="table-scroll">
+    <table class="frames-table">
+      <tbody>
+        <tr><th>Page</th>{references.map((page) => <th>{page}</th>)}</tr>
+        {Array.from({ length: frameCount }, (_, f) => <tr><th>Frame {f}</th>{run.frames.map((frames, t) => <td class={run.faults[t] && frames[f] === references[t] ? 'in' : ''}>{frames[f] ?? ''}</td>)}</tr>)}
+        <tr><th>Fault?</th>{run.faults.map((fault) => <td class={fault ? 'fault' : ''}>{fault ? '✗' : ''}</td>)}</tr>
+      </tbody>
+    </table>
+  </div>
+  <dl class="readouts" aria-live="polite">
+    {policies.map(([id, name]) => <div><dt>{name}</dt><dd data-out={id}>{replacePages(references, frameCount, id).faultCount} faults</dd></div>)}
+  </dl>
+</page-replacement>
+
+<script>
+  import { replacePages, type Replacement } from '../lib/os';
+
+  class PageReplacement extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const body = this.querySelector('tbody')!;
+      let frames = Number(this.dataset.frames);
+      let policy: Replacement = 'fifo';
+      const cell = (tag: string, text: string | number, className = '') => {
+        const el = document.createElement(tag);
+        el.textContent = String(text);
+        el.className = className;
+        return el;
+      };
+      const row = (label: string, cells: HTMLElement[]) => {
+        const tr = document.createElement('tr');
+        tr.append(cell('th', label), ...cells);
+        return tr;
+      };
+      const render = () => {
+        const references = (input.value.match(/\d+/g) ?? []).map(Number).slice(0, 24);
+        const run = replacePages(references, frames, policy);
+        body.replaceChildren(
+          row('Page', references.map((page) => cell('th', page))),
+          ...Array.from({ length: frames }, (_, f) =>
+            row(
+              `Frame ${f}`,
+              run.frames.map((state, t) =>
+                cell('td', state[f] ?? '', run.faults[t] && state[f] === references[t] ? 'in' : ''),
+              ),
+            ),
+          ),
+          row('Fault?', run.faults.map((fault) => cell('td', fault ? '✗' : '', fault ? 'fault' : ''))),
+        );
+        for (const id of ['fifo', 'lru', 'optimal'] as const) {
+          this.querySelector(`[data-out="${id}"]`)!.textContent = `${replacePages(references, frames, id).faultCount} faults`;
+        }
+        this.querySelector('[data-out="frames"]')!.textContent = String(frames);
+        for (const button of this.querySelectorAll<HTMLElement>('[data-policy]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.policy === policy));
+        }
+      };
+      input.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.policy) policy = button.dataset.policy as Replacement;
+        if (button.dataset.frames) frames = Math.max(1, Math.min(5, frames + Number(button.dataset.frames)));
+        if (button.dataset.key) input.value = button.dataset.key;
+        render();
+      });
+    }
+  }
+
+  customElements.define('page-replacement', PageReplacement);
+</script>
