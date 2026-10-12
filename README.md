@@ -162,6 +162,10 @@ static `<Gates only={['xor', 'and']} />` and
 The operating systems pages use `<SchedulerDemo />`, `<PagingDemo />`,
 `<PageReplacementDemo />` and `<AllocatorDemo />`, backed by `src/lib/os.ts`.
 
+The concurrency pages use `<InterleaveDemo scenario="race" />` (also `mutex`,
+`cas`, `deadlock` and `ordered`), `<SemaphoreDemo />`, `<ChannelDemo />` and
+`<EventLoopDemo />`, backed by `src/lib/concurrency.ts`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
