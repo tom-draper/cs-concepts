@@ -1,0 +1,69 @@
+---
+// Translate a virtual address through a small page table.
+import { PAGE_SIZE, pageTable, translate } from '../lib/os';
+
+const initial = 300;
+const result = translate(initial);
+---
+
+<paging-demo class="playground paging-demo">
+  <label>
+    <span>Virtual address</span>
+    <input type="number" min="0" max="4095" value={initial} />
+  </label>
+  <p class="tries">
+    Try:
+    {[300, 1000, 44, 600, 2047, 3000].map((address) => <button type="button" data-key={address}>{address}</button>)}
+  </p>
+  <div class="paging-layout">
+    <table class="page-table">
+      <thead><tr><th>Page</th><th>Frame</th></tr></thead>
+      <tbody>
+        {pageTable.map((frame, page) => <tr data-page={page} class={page === result.page ? 'on' : ''}><td>{page}</td><td>{frame ?? 'not in memory'}</td></tr>)}
+      </tbody>
+    </table>
+    <dl class="readouts stacked" aria-live="polite">
+      <div><dt>Page number</dt><dd data-out="page">{result.page}</dd></div>
+      <div><dt>Offset in page</dt><dd data-out="offset">{result.offset}</dd></div>
+      <div><dt>Frame</dt><dd data-out="frame">{result.frame ?? 'none'}</dd></div>
+      <div><dt>Physical address</dt><dd data-out="physical">{result.physical ?? 'none'}</dd></div>
+      <div><dt></dt><dd class="plain" data-out="note">{result.note}</dd></div>
+    </dl>
+  </div>
+  <p class="hint">Each page is {PAGE_SIZE} bytes, so the page number is the address divided by {PAGE_SIZE} and the offset is the remainder.</p>
+</paging-demo>
+
+<script>
+  import { translate } from '../lib/os';
+
+  class PagingDemo extends HTMLElement {
+    connectedCallback() {
+      const input = this.querySelector('input')!;
+      const update = () => {
+        const result = translate(Math.max(0, Math.floor(Number(input.value) || 0)));
+        const values: Record<string, string | number> = {
+          page: result.page,
+          offset: result.offset,
+          frame: result.frame ?? 'none',
+          physical: result.physical ?? 'none',
+          note: result.note,
+        };
+        for (const [name, value] of Object.entries(values)) {
+          this.querySelector(`[data-out="${name}"]`)!.textContent = String(value);
+        }
+        for (const row of this.querySelectorAll<HTMLElement>('[data-page]')) {
+          row.className = Number(row.dataset.page) === result.page ? (result.frame === null ? 'miss' : 'on') : '';
+        }
+      };
+      input.addEventListener('input', update);
+      this.addEventListener('click', (event) => {
+        const key = (event.target as HTMLElement).closest('button')?.dataset.key;
+        if (key === undefined) return;
+        input.value = key;
+        update();
+      });
+    }
+  }
+
+  customElements.define('paging-demo', PagingDemo);
+</script>

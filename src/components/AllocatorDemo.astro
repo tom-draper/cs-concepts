@@ -1,0 +1,81 @@
+---
+// A 32-unit heap you can allocate from and free back into, to see fragmentation appear.
+---
+
+<allocator-demo class="playground allocator-demo">
+  <p class="tries" role="group" aria-label="Placement strategy">
+    <button type="button" data-fit="first" aria-pressed="true">First fit</button>
+    <button type="button" data-fit="best" aria-pressed="false">Best fit</button>
+  </p>
+  <p class="tries">
+    Allocate:
+    {[2, 3, 5, 8].map((size) => <button type="button" data-size={size}>{size} units</button>)}
+    <button type="button" data-script>Fragment it</button>
+    <button type="button" data-reset>Reset</button>
+  </p>
+  <div class="heap" role="group" aria-label="The heap. Press an allocation to free it.">
+    {Array.from({ length: 32 }, () => <button type="button" class="unit" disabled></button>)}
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Free in total</dt><dd data-out="free">32 units</dd></div>
+    <div><dt>Largest free block</dt><dd data-out="largest">32 units</dd></div>
+    <div><dt></dt><dd class="plain" data-out="note">Allocate some blocks, then press one to free it.</dd></div>
+  </dl>
+</allocator-demo>
+
+<script>
+  import { Heap, type Fit } from '../lib/os';
+
+  class AllocatorDemo extends HTMLElement {
+    connectedCallback() {
+      let heap = new Heap();
+      let fit: Fit = 'first';
+      const units = [...this.querySelectorAll<HTMLButtonElement>('.unit')];
+      const out = (name: string, text: string) =>
+        (this.querySelector(`[data-out="${name}"]`)!.textContent = text);
+      const render = (note: string) => {
+        units.forEach((unit, i) => {
+          const id = heap.cells[i];
+          unit.textContent = id;
+          unit.disabled = !id;
+          unit.dataset.id = id;
+          unit.className = 'unit' + (id ? ` c${(id.charCodeAt(0) - 65) % 6}` : '');
+          unit.setAttribute('aria-label', id ? `Free block ${id}` : 'Free space');
+        });
+        out('free', `${heap.freeUnits} units`);
+        out('largest', `${heap.largestHole} units`);
+        out('note', note);
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.fit) {
+          fit = button.dataset.fit as Fit;
+          for (const b of this.querySelectorAll('[data-fit]')) b.setAttribute('aria-pressed', String(b === button));
+          render(`Using ${fit} fit for new allocations.`);
+        } else if (button.dataset.size) {
+          const size = Number(button.dataset.size);
+          const id = heap.allocate(size, fit);
+          render(
+            id
+              ? `Allocated block ${id}, ${size} units.`
+              : `Cannot allocate ${size} units. There are ${heap.freeUnits} free in total, but the largest single gap is ${heap.largestHole}.`,
+          );
+        } else if ('script' in button.dataset) {
+          heap = new Heap();
+          const ids = Array.from({ length: 8 }, () => heap.allocate(4, 'first')!);
+          ids.filter((_, i) => i % 2 === 0).forEach((id) => heap.free(id));
+          render('Eight blocks of 4 were allocated and every other one freed. Half the heap is free. Now try to allocate 5 or 8 units.');
+        } else if ('reset' in button.dataset) {
+          heap = new Heap();
+          render('The heap is empty.');
+        } else if (button.dataset.id) {
+          heap.free(button.dataset.id);
+          render(`Freed block ${button.dataset.id}.`);
+        }
+      });
+    }
+  }
+
+  customElements.define('allocator-demo', AllocatorDemo);
+</script>
