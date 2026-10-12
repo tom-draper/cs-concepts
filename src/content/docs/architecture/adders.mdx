@@ -1,0 +1,115 @@
+---
+description: The circuit that adds two binary numbers. It is built from a handful of logic gates repeated once per bit, and it also does subtraction.
+difficulty: intermediate
+---
+
+Arithmetic is the first thing a computer has to be able to do, and addition is the foundation of the rest. Subtraction, multiplication, comparison and working out memory addresses all reduce to it. This page builds an adder out of [logic gates](/architecture/logic-gates/).
+
+## Adding in binary
+
+Binary addition works exactly like the column addition taught at school, with a much smaller table to remember.
+
+| | Result |
+| --- | --- |
+| 0 + 0 | 0 |
+| 0 + 1 | 1 |
+| 1 + 1 | 0, carry 1 |
+| 1 + 1 + 1 | 1, carry 1 |
+
+Work from the rightmost column to the left, passing any carry along.
+
+Flip the bits of A and B below. The dashed row shows the carry entering each column.
+
+<AdderDemo />
+
+Things to try:
+
+- Set A to `0001` and B to `0001`. One carry, into the second column.
+- Set A to `0111` and add `0001`. The carry **ripples** through three columns.
+- Set both to `1111`. Every column produces a carry, and the answer, 30, needs a fifth bit.
+
+## The half adder
+
+Start with the simplest case: adding two single bits. There are two outputs, the sum bit and the carry.
+
+| A | B | Sum | Carry |
+| --- | --- | --- | --- |
+| 0 | 0 | 0 | 0 |
+| 0 | 1 | 1 | 0 |
+| 1 | 0 | 1 | 0 |
+| 1 | 1 | 0 | 1 |
+
+Look at the two output columns. **Sum is XOR** of the inputs, and **Carry is AND**. So a half adder is just two gates.
+
+<Gates only={['xor', 'and']} caption="A half adder: an XOR gate gives the sum bit and an AND gate gives the carry." />
+
+## The full adder
+
+A half adder is not enough for any column but the first, because the other columns have **three** bits to add: the two inputs and the carry coming in from the right.
+
+A **full adder** takes A, B and a carry-in, and produces a sum and a carry-out. It can be built from two half adders and an OR gate.
+
+```text
+sum        =  A XOR B XOR carry_in
+carry_out  =  (A AND B)  OR  (carry_in AND (A XOR B))
+```
+
+In words: the sum bit is 1 when an odd number of the three inputs are 1, and there is a carry when at least two of them are.
+
+## Chaining them: the ripple-carry adder
+
+To add two n-bit numbers, use n full adders in a row. The carry-out of each one feeds the carry-in of the next.
+
+This is exactly what the demo above does. It is called a **ripple-carry adder**, because a carry may have to travel from the first bit to the last.
+
+That is also its weakness. Each full adder cannot produce a correct answer until the carry from its neighbour has arrived. In the worst case the carry has to pass through every stage in turn, so the delay grows in proportion to the number of bits. For a 64-bit adder that chain would be the slowest thing in the processor, and would limit its [clock speed](/architecture/logic-gates/#gates-take-time).
+
+### Faster adders
+
+Real processors do not wait for the ripple. A **carry-lookahead adder** works out the carries in advance.
+
+For each column, it computes two things directly from the inputs.
+
+- Will this column **generate** a carry by itself? (Both bits are 1.)
+- Will this column **propagate** a carry if one arrives? (Exactly one bit is 1.)
+
+From those, every carry can be calculated at once by extra logic, without waiting for its neighbours. Arranged as a tree, the delay grows with the *logarithm* of the number of bits, at the cost of considerably more gates. It is a classic trade of circuit size for speed.
+
+## Subtraction for free
+
+A separate subtractor circuit is not needed. In [two's complement](/foundations/twos-complement/), negating a number means flipping all its bits and adding 1. So:
+
+```text
+A − B  =  A + (NOT B) + 1
+```
+
+To subtract, invert every bit of B and set the carry-in of the first column to 1, which supplies the "+ 1". The same adder does both jobs. A single control wire, fed to a row of XOR gates on B and to the first carry-in, switches between them.
+
+This is the practical reason two's complement won: it lets one circuit handle addition and subtraction of both signed and unsigned numbers.
+
+## Overflow
+
+A 4-bit adder produces a 4-bit result. If the true answer needs a fifth bit, that bit falls off the end as the carry-out, and the stored result is wrong.
+
+The adder reports this with **flags**, single bits that later instructions can test.
+
+| Flag | Set when | Matters for |
+| --- | --- | --- |
+| Carry | there was a carry out of the top bit | unsigned arithmetic |
+| Overflow | the carry into the top bit differs from the carry out of it | signed arithmetic |
+| Zero | every result bit is 0 | comparisons |
+| Negative | the top bit of the result is 1 | signed comparisons |
+
+A comparison such as `a < b` is carried out by computing `a − b`, discarding the result, and looking at the flags.
+
+## From adder to ALU
+
+Put an adder alongside circuits for AND, OR, XOR and shifts, add a [multiplexer](/architecture/logic-gates/#combining-gates) to choose which result to output, and you have an **arithmetic logic unit** (ALU). It takes two numbers and an operation code, and produces a result and a set of flags. The ALU is the part of a processor that does the calculating. See the [fetch-decode-execute cycle](/architecture/fetch-decode-execute-cycle/).
+
+## Key takeaways
+
+- A half adder adds two bits with an XOR (sum) and an AND (carry).
+- A full adder also accepts a carry-in, so that adders can be chained.
+- A ripple-carry adder chains one full adder per bit. It is simple but slow, because the carry travels through every stage.
+- Carry-lookahead adders compute the carries in parallel, with delay proportional to the logarithm of the width.
+- The same adder subtracts, by inverting one input and setting the first carry-in to 1.
