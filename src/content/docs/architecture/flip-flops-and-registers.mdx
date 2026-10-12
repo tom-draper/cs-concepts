@@ -1,0 +1,97 @@
+---
+description: Circuits that remember. By feeding a gate's output back into its own input, a circuit can hold a bit, and from that come registers, memory and the clock that keeps a processor in step.
+difficulty: intermediate
+---
+
+The circuits in [logic gates](/architecture/logic-gates/) and [adders](/architecture/adders/) are *combinational*: their outputs depend only on their inputs right now. Change the inputs and the outputs follow. They have no memory at all.
+
+A computer needs to remember things: the value of a variable, which instruction comes next, the result of the last calculation. That takes a different kind of circuit, called **sequential**, whose output depends on what happened before.
+
+## Memory from feedback
+
+The trick is **feedback**: connect a gate's output back round to an input. The circuit can then settle into a stable state and stay there, holding a value.
+
+The simplest example is the **SR latch**, made from two NOR gates, each feeding the other. It has two inputs.
+
+| S (set) | R (reset) | What happens |
+| --- | --- | --- |
+| 1 | 0 | the output becomes 1 |
+| 0 | 1 | the output becomes 0 |
+| 0 | 0 | the output **keeps its current value** |
+
+The last row is the interesting one. With both inputs at 0, the output is not determined by the inputs. It is whatever it was last set to. The circuit is storing one bit.
+
+## The clock
+
+A latch that could change at any moment would be hard to build a reliable machine from. Signals pass through different numbers of gates and arrive at slightly different times, so for a brief moment after any change the wires hold meaningless values.
+
+The solution is a **clock**: a signal that switches between 0 and 1 at a steady rate. Storage elements are built to update only at the instant the clock ticks, typically as it rises from 0 to 1. Between ticks they ignore their inputs.
+
+That gives the rest of the circuit a whole clock period to settle. By the next tick the values are stable and are captured cleanly.
+
+A storage element that captures its input on a clock edge is a **flip-flop**. The most common kind is the **D flip-flop**. It has a data input D and an output Q, and one rule:
+
+> On each clock edge, Q takes the value of D. At all other times, Q does not change.
+
+## Registers
+
+A **register** is a row of flip-flops sharing one clock, storing a multi-bit value. A 64-bit processor's registers each hold 64 bits.
+
+<RegisterDemo />
+
+Things to try:
+
+- Change the input bits. The stored value does not move.
+- Press **Clock pulse**. The register captures whatever the input is at that instant.
+- Change the input again and wait. The stored value holds, however long you leave it.
+
+That is the essential behaviour: the input can change freely, and the output only moves on the tick.
+
+## How a processor is organised
+
+Combine registers with combinational logic and you have the basic pattern of every digital system.
+
+1. Registers hold the current state.
+2. Combinational logic computes the **next** state from the current one.
+3. On the clock tick, the registers capture the result.
+4. Repeat.
+
+A processor is this loop running billions of times a second. See the [fetch-decode-execute cycle](/architecture/fetch-decode-execute-cycle/).
+
+### What limits the clock speed
+
+The clock cannot tick again until the logic between two registers has finished settling. The slowest such path in the whole circuit, the **critical path**, sets the shortest possible clock period.
+
+A processor running at 4 GHz ticks every 250 picoseconds. In that time a signal has to leave one register, pass through every gate on its path, and arrive at the next. Light itself only travels about 7.5 centimetres in that time. This is the reason processors are divided into short [pipeline](/architecture/pipelining/) stages: less logic between registers means a faster clock.
+
+## Building useful things
+
+**A counter.** Feed a register's output into an [adder](/architecture/adders/) that adds 1, and connect the result back to the register's input. On every tick it counts up by one. The program counter in a processor works this way.
+
+**A state machine.** A register holds the current state, and logic decides the next state from the current one and the inputs. Traffic lights, vending machines and network protocols are built like this. It is the hardware form of a [finite automaton](/theory/finite-automata/).
+
+**A shift register.** A chain of flip-flops, each passing its bit to the next on every tick. It converts between data arriving one bit at a time and data presented all at once.
+
+## Memory
+
+Main memory is built on the same principle, in forms optimised for packing in as many bits as possible.
+
+| | SRAM | DRAM |
+| --- | --- | --- |
+| Stores a bit in | a latch of 6 transistors | 1 transistor and a tiny capacitor |
+| Holds its value | as long as there is power | for a few milliseconds, then must be refreshed |
+| Speed | very fast | slower |
+| Density and cost | bulky, expensive | compact, cheap |
+| Used for | [CPU caches](/architecture/cpu-caches/), registers | main memory (RAM) |
+
+A DRAM cell stores a bit as a charge on a capacitor, which leaks away. The memory has to read and rewrite every cell many times a second to keep its contents. That is what the "dynamic" in DRAM means. The saving is worth it: one transistor per bit instead of six is why a computer can have gigabytes of RAM.
+
+Both are **volatile**: they lose everything when the power goes off. Keeping data without power needs a different technology, covered under [storage devices](/architecture/storage-devices/).
+
+## Key takeaways
+
+- Sequential circuits remember, by feeding outputs back into inputs.
+- A latch holds one bit. A flip-flop holds one bit and changes only on a clock edge.
+- A register is a row of flip-flops that stores a multi-bit value.
+- The clock lets signals settle before they are captured, and the slowest path between registers limits its speed.
+- Fast memory (SRAM) uses six transistors per bit; dense memory (DRAM) uses one, and must be constantly refreshed.
