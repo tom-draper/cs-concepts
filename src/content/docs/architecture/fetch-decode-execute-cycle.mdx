@@ -1,0 +1,106 @@
+---
+title: The Fetch-Decode-Execute Cycle
+description: The loop at the heart of every processor. Fetch an instruction from memory, work out what it means, carry it out, and repeat, billions of times a second.
+difficulty: intermediate
+---
+
+A processor does one thing. It reads an instruction from memory, does what the instruction says, and moves on to the next. Everything a computer does, from drawing this page to playing a video, is that loop repeated at enormous speed.
+
+## The parts
+
+**Memory** is a long row of numbered cells. Each has an **address** and holds a number. Crucially, memory holds both the program and the data it works on. Nothing marks a cell as one or the other.
+
+**Registers** are a few very fast storage slots inside the processor. See [flip-flops and registers](/architecture/flip-flops-and-registers/). Three matter here.
+
+- The **program counter** (PC) holds the address of the next instruction.
+- The **instruction register** (IR) holds the instruction currently being carried out.
+- An **accumulator** holds a number being worked on. Real processors have a dozen or more general-purpose registers; this example has one.
+
+The **arithmetic logic unit** (ALU) does the calculating. See [adders](/architecture/adders/).
+
+The **control unit** directs everything else, according to the instruction in the IR.
+
+## The three steps
+
+1. **Fetch.** Read the instruction at the address in the program counter, and put it in the instruction register. Add 1 to the program counter so that it points at the next one.
+2. **Decode.** Work out what the instruction means: which operation, and on what.
+3. **Execute.** Do it. This might read or write memory, use the ALU, or change the program counter.
+
+Then go round again.
+
+## Watch it run
+
+This machine understands six instructions.
+
+| Instruction | Meaning |
+| --- | --- |
+| `LOAD n` | copy the value at address n into the accumulator |
+| `ADD n` | add the value at address n to the accumulator |
+| `SUB n` | subtract the value at address n from the accumulator |
+| `STORE n` | copy the accumulator into address n |
+| `JNZ n` | jump to address n if the accumulator is not zero |
+| `HALT` | stop |
+
+The program below adds up 3 + 2 + 1. Addresses 0 to 7 hold instructions. Addresses 10 to 12 hold data: a running total, a counter that starts at 3, and the constant 1.
+
+<CpuDemo />
+
+Things to notice as you step through:
+
+- The **program counter** moves on during the fetch step, before the instruction has been carried out.
+- The highlighted row in blue is where the program counter points. The orange row is the memory cell being read or written.
+- `JNZ 0` is how a loop is made. It does not calculate anything. It **overwrites the program counter**, so the next instruction fetched is the one at address 0. On the last time round the counter has reached zero, the jump does not happen, and the machine falls through to `HALT`.
+- It takes 67 steps to add three numbers.
+
+In a language like Python the whole program would be:
+
+```python
+total, counter = 0, 3
+while counter != 0:
+    total += counter
+    counter -= 1
+```
+
+Every loop, `if` and function call you write is turned into this: arithmetic on registers, and jumps that change the program counter.
+
+## The stored-program idea
+
+The earliest electronic computers were programmed by rewiring them. The breakthrough, usually credited to John von Neumann's 1945 report, was to store the program **in the same memory as the data**, as numbers.
+
+That decision has far-reaching consequences.
+
+- A computer becomes general purpose. Changing what it does means loading different numbers, not building a different machine.
+- **Programs can be treated as data.** A compiler is a program that writes another program. An operating system loads programs from disk. A download is a program arriving as data.
+- It is also the root of a class of security problems. If an attacker can get data into memory and then trick the processor into setting its program counter there, the data runs as a program. See [buffer overflows](/security/buffer-overflows/).
+
+Because instructions are just numbers, the instruction `ADD 11` is really a bit pattern in which some bits say "add" and the rest say "11". The decode step separates them. The agreed set of patterns is the processor's [instruction set](/architecture/instruction-sets/).
+
+## Speed
+
+Each step of the cycle is driven by the **clock**. A processor rated at 4 GHz ticks four billion times a second.
+
+The simple machine above does one thing at a time and takes several ticks per instruction. Real processors are far more aggressive.
+
+- **[Pipelining](/architecture/pipelining/).** While one instruction is executing, the next is being decoded and the one after is being fetched, like stations on an assembly line.
+- **Superscalar execution.** Several instructions are fetched and executed in the same tick.
+- **Out-of-order execution.** Instructions are run as soon as their inputs are ready, not strictly in program order, with the results put back in order afterwards.
+- **[Branch prediction](/architecture/branch-prediction/).** The processor guesses which way a jump will go and carries on down that path before it knows.
+
+None of this changes what a program computes. The processor maintains the appearance that instructions run one at a time, in order, exactly as in the simple model. The model on this page remains the right way to think about what a program *means*, even though the hardware gets there by a much more elaborate route.
+
+## What interrupts the loop
+
+Left to itself, the cycle would run one program for ever. Two mechanisms break in.
+
+- An **[interrupt](/operating-systems/interrupts/)** is a signal from outside, such as a key press, a network packet or a timer. Between instructions, the processor checks for one. If there is, it saves the program counter and jumps to a routine in the operating system.
+- An **exception** is caused by the instruction itself: dividing by zero, or touching memory the program is not allowed to.
+
+The timer interrupt is how an operating system shares one processor between many programs. It regains control many times a second and decides what runs next.
+
+## Key takeaways
+
+- A processor repeats three steps: fetch the instruction the program counter points to, decode it, and execute it.
+- The program counter normally advances by one. A jump works by overwriting it, and that is how loops and conditions are implemented.
+- Programs and data share the same memory and are both just numbers.
+- Real processors overlap and reorder these steps for speed while preserving the appearance of running one instruction at a time.
+- Interrupts let the outside world, and the operating system, break into the loop.
