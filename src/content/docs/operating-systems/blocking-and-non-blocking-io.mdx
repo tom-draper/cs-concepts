@@ -1,0 +1,167 @@
+---
+title: Blocking and Non-Blocking I/O
+description: Two ways for a program to deal with slow operations such as reading from a network. One waits; the other carries on and is told when there is something to do. The choice decides how many connections a server can handle.
+difficulty: advanced
+---
+
+Reading from memory takes nanoseconds. Reading from a network takes milliseconds, sometimes seconds, and occasionally the data never arrives. To a processor that is an eternity.
+
+What a program does *while it waits* is one of the most consequential decisions in the design of any networked software.
+
+## Blocking I/O
+
+The simplest model: ask for data, and do not return until it is there.
+
+```python
+data = connection.recv(1024)     # the thread stops here until data arrives
+process(data)
+```
+
+While waiting, the [thread](/operating-systems/threads/) is **blocked**. The operating system takes it off the processor and runs something else. It consumes no CPU time. It also cannot do anything.
+
+This is easy to write and to follow. The code reads from top to bottom, in the order things happen.
+
+### One thread per connection
+
+A server needs to deal with many clients at once. With blocking calls, a thread waiting on one client cannot attend to another, so the classic design gives **each connection its own thread**.
+
+```python
+while True:
+    connection = server.accept()                          # wait for a client
+    threading.Thread(target=handle, args=(connection,)).start()
+```
+
+This works well up to a point, and many successful systems are built this way. The trouble comes at scale.
+
+- **Memory.** Every thread reserves a [stack](/foundations/stack-and-heap/), commonly a megabyte or more. Ten thousand idle connections tie up gigabytes.
+- **Switching.** Each time data arrives for a different connection, the processor must [switch threads](/operating-systems/context-switching/), with all the cache disruption that entails.
+- **Mostly idle.** A typical connection spends nearly all its time waiting. A whole thread is held hostage by something that is doing nothing.
+
+By around 1999 this limit had a name: the *C10k problem*, the challenge of serving ten thousand clients at once on one machine.
+
+## Non-blocking I/O
+
+A file or socket can be switched to **non-blocking** mode. A read then never waits. If data is available it is returned, and if not, the call comes back **immediately** with a result meaning "nothing yet, try later".
+
+```python
+connection.setblocking(False)
+
+try:
+    data = connection.recv(1024)
+except BlockingIOError:
+    pass                 # no data right now; go and do something else
+```
+
+One thread can now look after many connections, by going round them in turn. But done naively, that means asking every connection, over and over, whether it has anything. With ten thousand connections of which three are active, the thread burns an entire processor core asking pointless questions. This is **busy polling**.
+
+## Readiness notification
+
+What is needed is a way to say to the operating system: *here are all my connections; put me to sleep, and wake me when any of them has something to do.*
+
+This is called **I/O multiplexing**. The program blocks in exactly one place, waiting on everything at once.
+
+```python
+import selectors
+
+selector = selectors.DefaultSelector()
+selector.register(server, selectors.EVENT_READ)
+
+while True:
+    for key, _ in selector.select():           # sleep until something is ready
+        if key.fileobj is server:
+            connection, _ = server.accept()
+            connection.setblocking(False)
+            selector.register(connection, selectors.EVENT_READ)
+        else:
+            data = key.fileobj.recv(1024)      # will not block: we were told it is ready
+            respond(key.fileobj, data)
+```
+
+That loop is an **[event loop](/concurrency/event-loops/)**, and a single thread running it can serve tens of thousands of connections. An idle connection costs a few kilobytes of bookkeeping, not a thread.
+
+### The interfaces
+
+| Interface | System | Cost per call |
+| --- | --- | --- |
+| `select`, `poll` | everywhere | proportional to the number of connections being watched |
+| `epoll` | Linux | proportional to the number of connections that are **ready** |
+| `kqueue` | macOS, BSD | the same |
+| I/O completion ports | Windows | the same |
+
+The older calls make the program hand over its entire list of connections every time, and the kernel checks each one. With ten thousand connections that is ten thousand checks to find three that are active.
+
+`epoll` and its equivalents have the program register its connections **once**. The kernel then maintains a list of those that become ready, and hands back only that list. The cost depends on how much is happening, not on how many connections exist. This is what solved the C10k problem.
+
+## Asynchronous I/O
+
+The interfaces above tell you a connection is **ready**, and you then perform the read yourself. A different model has the program *submit* an operation and be notified when it has been **completed**.
+
+```text
+readiness:    "connection 7 has data"      →   you call read()
+completion:   "read these 1024 bytes"      →   later: "done, here they are"
+```
+
+Windows has long worked this way. On Linux, the newer `io_uring` interface does too: the program places requests in a [ring buffer](/data-structures/ring-buffers/) shared with the kernel and collects results from another, with very few [system calls](/operating-systems/system-calls/).
+
+The completion model also suits **files**. Ordinary files on disk are always reported as "ready", even when reading them will in fact have to wait for the device, so readiness notification does not help with them.
+
+## The four combinations
+
+Two separate questions are often muddled together.
+
+- **Blocking or non-blocking:** does the call wait, or return immediately?
+- **Synchronous or asynchronous:** do you do the transfer yourself, or is it done for you in the background?
+
+| | The program does the I/O (synchronous) | The system does it and reports back (asynchronous) |
+| --- | --- | --- |
+| **Waits** | ordinary blocking read | |
+| **Returns at once** | non-blocking read, with `epoll` to learn when to try | `io_uring`, completion ports |
+
+In everyday speech, "async" usually just means "does not tie up a thread while waiting", covering everything in the bottom row.
+
+## Making it pleasant to write
+
+An event loop is efficient and awkward. The logic for handling one client, which in blocking style was a straightforward sequence, gets chopped into fragments that run whenever events arrive. State that used to live in local variables has to be stored somewhere between events.
+
+Languages have added features that give the efficiency of the event loop with the readability of blocking code.
+
+```python
+async def handle(reader, writer):
+    data = await reader.read(1024)      # looks like blocking code...
+    writer.write(process(data))         # ...but the thread is free while waiting
+    await writer.drain()
+```
+
+At each `await`, the function is suspended and control goes back to the event loop, which runs other tasks. When the data arrives, the function resumes where it left off. The compiler turns this ordinary-looking function into the fragmented state machine an event loop needs. See [async/await](/concurrency/async-await/).
+
+Another route is **lightweight threads**, such as goroutines in Go and virtual threads in Java. You write plain blocking code. The language's runtime uses non-blocking I/O underneath, and when a lightweight thread would block, it parks it and runs another on the same operating system thread.
+
+| Model | Code style | Cost per idle connection | Examples |
+| --- | --- | --- | --- |
+| A thread per connection | simple, sequential | about a megabyte | traditional Java and C servers |
+| Event loop with callbacks | fragmented | a few kilobytes | early Node.js, nginx |
+| Async/await | sequential, with markers | a few kilobytes | Python asyncio, Rust, JavaScript, C# |
+| Lightweight threads | simple, sequential | a few kilobytes | Go, Java virtual threads, Erlang |
+
+## A caution about event loops
+
+An event loop runs everything on one thread, or a few. That creates a rule which is easy to break:
+
+**Never do anything slow on the event loop.**
+
+If one task performs a long calculation, or makes a call that genuinely blocks, every other connection is frozen until it finishes. Slow work must be handed off to a separate pool of threads. A server that stalls intermittently under load very often has something blocking its event loop.
+
+## Which to use
+
+- **For calculation**, none of this helps. The limit is processor time, not waiting. Use threads or processes, about one per core.
+- **For a modest number of connections**, a thread per connection is simple and perfectly good.
+- **For very many connections that are mostly idle**, such as chat servers, proxies and API gateways, use an event loop, async/await or lightweight threads.
+
+## Key takeaways
+
+- A blocking call waits for the operation to finish, tying up its thread. A non-blocking call returns immediately.
+- A thread per connection is simple but costs about a megabyte and a context switch each, which limits scale.
+- Readiness notification (`epoll`, `kqueue`) lets one thread sleep until any of thousands of connections needs attention.
+- Completion-based interfaces (`io_uring`) submit operations and collect results, and work for files too.
+- Async/await and lightweight threads give the efficiency of an event loop with code that reads sequentially.
+- Never block an event loop.
