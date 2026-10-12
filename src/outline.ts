@@ -253,7 +253,10 @@ const outline: PartDef[] = [
       },
       {
         title: 'Storage and I/O',
-        pages: ['File Systems', 'Blocking and Non-Blocking I/O'],
+        pages: [
+          'File Systems',
+          { title: 'Blocking and Non-Blocking I/O', slug: 'blocking-and-non-blocking-io' },
+        ],
       },
     ],
   },
