@@ -1889,3 +1889,240 @@ main {
   font: 0.72rem/1.5rem var(--mono);
   text-align: center;
 }
+
+/* ---------- Computer architecture widgets ---------- */
+
+.gate .wire {
+  stroke: var(--viz-stroke);
+  stroke-width: 2;
+}
+
+.gate .wire.on {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.gate .gate-body {
+  fill: var(--viz-fill);
+  stroke: var(--text-2);
+  stroke-width: 1.5;
+}
+
+.gate .gate-extra {
+  fill: none;
+  stroke: var(--text-2);
+  stroke-width: 1.5;
+}
+
+.gate .lamp {
+  fill: var(--viz-fill);
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}
+
+.gate .lamp.on {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.gate.plain .lamp {
+  display: none;
+}
+
+.gate.plain .wire.on {
+  stroke: var(--viz-stroke);
+  stroke-width: 2;
+}
+
+.gate-stage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.6rem;
+}
+
+.gate-inputs {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.gate-inputs button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.gate-output {
+  margin: 0 !important;
+  font-size: 1.05rem;
+}
+
+.gate-output b {
+  font: 700 1.3rem var(--mono);
+}
+
+.adder-grid {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 0.4rem 0.9rem;
+  width: max-content;
+  max-width: 100%;
+}
+
+.adder-grid .row-name {
+  color: var(--text-2);
+  font-size: 0.85rem;
+}
+
+.adder-grid .row-value {
+  font: 600 0.95rem var(--mono);
+}
+
+.adder-grid .bit {
+  width: 2.3rem;
+}
+
+.adder-grid .bit.spacer {
+  visibility: hidden;
+}
+
+.adder-grid .bit.carry {
+  border-style: dashed;
+  padding: 0.05rem 0;
+}
+
+.adder-grid .bit.carry b {
+  font-size: 0.85rem;
+}
+
+.adder-grid .bit.carry[data-on] {
+  border-color: var(--alt);
+  background: var(--alt-soft);
+}
+
+.register-demo .tries span {
+  color: var(--text-2);
+}
+
+.cpu-demo {
+  display: block;
+  margin: 0 0 1.4rem;
+  border-radius: 0.6rem;
+}
+
+.cpu-layout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem 2rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.6rem;
+  background: var(--bg-soft);
+}
+
+.prose .cpu-memory,
+.prose .cache-lines {
+  display: table;
+  width: auto;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.cpu-memory td,
+.cpu-memory th,
+.cache-lines td,
+.cache-lines th {
+  padding: 0.2rem 0.8rem 0.2rem 0.4rem;
+}
+
+.cpu-memory td:nth-child(2) {
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.cpu-memory td:last-child {
+  color: var(--text-3);
+}
+
+.cpu-memory tr.data.first td {
+  border-top: 2px solid var(--border);
+}
+
+.cpu-memory tr.next td {
+  background: var(--accent-soft);
+}
+
+.cpu-memory tr.touched td {
+  background: var(--alt-soft);
+}
+
+.cpu-registers {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.cpu-registers dt {
+  color: var(--text-2);
+  font-size: 0.78rem;
+}
+
+.cpu-registers dd {
+  margin: 0;
+  font: 600 1.05rem var(--mono);
+}
+
+.branch-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.85rem;
+}
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.marks i {
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.2rem;
+  border-radius: 3px;
+  font: 0.75rem/1.4rem var(--mono);
+  text-align: center;
+}
+
+.marks .ok {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.marks .miss {
+  background: var(--alt);
+  color: #fff;
+}
+
+.cache-demo .cache-lines {
+  margin-top: 0.6rem;
+}
+
+.cache-lines tr.hit td {
+  background: var(--accent-soft);
+}
+
+.cache-lines tr.miss td {
+  background: var(--alt-soft);
+}
+
+.cache-demo .marks {
+  margin-top: 0.7rem;
+}
+
+.playground [hidden] {
+  display: none;
+}
