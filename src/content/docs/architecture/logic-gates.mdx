@@ -1,0 +1,98 @@
+---
+description: The physical building blocks of every digital circuit. Each one takes a few on-or-off signals and produces one, and everything a processor does is built from billions of them.
+difficulty: beginner
+---
+
+[Boolean logic](/foundations/boolean-logic/) describes operations on true and false. A **logic gate** is a physical device that carries one out. It has one or two input wires and an output wire, each of which is either at a high voltage, meaning 1, or a low voltage, meaning 0.
+
+Gates are the layer where mathematics becomes machinery. Everything above them, from adding numbers to running a program, is gates wired to other gates.
+
+## The basic gates
+
+<Gates caption="The standard symbols. A small circle on the output means “inverted”." />
+
+Choose a gate and flip its inputs. A lit wire carries a 1.
+
+<GateDemo />
+
+Each gate is completely described by its truth table.
+
+| A | B | AND | OR | XOR | NAND | NOR |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 0 | 0 | 0 | 0 | 1 | 1 |
+| 0 | 1 | 0 | 1 | 1 | 1 | 0 |
+| 1 | 0 | 0 | 1 | 1 | 1 | 0 |
+| 1 | 1 | 1 | 1 | 0 | 0 | 0 |
+
+- **AND**: 1 only when both inputs are 1.
+- **OR**: 1 when at least one input is 1.
+- **NOT**: flips its single input. It is also called an *inverter*.
+- **XOR**: 1 when the inputs differ.
+- **NAND** and **NOR**: AND and OR with the output inverted.
+
+## What a gate is made of
+
+A gate is built from **transistors**. For this purpose a transistor is an electrically controlled switch: a voltage on one terminal decides whether current can flow between the other two.
+
+Modern chips use a design called CMOS, which pairs two kinds of transistor. One kind connects the output to the high voltage, and the other connects it to ground. They are arranged so that for any input, exactly one of those paths is switched on. The output is always firmly a 1 or a 0, and almost no current flows except at the moment of switching.
+
+| Gate | Transistors |
+| --- | --- |
+| NOT | 2 |
+| NAND, NOR | 4 |
+| AND, OR | 6 |
+
+Notice that NAND is *cheaper* than AND. In CMOS the natural gates are the inverting ones, and an AND gate is built as a NAND followed by a NOT.
+
+## One gate is enough
+
+Every other gate can be built from NAND gates alone.
+
+| To build | Wire up |
+| --- | --- |
+| NOT A | a NAND with both inputs tied to A |
+| A AND B | a NAND followed by a NOT |
+| A OR B | a NAND whose inputs are NOT A and NOT B |
+
+A gate with this property is called **universal**. NOR is universal as well. It means an entire processor can in principle be made from one kind of component repeated billions of times, which greatly simplifies manufacturing. The third row is [De Morgan's law](/foundations/boolean-logic/#laws-for-simplifying) in physical form.
+
+## Combining gates
+
+Connect the output of one gate to the input of another and you can compute any Boolean function at all.
+
+There is a mechanical recipe. Write out the truth table of the function you want. For each row where the output is 1, build an AND of the inputs (inverted where they are 0) that recognises exactly that row. Then OR all of those together. The result is not always the smallest circuit, but it always works. Shrinking it is a job for software.
+
+A circuit whose output depends only on its current inputs is called **combinational**. Three examples are worth knowing.
+
+- A **multiplexer** selects one of several inputs to pass through, according to a control signal. It is the hardware version of an `if`.
+- A **decoder** turns a binary number into a single active line, for example to select one memory cell out of many.
+- An **[adder](/architecture/adders/)** adds two binary numbers.
+
+Circuits that can also *remember* need feedback, which is the subject of [flip-flops and registers](/architecture/flip-flops-and-registers/).
+
+## Gates take time
+
+A gate does not respond instantly. After its inputs change, its output takes a moment to settle. This **propagation delay** is tiny, measured in picoseconds, but it adds up when a signal has to pass through many gates in a row.
+
+The longest chain of gates between two storage points in a circuit is its **critical path**, and it sets the maximum clock speed. A processor cannot tick faster than its slowest path can settle. A great deal of chip design consists of shortening that path.
+
+## Scale
+
+| Chip | Year | Transistors |
+| --- | --- | --- |
+| Intel 4004 | 1971 | about 2,300 |
+| Intel 80386 | 1985 | about 275,000 |
+| Intel Pentium | 1993 | about 3 million |
+| A modern laptop processor | 2020s | tens of billions |
+
+The observation that the number of transistors on a chip doubles roughly every two years is known as **Moore's law**. It held for about half a century and is why a phone outperforms a room-sized computer of the 1970s. It has slowed as transistor features approach the size of a few dozen atoms.
+
+Nobody places these gates by hand. Engineers describe the behaviour they want in a *hardware description language* such as Verilog or VHDL, and tools turn that into a network of gates and then into a physical layout.
+
+## Key takeaways
+
+- A logic gate is a physical circuit that computes a Boolean operation on voltages representing 0 and 1.
+- Gates are made of transistors acting as switches. A NAND takes four.
+- NAND alone, or NOR alone, is enough to build any circuit.
+- Any Boolean function can be built by combining gates.
+- Each gate adds a small delay, and the slowest path through a circuit limits how fast it can be clocked.
