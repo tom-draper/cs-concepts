@@ -1,0 +1,28 @@
+---
+// The standard symbols for the basic logic gates, side by side.
+import Figure from './Figure.astro';
+import { fit } from './geom';
+import { gates, gateSvg, type Gate } from '../../lib/hardware';
+
+interface Props {
+  only?: Gate[];
+  caption?: string;
+}
+
+const { only = Object.keys(gates) as Gate[], caption } = Astro.props;
+const CELL = 112;
+const width = only.length * CELL;
+---
+
+<Figure caption={caption}>
+  <svg class="viz-svg gate plain" viewBox={`0 0 ${width} 62`} style={fit(width)} role="img" aria-label={`Gate symbols: ${only.map((g) => gates[g].name).join(', ')}`}>
+    {
+      only.map((gate, i) => (
+        <g transform={`translate(${i * CELL} 0)`}>
+          <g set:html={gateSvg(gate, false, false)} />
+          <text class="v-text" x="50" y="52">{gates[gate].name}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>
