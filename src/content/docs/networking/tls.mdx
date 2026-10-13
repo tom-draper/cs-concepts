@@ -1,0 +1,142 @@
+---
+description: TLS is the protocol that secures connections on the internet. It lets two machines that have never met agree on secret keys over a network anyone can watch, proves the server is who it claims to be, and protects everything sent afterwards.
+difficulty: intermediate
+---
+
+Data crossing the internet passes through equipment owned by many strangers: the café's Wi-Fi, an internet provider, several carriers in between. Any of them can read what goes past, and any of them can change it.
+
+**Transport Layer Security**, TLS, makes that harmless. It runs between the application and the transport layer, wrapping protocols such as [HTTP](/networking/http/) so that the networks in the middle carry only ciphertext. The `s` in `https` means "over TLS". Its predecessor was called SSL, and the old name lingers.
+
+## Three guarantees
+
+| Guarantee | Means | Without it |
+| --- | --- | --- |
+| Confidentiality | nobody else can read the data | passwords and messages are visible to every network on the path |
+| Integrity | nobody else can change the data unnoticed | an intermediary can alter a download or inject content into a page |
+| Authentication | the server is who it claims to be | you may be talking, securely, to an impostor |
+
+All three are needed. Encryption alone would protect a conversation with an attacker perfectly well.
+
+## The problem
+
+The two sides have never communicated before and share no secret. Everything they say to set up the connection can be overheard. From that starting point they must end up with keys that no eavesdropper can work out.
+
+Different kinds of cryptography solve different parts of this.
+
+| Tool | Job in TLS |
+| --- | --- |
+| [Key exchange](/security/key-exchange/) | agree a shared secret over a public channel |
+| [Digital signatures](/security/digital-signatures/) and certificates | prove the server's identity |
+| [Symmetric encryption](/security/symmetric-encryption/) | protect the actual data, quickly |
+| [Hash functions](/security/cryptographic-hash-functions/) | derive keys and bind the handshake together |
+
+Public-key operations are slow, so TLS uses them only at the start, to establish keys for fast symmetric encryption that protects everything after.
+
+## The handshake
+
+This is TLS 1.3, the current version.
+
+<SequenceDemo scenario="tls" />
+
+**Agreeing a key.** Each side generates a temporary key pair for this connection alone and sends the public half. By the mathematics of Diffie-Hellman key exchange, each can combine its own private half with the other's public half and arrive at the same secret. An eavesdropper who saw both public halves cannot.
+
+**Proving identity.** A key exchange by itself does not say who is on the other end. So the server sends a **certificate** and then signs a summary of the whole handshake with its long-term private key. Only the real owner of the certificate can produce that signature, and signing the handshake ties the proof to this connection, so it cannot be copied into another.
+
+**Confirming.** Both sides send a `Finished` message containing a check value computed over everything exchanged. If an attacker tampered with any earlier message, for instance to remove the stronger cipher options, the values will not match and the connection is abandoned.
+
+The handshake adds one round trip. The client can send its first request together with its `Finished`.
+
+## Certificates
+
+A certificate is a document that binds a domain name to a public key, signed by somebody else.
+
+| It contains | Example |
+| --- | --- |
+| The names it is valid for | `shop.example`, `www.shop.example` |
+| The public key | |
+| Who issued it | a certificate authority |
+| When it is valid | usually 90 days to a year |
+| The issuer's signature over all of the above | |
+
+The issuer is a **certificate authority**, or CA: an organisation whose business is to check that an applicant controls a domain, and then sign.
+
+Why trust the CA? Because its own certificate was signed by another, in a chain that ends at a **root certificate**. Operating systems and browsers ship with a list of about a hundred and fifty roots they trust, and that list is the foundation of the whole system.
+
+<Graph
+  directed
+  nodes={{ 'root CA': [0, 0], 'intermediate CA': [2.2, 0], 'shop.example': [4.6, 0] }}
+  edges={[['root CA', 'intermediate CA'], ['intermediate CA', 'shop.example']]}
+  caption="Each arrow is a signature. The browser already holds the root certificate, so it can check the chain link by link."
+/>
+
+The client checks several things.
+
+- Each signature in the chain is valid, back to a root it trusts.
+- The certificate covers the name it asked for.
+- The date is within the validity period.
+- The certificate has not been revoked.
+
+If any check fails, the browser shows a warning page. Clicking through such a warning gives up the authentication guarantee.
+
+The weakness is that any trusted CA can issue a certificate for any name, so a careless or compromised CA endangers everyone. **Certificate Transparency** is the countermeasure: every certificate must be recorded in public, append-only logs built on [Merkle trees](/data-structures/merkle-trees/), so a domain owner can spot a certificate they did not request.
+
+Getting a certificate was once slow and costly. Let's Encrypt, a free CA launched in 2015, automated it: software proves control of the domain and renews the certificate without human involvement. That is the main reason the web moved to HTTPS.
+
+## Forward secrecy
+
+The key exchange uses fresh temporary keys for each connection, discarded afterwards. The server's long-term key is used only to sign.
+
+So if the long-term key is stolen next year, the thief can impersonate the server from then on, but cannot decrypt traffic recorded today. The session keys were never sent, and the values needed to recompute them no longer exist. This property is **forward secrecy**.
+
+Older versions of TLS allowed a mode in which the client encrypted the session secret directly with the server's long-term key. Anyone who recorded such traffic and later obtained that key could read all of it. TLS 1.3 removed the mode.
+
+## After the handshake
+
+Application data is cut into records. Each is encrypted with a symmetric cipher, usually AES-GCM or ChaCha20-Poly1305, that provides confidentiality and integrity together. A record that has been altered in transit fails its check and the connection is closed.
+
+Records are numbered, so an attacker cannot replay, reorder or silently drop them.
+
+Modern processors have dedicated instructions for AES, and the cost of encrypting is small. The noticeable cost of TLS is the extra round trip at the start.
+
+## Resuming
+
+A client that reconnects to the same server can skip most of the work. The server hands out a ticket during the first connection, and the client presents it on the next to derive new keys without a full handshake.
+
+TLS 1.3 also allows **0-RTT**: sending a request with the very first message, encrypted under a key from the previous session. It saves a round trip. Its drawback is that an attacker can record that first message and send it again, so it should only carry requests that are harmless to repeat.
+
+## What TLS does not hide
+
+| Still visible to the network | Why |
+| --- | --- |
+| The IP addresses of both ends | needed for routing |
+| The server's name, usually | sent unencrypted in the first message as SNI, so the server knows which certificate to use |
+| The amount of data and its timing | encryption does not hide size |
+| The DNS lookup that came first | unless [DNS](/networking/dns/#security-and-privacy) is encrypted separately |
+
+And TLS protects data only in transit. It says nothing about what the server does with your data once it has decrypted it, and nothing about whether the site is honest. A padlock means the connection is private and that the site controls the name in the address bar. Fraudulent sites have padlocks as well.
+
+## Versions
+
+| Version | Year | Status |
+| --- | --- | --- |
+| SSL 2.0, 3.0 | 1995, 1996 | broken, and removed everywhere |
+| TLS 1.0, 1.1 | 1999, 2006 | deprecated |
+| TLS 1.2 | 2008 | still widely used. Two round trips |
+| TLS 1.3 | 2018 | current. One round trip, forward secrecy mandatory, old algorithms removed |
+
+TLS 1.3 was largely a simplification. Most of the notorious attacks on earlier versions exploited obsolete options that had been kept for compatibility, and the new version deleted them.
+
+## Beyond the browser
+
+TLS secures email delivery, database connections, messaging, and calls between services inside a data centre. In **mutual TLS**, the client presents a certificate as well, so each side authenticates the other, which is a common way for services to identify themselves to each other.
+
+[QUIC](/networking/quic/) builds the TLS 1.3 handshake into the transport itself.
+
+## Key takeaways
+
+- TLS provides confidentiality, integrity and authentication for a connection over an untrusted network.
+- The handshake uses a key exchange to agree secret keys in public, and a certificate with a signature to prove the server's identity.
+- A certificate binds a name to a public key and is trusted through a chain of signatures ending at a root the client already holds.
+- Temporary keys for each connection give forward secrecy: stealing the server's long-term key later does not expose past traffic.
+- After the handshake, fast symmetric encryption protects the data. TLS 1.3 needs one round trip to get there.
+- TLS hides content, not the addresses involved, and it says nothing about the trustworthiness of the other party.
