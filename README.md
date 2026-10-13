@@ -189,6 +189,14 @@ is a conversation between machines (also `tcp-loss`, `tcp-close`, `udp`, `dns`,
 `<LayersDemo />`, `<CongestionDemo />`, `<HttpDemo />`, `<LoadBalancerDemo />` and
 `<CdnDemo />`.
 
+The database pages use `<SqlDemo showTables />`, a SQL prompt over two sample tables
+(pass `query` and `tries={[['label', 'SELECT ...']]}` to set the examples). The engine
+in `src/lib/databases.ts` handles `SELECT`, `JOIN`, `LEFT JOIN`, `WHERE`, `GROUP BY`,
+`ORDER BY` and `LIMIT`. The other widgets are `<JoinDemo />`, `<IndexDemo />`,
+`<LsmDemo />`, `<WalDemo />`, `<PlanDemo />`, `<MvccDemo />` and
+`<IsolationDemo anomaly="dirty read" />` (also `non-repeatable read`, `phantom`,
+`lost update` and `write skew`).
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
