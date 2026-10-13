@@ -1,0 +1,161 @@
+---
+description: A finite automaton reads input one symbol at a time and remembers only which of a fixed set of states it is in. It is the simplest model of computation, and the one behind lexers, regular expressions and protocol handlers.
+difficulty: beginner
+---
+
+Some questions about a string can be answered by reading it once, left to right, while remembering almost nothing. Does it contain an even number of zeros? Does it end in `01`? Is it a valid number, a valid identifier, a valid date?
+
+A **finite automaton** is the machine for exactly these questions. It has a fixed number of **states**, it is always in one of them, and each symbol it reads moves it to another. It has no other memory at all. When the input runs out, the state it is in decides the answer.
+
+## The picture
+
+This machine accepts strings of 0s and 1s that contain an even number of 0s. Type a string and step through it.
+
+<AutomatonDemo machine="even-zeros" input="1001" />
+
+The diagram has four kinds of mark.
+
+| Mark | Meaning |
+| --- | --- |
+| Circle | a state |
+| Arrow from nowhere | the start state |
+| Double circle | an accepting state |
+| Labelled arrow | read this symbol, move to that state |
+
+The machine never counts the zeros. It cannot, because a count can grow without limit and the machine has two states. It tracks one fact, whether the count so far is even or odd, and that fact is enough. Reading a `1` changes nothing. Reading a `0` flips it.
+
+This is the whole skill of designing an automaton: decide what small fact about the input read so far is worth remembering, and make one state for each value that fact can take.
+
+## A state is a summary
+
+Here is a less obvious one. It reads a binary number, most significant bit first, and accepts if the number is divisible by 3.
+
+<AutomatonDemo machine="divisible-by-3" input="110" />
+
+The three states are the three possible remainders. Appending a bit to a binary number doubles it and adds the bit, so if the remainder so far is `r`, the new remainder is `(2r + bit) mod 3`. That rule gives every arrow in the diagram. From `r1`, reading `0` gives `2 mod 3 = 2`, so the arrow goes to `r2`. From `r2`, reading `1` gives `5 mod 3 = 2`, so the arrow loops.
+
+The input can be a million bits long. The machine still needs three states, because the remainder is all that matters about the bits already read. This is [modular arithmetic](/foundations/modular-arithmetic/) doing the work.
+
+## The formal definition
+
+A **deterministic finite automaton**, or DFA, is five things.
+
+| Part | In the divisibility machine |
+| --- | --- |
+| A finite set of states | `r0`, `r1`, `r2` |
+| An alphabet of input symbols | `0` and `1` |
+| A transition function: (state, symbol) to state | the six arrows |
+| A start state | `r0` |
+| A set of accepting states | `r0` |
+
+Deterministic means the transition function gives exactly one next state for every state and symbol. There is never a choice and never a missing arrow.
+
+The set of strings a machine accepts is called its **language**. A language that some finite automaton accepts is a **regular language**.
+
+## Nondeterminism
+
+Designing a machine for "ends in `01`" is awkward, because the machine cannot know which `0` is the second to last symbol until the input stops. A **nondeterministic finite automaton**, or NFA, is allowed to guess.
+
+<AutomatonDemo machine="ends-01" input="1001" />
+
+State `q0` has two arrows labelled `0`. One loops, and one moves to `q1`, betting that this `0` starts the final `01`. The machine accepts if **any** sequence of choices ends in an accepting state.
+
+No real machine guesses. The widget shows what a simulation does instead: it follows every choice at once and keeps the set of states the machine could be in. A path that has no arrow for the next symbol simply drops out of the set.
+
+An NFA may also have **ε arrows**, which are followed without reading anything. They are useful for gluing machines together, which is how [regular expressions](/theory/regular-expressions/) are compiled.
+
+## Every NFA has an equivalent DFA
+
+Guessing adds convenience but no power. Since a simulation only ever tracks a set of NFA states, each possible set can be made into one state of a DFA. This is the **subset construction**.
+
+For the machine above, only three sets are ever reachable.
+
+| Set of NFA states | DFA state | on 0 | on 1 |
+| --- | --- | --- | --- |
+| `q0` | A | B | A |
+| `q0`, `q1` | B | B | C |
+| `q0`, `q2` | C | B | A |
+
+A set is accepting if it contains an accepting NFA state, so C accepts. The result is an ordinary DFA for the same language.
+
+<AutomatonDemo machine="ends-01-dfa" input="1001" />
+
+Run both machines on the same input and the highlighted set in the NFA always matches the single highlighted state in the DFA.
+
+<Aside type="warning" title="The catch">
+
+An NFA with n states has 2ⁿ possible sets of states, and for some languages the DFA really needs that many. "The tenth symbol from the end is a 1" takes 11 NFA states and 1024 DFA states, because the DFA must remember the last ten symbols exactly.
+
+</Aside>
+
+## What a finite automaton cannot do
+
+Consider the strings made of some 0s followed by the same number of 1s: `01`, `0011`, `000111` and so on. No finite automaton accepts exactly these.
+
+The argument is short. Suppose a machine with k states did. Feed it k + 1 zeros. It has passed through k + 1 states with only k to choose from, so by the pigeonhole principle it was in the same state after two different numbers of zeros, say 3 and 5. From that state the machine behaves identically whatever it read before. So if it accepts `000111`, it also accepts `00000111`, which is wrong.
+
+A finite automaton cannot count without limit. It follows that it cannot match nested brackets, check that an HTML document closes its tags, or decide whether a string is a palindrome. Those need a stack, which is what a [pushdown automaton](/theory/pushdown-automata/) adds.
+
+## Costs
+
+<Ops items={[
+  ['Run a DFA', 'O(n)', 'one table lookup per symbol'],
+  ['Run an NFA', 'O(n · s)', 's states, tracked as a set'],
+  ['Memory while running', 'O(1)', 'the current state'],
+  ['NFA to DFA', 'O(2ⁿ)', 'worst case, in states'],
+]} />
+
+A DFA is as fast as recognition gets. It looks at each symbol once, never backs up and uses no memory beyond one small integer.
+
+## Implementation
+
+A DFA is a table. The program is a loop around a lookup.
+
+```python
+def accepts(table, start, accepting, text):
+    state = start
+    for symbol in text:
+        state = table[state][symbol]
+    return state in accepting
+
+divisible_by_3 = {
+    'r0': {'0': 'r0', '1': 'r1'},
+    'r1': {'0': 'r2', '1': 'r0'},
+    'r2': {'0': 'r1', '1': 'r2'},
+}
+
+accepts(divisible_by_3, 'r0', {'r0'}, '110')    # True, since 110 is 6
+```
+
+An NFA simulation replaces the single state with a set.
+
+```python
+def accepts(arrows, start, accepting, text):
+    states = {start}
+    for symbol in text:
+        states = {target
+                  for state in states
+                  for target in arrows.get((state, symbol), ())}
+    return bool(states & accepting)
+```
+
+## Where they are used
+
+**Lexers.** The first stage of a [compiler](/languages/lexing/) splits source text into tokens such as numbers, names and operators. Each kind of token is a regular language, and the lexer is one large DFA built from all of them.
+
+**Regular expressions.** Tools such as `grep` and the regex engines in Go and Rust compile a pattern into an automaton and run it.
+
+**Protocols.** A [TCP](/networking/tcp/) connection is defined as a state machine with states such as listening, established and closing. So is a traffic light controller, a vending machine and the logic of a lift.
+
+**Hardware.** A circuit built from [flip-flops](/architecture/flip-flops-and-registers/) and logic is a finite automaton whose state is the bits it stores. The control unit of a processor is one.
+
+**Application code.** Any object whose behaviour depends on a mode, such as an order that is pending, paid, shipped or cancelled, is clearer when the states and the legal moves between them are written down explicitly.
+
+## Key takeaways
+
+- A finite automaton has a fixed set of states and no other memory. Each input symbol moves it from one state to another.
+- A state stands for everything the machine needs to remember about the input so far.
+- Nondeterministic automata are often smaller and easier to design, but they accept exactly the same languages as deterministic ones.
+- Converting an NFA to a DFA can multiply the number of states exponentially.
+- Finite automata cannot count without limit, so they cannot match nested structure.
+- Running a DFA takes one step per symbol and constant memory.
