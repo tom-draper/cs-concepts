@@ -1,0 +1,102 @@
+---
+// A write-ahead log, a buffer of pages in memory and the pages on disk. The
+// reader runs transfers, commits, checkpoints and pulls the plug.
+---
+
+<wal-demo class="playground wal-demo">
+  <p class="tries">
+    <button type="button" data-act="transfer">Move 10 from A to B</button>
+    <button type="button" data-act="commit">Commit</button>
+    <button type="button" data-act="checkpoint">Checkpoint</button>
+    <button type="button" data-act="crash">Crash</button>
+  </p>
+  <div class="columns">
+    <div>
+      <h4>Log</h4>
+      <ol class="listing" data-out="log"><li class="none">empty</li></ol>
+    </div>
+    <div>
+      <h4>Pages in memory</h4>
+      <p class="slots" data-out="memory"><i>A: 100</i><i>B: 100</i></p>
+      <h4>Pages on disk</h4>
+      <p class="slots" data-out="disk"><i>A: 100</i><i>B: 100</i></p>
+    </div>
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">Start a transfer. Watch where each change is written, and when it reaches the disk.</p>
+</wal-demo>
+
+<script>
+  import { WalDatabase } from '../lib/databases';
+
+  class WalDemo extends HTMLElement {
+    connectedCallback() {
+      const db = new WalDatabase();
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const pages = (name: string, values: Record<string, number>, other: Record<string, number>) =>
+        out(name).replaceChildren(
+          ...Object.entries(values).map(([key, value]) => {
+            const cell = document.createElement('i');
+            cell.textContent = `${key}: ${value}`;
+            // A page that differs from its other copy is dirty.
+            if (other[key] !== value) cell.className = 'blocked';
+            return cell;
+          }),
+        );
+      const render = (status: string) => {
+        out('log').replaceChildren(
+          ...(db.log.length ? db.log : [null]).map((record) => {
+            const item = document.createElement('li');
+            if (!record) {
+              item.textContent = 'empty';
+              item.className = 'none';
+            } else {
+              item.textContent = record.change
+                ? `tx ${record.tx}: ${record.change.key} ${record.change.before} → ${record.change.after}`
+                : `tx ${record.tx}: COMMIT`;
+              item.className = record.durable ? 'durable' : 'pending';
+              item.title = record.durable ? 'on disk' : 'in memory only';
+            }
+            return item;
+          }),
+        );
+        pages('memory', db.memory, db.disk);
+        pages('disk', db.disk, db.memory);
+        this.querySelector<HTMLButtonElement>('[data-act="commit"]')!.disabled = db.open === null;
+        out('status').textContent = status;
+      };
+      this.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (act === 'transfer') {
+          db.transfer();
+          render(`Transaction ${db.open} logged both changes and then updated the pages in memory. Nothing has reached the disk: the dashed log records are still in a memory buffer.`);
+        } else if (act === 'commit') {
+          const tx = db.open;
+          db.commit();
+          render(`Transaction ${tx} is committed. Its log records were forced to disk in one sequential write, and only then was the client told. The data pages on disk are still out of date, and that is fine.`);
+        } else if (act === 'checkpoint') {
+          const { truncated } = db.checkpoint();
+          render(
+            truncated
+              ? `The pages in memory were written to disk. Every change in the log is now in the data files, so the log was emptied.`
+              : db.open !== null
+                ? `The pages in memory were written to disk, including changes from transaction ${db.open}, which has not committed. The log goes first, so those changes can be undone if needed.`
+                : 'The pages in memory were written to disk. There was nothing in the log to clear.',
+          );
+        } else if (act === 'crash') {
+          const { redone, undone, lost } = db.crash();
+          render(
+            'Power lost. Memory is gone. On restart the database read its log. ' +
+              (redone ? `It redid ${redone} ${redone === 1 ? 'change' : 'changes'} from committed transactions that had not reached the data pages. ` : '') +
+              (undone ? `It undid ${undone} ${undone === 1 ? 'change' : 'changes'} that had reached the data pages from a transaction that never committed. ` : '') +
+              (lost ? `${lost} log ${lost === 1 ? 'record' : 'records'} from an uncommitted transaction were still in memory and vanished, as if that transaction had never started. ` : '') +
+              (!redone && !undone && !lost ? 'There was nothing to repair. ' : '') +
+              'Every committed transfer is intact.',
+          );
+        }
+      });
+      render('Start a transfer. Watch where each change is written, and when it reaches the disk.');
+    }
+  }
+
+  customElements.define('wal-demo', WalDemo);
+</script>

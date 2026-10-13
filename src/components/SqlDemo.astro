@@ -1,0 +1,103 @@
+---
+// A SQL prompt over two small tables. Queries run in the browser against the
+// engine in src/lib/databases.ts.
+import { runSql, tables } from '../lib/databases';
+
+interface Props {
+  query?: string;
+  /** Example queries, as `[label, sql]`. */
+  tries?: [string, string][];
+  /** Show the contents of the two tables above the prompt. */
+  showTables?: boolean;
+}
+
+const {
+  tries = [
+    ['everything', 'SELECT * FROM customers'],
+    ['filter', "SELECT name, city FROM customers WHERE city = 'London'"],
+    ['sort', 'SELECT item, amount FROM orders WHERE amount > 50 ORDER BY amount DESC'],
+    ['count', 'SELECT city, COUNT(*) AS people FROM customers GROUP BY city'],
+    ['join', 'SELECT name, item, amount FROM customers JOIN orders ON customers.id = orders.customer_id'],
+  ],
+  query = tries[0][1],
+  showTables = false,
+} = Astro.props;
+const first = runSql(query);
+const cell = (value: unknown) => (value === null ? 'NULL' : String(value));
+---
+
+<sql-demo class="playground sql-demo">
+  {
+    showTables && (
+      <div class="columns">
+        {Object.entries(tables).map(([name, table]) => (
+          <div>
+            <h4>{name}</h4>
+            <table class="grid">
+              <thead><tr>{table.columns.map((column) => <th>{column}</th>)}</tr></thead>
+              <tbody>{table.rows.map((row) => <tr>{table.columns.map((column) => <td class={row[column] === null ? 'null' : ''}>{cell(row[column])}</td>)}</tr>)}</tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  <label class="wide">Query <textarea rows="2" spellcheck="false" autocomplete="off">{query}</textarea></label>
+  <p class="tries">
+    Try:
+    {tries.map(([label, sql]) => <button type="button" data-sql={sql}>{label}</button>)}
+  </p>
+  <div class="viz-scroll">
+    <table class="grid" data-out="result">
+      <thead><tr>{first.columns.map((column) => <th>{column}</th>)}</tr></thead>
+      <tbody>{first.rows.map((row) => <tr>{row.map((value) => <td class={value === null ? 'null' : ''}>{cell(value)}</td>)}</tr>)}</tbody>
+    </table>
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">{first.rows.length} {first.rows.length === 1 ? 'row' : 'rows'}. The tables are customers (id, name, city) and orders (id, customer_id, item, amount).</p>
+</sql-demo>
+
+<script>
+  import { runSql } from '../lib/databases';
+
+  class SqlDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector('textarea')!;
+      const result = this.querySelector('[data-out="result"]')!;
+      const status = this.querySelector('[data-out="status"]')!;
+      const cells = (tag: string, values: unknown[]) => {
+        const row = document.createElement('tr');
+        row.append(
+          ...values.map((value) => {
+            const cell = document.createElement(tag);
+            cell.textContent = value === null ? 'NULL' : String(value);
+            if (value === null) cell.className = 'null';
+            return cell;
+          }),
+        );
+        return row;
+      };
+      const render = () => {
+        try {
+          const { columns, rows } = runSql(field.value);
+          result.querySelector('thead')!.replaceChildren(cells('th', columns));
+          result.querySelector('tbody')!.replaceChildren(...rows.map((row) => cells('td', row)));
+          result.classList.remove('stale');
+          status.textContent = rows.length ? `${rows.length} ${rows.length === 1 ? 'row' : 'rows'}.` : 'No rows match. An empty result is still a valid table.';
+        } catch (error) {
+          // Leave the last good result in place, greyed out, while the query is being typed.
+          result.classList.add('stale');
+          status.textContent = (error as Error).message;
+        }
+      };
+      field.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const sql = (event.target as HTMLElement).closest<HTMLElement>('[data-sql]')?.dataset.sql;
+        if (!sql) return;
+        field.value = sql;
+        render();
+      });
+    }
+  }
+
+  customElements.define('sql-demo', SqlDemo);
+</script>

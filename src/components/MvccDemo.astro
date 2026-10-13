@@ -1,0 +1,90 @@
+---
+// One row and its versions. Readers keep the snapshot they started with while
+// writers add new versions, and vacuum removes the ones nobody can see.
+---
+
+<mvcc-demo class="playground mvcc-demo">
+  <p class="tries">
+    <button type="button" data-act="reader">Start a reader</button>
+    <button type="button" data-act="write">A writer adds 10 and commits</button>
+    <button type="button" data-act="vacuum">Vacuum</button>
+  </p>
+  <div class="viz-scroll">
+    <table class="grid" data-out="versions">
+      <thead><tr><th>balance</th><th>written by</th><th>replaced by</th><th>visible to</th></tr></thead>
+      <tbody><tr><td>100</td><td>tx 1</td><td class="null">nobody yet</td><td>new transactions</td></tr></tbody>
+    </table>
+  </div>
+  <p class="tries" data-out="readers"></p>
+  <p class="hint" data-out="status" aria-live="polite">The row has one version. Start a reader, then let a writer change the balance.</p>
+</mvcc-demo>
+
+<script>
+  import { MvccRow } from '../lib/databases';
+
+  class MvccDemo extends HTMLElement {
+    connectedCallback() {
+      const row = new MvccRow();
+      const body = this.querySelector('[data-out="versions"] tbody')!;
+      const readers = this.querySelector('[data-out="readers"]')!;
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message: string) => {
+        body.replaceChildren(
+          ...row.versions.map((version) => {
+            const line = document.createElement('tr');
+            const viewers = row.readers.filter((tx) => row.visible(version, tx)).map((tx) => `tx ${tx}`);
+            if (version.expired === null) viewers.push('new transactions');
+            const cells = [String(version.value), `tx ${version.created}`, version.expired === null ? 'nobody yet' : `tx ${version.expired}`, viewers.join(', ') || 'nobody'];
+            line.append(
+              ...cells.map((text, i) => {
+                const cell = document.createElement('td');
+                cell.textContent = text;
+                if ((i === 2 && version.expired === null) || (i === 3 && !viewers.length)) cell.className = 'null';
+                return cell;
+              }),
+            );
+            line.classList.toggle('seen', !viewers.length);
+            return line;
+          }),
+        );
+        readers.replaceChildren(
+          ...row.readers.map((tx) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.dataset.finish = String(tx);
+            button.textContent = `tx ${tx} reads ${row.seenBy(tx).value}. Finish it`;
+            return button;
+          }),
+        );
+        this.querySelector<HTMLButtonElement>('[data-act="reader"]')!.disabled = row.readers.length >= 3;
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.finish) {
+          row.finishReader(Number(button.dataset.finish));
+          render(`Transaction ${button.dataset.finish} has finished. Any version only it could see is now dead weight, waiting for vacuum.`);
+        } else if (button.dataset.act === 'reader') {
+          const tx = row.startReader();
+          render(`Transaction ${tx} begins and takes a snapshot. It sees ${row.seenBy(tx).value} and will go on seeing ${row.seenBy(tx).value} however long it runs.`);
+        } else if (button.dataset.act === 'write') {
+          const tx = row.write();
+          render(
+            `Transaction ${tx} wrote a new version and committed. The old version was not overwritten, only marked as replaced. ` +
+              (row.readers.length ? 'The readers already running were not blocked and did not notice.' : 'No reader was running.'),
+          );
+        } else {
+          const { removed, kept } = row.vacuum();
+          render(
+            (removed ? `Removed ${removed} dead ${removed === 1 ? 'version' : 'versions'}. ` : 'Nothing could be removed. ') +
+              (kept ? `${kept} old ${kept === 1 ? 'version is' : 'versions are'} still needed by a running reader. A transaction left open for hours stops old versions being cleaned up.` : ''),
+          );
+        }
+      });
+      render('The row has one version. Start a reader, then let a writer change the balance.');
+    }
+  }
+
+  customElements.define('mvcc-demo', MvccDemo);
+</script>

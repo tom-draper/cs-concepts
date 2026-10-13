@@ -1,0 +1,62 @@
+---
+// The planner's choice between a sequential scan and an index scan, as the
+// table size and the share of rows that match change.
+const sizes = [1000, 100000, 10000000];
+const shares = [0.00001, 0.0001, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25, 0.5, 1];
+---
+
+<plan-demo class="playground plan-demo" data-shares={shares.join(',')}>
+  <p class="tries" role="group" aria-label="Rows in the table">
+    Rows in the table:
+    {sizes.map((size, i) => <button type="button" data-size={size} aria-pressed={i === 1 ? 'true' : 'false'}>{size.toLocaleString('en')}</button>)}
+  </p>
+  <div class="sliders">
+    <label>Rows that match <input type="range" min="0" max={shares.length - 1} value="2" step="1" /> <b data-out="share">0.1%</b></label>
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Matching rows</dt><dd data-out="matches">-</dd></div>
+    <div><dt>Sequential scan</dt><dd data-out="scan">-</dd></div>
+    <div><dt>Index scan</dt><dd data-out="index">-</dd></div>
+    <div><dt>The planner picks</dt><dd data-out="best">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Costs are estimates in units of one sequential page read.</p>
+</plan-demo>
+
+<script>
+  import { planCosts } from '../lib/databases';
+
+  class PlanDemo extends HTMLElement {
+    connectedCallback() {
+      const shares = this.dataset.shares!.split(',').map(Number);
+      const slider = this.querySelector<HTMLInputElement>('input')!;
+      let rows = 100000;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = () => {
+        const share = shares[Number(slider.value)];
+        const plan = planCosts(rows, share);
+        out('share').textContent = `${Number((share * 100).toPrecision(2))}%`;
+        out('matches').textContent = plan.matches.toLocaleString('en');
+        out('scan').textContent = `cost ${plan.scan.toLocaleString('en')}`;
+        out('index').textContent = `cost ${plan.index.toLocaleString('en')}`;
+        out('best').textContent = plan.best === 'index' ? 'index scan' : 'sequential scan';
+        out('status').textContent =
+          plan.best === 'index'
+            ? `Few rows match, so jumping straight to them through the index beats reading all ${plan.pages.toLocaleString('en')} pages.`
+            : `So many rows match that the index would jump around the table, one random read per row. Reading all ${plan.pages.toLocaleString('en')} pages in order is cheaper, and the index is ignored.`;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-size]')) {
+          button.setAttribute('aria-pressed', String(Number(button.dataset.size) === rows));
+        }
+      };
+      slider.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const size = (event.target as HTMLElement).closest<HTMLElement>('[data-size]')?.dataset.size;
+        if (!size) return;
+        rows = Number(size);
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('plan-demo', PlanDemo);
+</script>

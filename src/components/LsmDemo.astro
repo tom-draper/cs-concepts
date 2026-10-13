@@ -1,0 +1,87 @@
+---
+// A log-structured merge tree: writes fill a memtable, full memtables become
+// sorted files, reads search newest to oldest, and compaction merges the files.
+const keys = ['a', 'b', 'c', 'd', 'e', 'f'];
+---
+
+<lsm-demo class="playground lsm-demo">
+  <p class="tries">Write: {keys.map((key) => <button type="button" data-put={key}>{key}</button>)}</p>
+  <p class="tries">Delete: {keys.map((key) => <button type="button" data-delete={key}>{key}</button>)}</p>
+  <p class="tries">Read: {keys.map((key) => <button type="button" data-get={key}>{key}</button>)}</p>
+  <div class="lsm-levels" data-out="levels">
+    <div><h4>Memtable, in memory</h4><p class="slots"><i class="none">empty</i></p></div>
+  </div>
+  <p class="tries">
+    <button type="button" data-act="compact">Compact</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Write some keys. The memtable holds four entries before it is flushed to a file.</p>
+</lsm-demo>
+
+<script>
+  import { Lsm, TOMBSTONE } from '../lib/databases';
+
+  class LsmDemo extends HTMLElement {
+    connectedCallback() {
+      let tree = new Lsm();
+      const levels = this.querySelector('[data-out="levels"]')!;
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message: string, found?: { place: string; key: string }, searched: string[] = []) => {
+        const level = (title: string, place: string, entries: [string, string][]) => {
+          const box = document.createElement('div');
+          box.classList.toggle('searched', searched.includes(place));
+          const slots = document.createElement('p');
+          slots.className = 'slots';
+          slots.append(
+            ...(entries.length ? entries : [['', 'empty'] as [string, string]]).map(([key, value]) => {
+              const cell = document.createElement('i');
+              cell.textContent = key ? `${key}: ${value}` : value;
+              if (!key) cell.className = 'none';
+              else if (found?.place === place && found.key === key) cell.className = 'hit';
+              else if (value === TOMBSTONE) cell.className = 'blocked';
+              return cell;
+            }),
+          );
+          box.append(Object.assign(document.createElement('h4'), { textContent: title }), slots);
+          return box;
+        };
+        levels.replaceChildren(
+          level('Memtable, in memory', 'the memtable', [...tree.memtable]),
+          ...tree.files.map((file, i) => level(`File ${file.id}, on disk${i === 0 ? ', newest' : ''}`, `file ${file.id}`, file.entries)),
+        );
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const { put, delete: remove, get, act } = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (put || remove) {
+          const key = (put ?? remove)!;
+          const { value, flushed } = tree.put(key, Boolean(remove));
+          render(
+            (remove ? `Deleting ${key} writes a marker called a tombstone. Nothing on disk is touched.` : `Wrote ${key} = ${value} to the memtable. No file was changed, even if an older ${key} is in one.`) +
+              (flushed ? ' The memtable was full, so it was sorted and written out as a new file in one sequential write.' : ''),
+          );
+        } else if (get) {
+          const { value, searched } = tree.get(get);
+          const place = searched[searched.length - 1];
+          render(
+            value === null
+              ? `${get} is nowhere. Being sure meant looking in ${searched.length} ${searched.length === 1 ? 'place' : 'places'}: ${searched.join(', ')}.`
+              : value === TOMBSTONE
+                ? `Found a tombstone for ${get} in ${place}, so it counts as deleted. Older values further down are ignored.`
+                : `Found ${get} = ${value} in ${place}, after looking in ${searched.length} ${searched.length === 1 ? 'place' : 'places'}. The newest copy wins, so the search stops there.`,
+            value === null ? undefined : { place, key: get },
+            searched,
+          );
+        } else if (act === 'compact') {
+          const { before, after } = tree.compact();
+          render(before ? `Merged every file into one. ${before} entries became ${after}: overwritten values and tombstones were dropped.` : 'There are no files to merge yet.');
+        } else if (act === 'reset') {
+          tree = new Lsm();
+          render('Empty again.');
+        }
+      });
+    }
+  }
+
+  customElements.define('lsm-demo', LsmDemo);
+</script>

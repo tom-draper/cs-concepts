@@ -1,0 +1,73 @@
+---
+// Finding a row by age with and without an index: every row examined, against
+// a binary search of the sorted index and one jump to the row.
+import { ageIndex, people } from '../lib/databases';
+
+const targets = [41, 19, 65, 30, 40];
+---
+
+<index-demo class="playground index-demo">
+  <p class="tries" role="group" aria-label="Age to find">
+    WHERE age =
+    {targets.map((age) => <button type="button" data-age={age} aria-pressed="false">{age}</button>)}
+  </p>
+  <div class="columns">
+    <div>
+      <h4>The table, in insertion order</h4>
+      <table class="grid" data-out="rows">
+        <thead><tr><th>row</th><th>name</th><th>age</th></tr></thead>
+        <tbody>{people.map(([name, age], row) => <tr><td>{row}</td><td>{name}</td><td>{age}</td></tr>)}</tbody>
+      </table>
+    </div>
+    <div>
+      <h4>The index on age, sorted</h4>
+      <table class="grid" data-out="index">
+        <thead><tr><th>age</th><th>row</th></tr></thead>
+        <tbody>{ageIndex.map((entry) => <tr><td>{entry.age}</td><td>{entry.row}</td></tr>)}</tbody>
+      </table>
+    </div>
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Without the index</dt><dd data-out="scan">-</dd></div>
+    <div><dt>With the index</dt><dd data-out="probe">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Pick an age to search for. Orange marks what had to be examined, and blue the match.</p>
+</index-demo>
+
+<script>
+  import { ageIndex, indexProbes, people } from '../lib/databases';
+
+  class IndexDemo extends HTMLElement {
+    connectedCallback() {
+      const rows = [...this.querySelectorAll('[data-out="rows"] tbody tr')];
+      const entries = [...this.querySelectorAll('[data-out="index"] tbody tr')];
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLElement>('[data-age]');
+        if (!button) return;
+        const age = Number(button.dataset.age);
+        const probes = indexProbes(age);
+        const match = ageIndex.findIndex((entry) => entry.age === age);
+        const row = match >= 0 ? ageIndex[match].row : -1;
+        // Without an index nothing says where the row is, or that there is only one.
+        rows.forEach((each, i) => {
+          each.classList.toggle('seen', i !== row);
+          each.classList.toggle('hit', i === row);
+        });
+        entries.forEach((each, i) => {
+          each.classList.toggle('seen', probes.includes(i) && i !== match);
+          each.classList.toggle('hit', i === match);
+        });
+        for (const each of this.querySelectorAll<HTMLElement>('[data-age]')) each.setAttribute('aria-pressed', String(each === button));
+        out('scan').textContent = `${people.length} rows read`;
+        out('probe').textContent = `${probes.length} index entries${match >= 0 ? ', then 1 row' : ''}`;
+        out('status').textContent =
+          match >= 0
+            ? `The scan read all ${people.length} rows, because any of them might match. The index search halved its range ${probes.length - 1} ${probes.length === 2 ? 'time' : 'times'}, landed on ${age} and followed the pointer to row ${row}.`
+            : `Nobody is ${age}. The scan still had to read every row to be sure. The index search narrowed down to where ${age} would be and found it missing after ${probes.length} entries.`;
+      });
+    }
+  }
+
+  customElements.define('index-demo', IndexDemo);
+</script>
