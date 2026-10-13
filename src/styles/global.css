@@ -2812,3 +2812,209 @@ main {
 .jit-demo .readouts dt {
   min-width: 10.5rem;
 }
+
+/* ---------- Networking widgets ---------- */
+
+.sequence .lifeline {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.sequence .msg.later {
+  visibility: hidden;
+}
+
+.sequence .msg.on line {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.sequence .msg.on polygon {
+  fill: var(--accent);
+}
+
+.sequence .msg.on .v-sym {
+  fill: var(--accent);
+}
+
+.sequence .local rect {
+  fill: var(--viz-fill);
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}
+
+.sequence .local.on rect {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.sequence .lost line {
+  stroke: var(--alt) !important;
+  stroke-dasharray: 5 4;
+}
+
+.sequence .lost .cross {
+  fill: var(--alt);
+  font: 700 14px var(--font);
+}
+
+.sequence-demo .viz-scroll,
+.congestion-demo .viz-scroll {
+  text-align: center;
+}
+
+.sequence-demo .frame-caption {
+  min-height: 4.5em;
+}
+
+.ip-bits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  margin: 0.9rem 0 0 !important;
+}
+
+.ip-bits i,
+.legend i {
+  width: 1.05rem;
+  height: 1.7rem;
+  border-radius: 2px;
+  font: 600 0.85rem/1.7rem var(--mono);
+  text-align: center;
+}
+
+.ip-bits i[data-gap] {
+  margin-right: 0.45rem;
+}
+
+.ip-bits .net,
+.legend .net {
+  background: var(--accent-soft);
+  box-shadow: inset 0 -2px var(--accent);
+}
+
+.ip-bits .host,
+.legend .host {
+  background: var(--alt-soft);
+  box-shadow: inset 0 -2px var(--alt);
+}
+
+.playground .legend {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.4rem !important;
+}
+
+.legend i {
+  display: inline-block;
+  height: 0.9rem;
+}
+
+.legend .host {
+  margin-left: 0.8rem;
+}
+
+.subnet-demo .readouts dt {
+  min-width: 8.5rem;
+}
+
+.packet {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 !important;
+}
+
+.packet i {
+  padding: 0.35rem 0.6rem;
+  border: 1.5px solid var(--viz-stroke);
+  margin-right: -1.5px;
+  background: var(--viz-fill);
+  font: 600 0.8rem var(--mono);
+  white-space: nowrap;
+}
+
+.packet [data-part='data'] {
+  background: var(--accent-soft);
+}
+
+.packet .fresh {
+  position: relative;
+  border-color: var(--alt);
+  background: var(--alt-soft);
+}
+
+.layers-demo .loop-code li {
+  font-size: 0.9rem;
+}
+
+.layers-demo .frame-caption {
+  min-height: 4.5em;
+}
+
+.congestion-demo .axis {
+  stroke: var(--viz-stroke);
+  stroke-width: 1;
+}
+
+.congestion-demo .window {
+  fill: none;
+  stroke: var(--series-1);
+  stroke-width: 2.5;
+  stroke-linejoin: round;
+}
+
+.congestion-demo .threshold {
+  fill: none;
+  stroke: var(--text-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+
+.congestion-demo circle {
+  fill: var(--alt);
+}
+
+.load-balancer .env {
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+}
+
+.load-balancer .env[data-up='false'] {
+  border-style: dashed;
+  border-color: var(--alt);
+  background: var(--alt-soft);
+}
+
+.load-balancer .backends {
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  margin-top: 0.9rem;
+}
+
+.load-balancer .readouts {
+  margin-top: 0.4rem;
+}
+
+.cdn-demo .readouts dt {
+  min-width: 12rem;
+}
+
+.http-demo .columns {
+  margin-top: 0.9rem;
+}
+
+.http-demo pre {
+  min-height: 9.5rem;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

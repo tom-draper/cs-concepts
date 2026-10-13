@@ -1,0 +1,76 @@
+---
+// An IPv4 address and prefix length, split into network and host bits, with
+// everything that follows from them.
+import { dotted, subnet } from '../lib/networking';
+
+interface Props {
+  value?: string;
+}
+
+const { value = '192.168.1.130/26' } = Astro.props;
+const tries = ['192.168.1.130/24', '192.168.1.130/26', '10.20.30.40/8', '172.16.5.9/20', '203.0.113.77/30', '8.8.8.8/32'];
+const info = subnet(value);
+---
+
+<subnet-demo class="playground subnet-demo">
+  <label>Address <input value={value} maxlength="18" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <p class="ip-bits" data-out="bits" aria-label="The 32 bits of the address">
+    {[...info.bits].map((bit, i) => <i class={i < info.prefix ? 'net' : 'host'} data-gap={i % 8 === 7 ? '' : undefined}>{bit}</i>)}
+  </p>
+  <p class="hint legend"><i class="net"></i> network part <i class="host"></i> host part</p>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Subnet mask</dt><dd data-out="mask">{dotted(info.mask)}</dd></div>
+    <div><dt>Network</dt><dd data-out="network">{dotted(info.network)}/{info.prefix}</dd></div>
+    <div><dt>Usable hosts</dt><dd data-out="range">{dotted(info.first)} to {dotted(info.last)}</dd></div>
+    <div><dt>How many</dt><dd data-out="hosts">{info.hosts.toLocaleString('en')}</dd></div>
+    <div><dt>Broadcast</dt><dd data-out="broadcast">{dotted(info.broadcast)}</dd></div>
+    <div><dt>Kind of address</dt><dd data-out="kind">{info.kind}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The first {info.prefix} bits name the network. The other {32 - info.prefix} pick a machine on it.</p>
+</subnet-demo>
+
+<script>
+  import { dotted, subnet } from '../lib/networking';
+
+  class SubnetDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = () => {
+        try {
+          const info = subnet(field.value);
+          [...out('bits').children].forEach((cell, i) => {
+            cell.textContent = info.bits[i];
+            cell.className = i < info.prefix ? 'net' : 'host';
+          });
+          out('mask').textContent = dotted(info.mask);
+          out('network').textContent = `${dotted(info.network)}/${info.prefix}`;
+          out('range').textContent = info.hosts === 1 ? dotted(info.first) : `${dotted(info.first)} to ${dotted(info.last)}`;
+          out('hosts').textContent = info.hosts.toLocaleString('en');
+          out('broadcast').textContent = info.prefix >= 31 ? 'none' : dotted(info.broadcast);
+          out('kind').textContent = info.kind;
+          out('status').textContent =
+            info.prefix === 32
+              ? 'All 32 bits are fixed, so this names exactly one machine.'
+              : `The first ${info.prefix} ${info.prefix === 1 ? 'bit names' : 'bits name'} the network. The other ${32 - info.prefix} pick a machine on it, giving 2 to the power ${32 - info.prefix} = ${info.size.toLocaleString('en')} addresses.`;
+        } catch (error) {
+          out('status').textContent = (error as Error).message;
+        }
+      };
+      field.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest<HTMLElement>('[data-try]')?.dataset.try;
+        if (!item) return;
+        field.value = item;
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('subnet-demo', SubnetDemo);
+</script>

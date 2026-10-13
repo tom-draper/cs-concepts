@@ -1,0 +1,99 @@
+---
+// Requests spread over three servers, one of them slow, under a choice of
+// balancing policies. Servers can be taken down.
+import { policies } from '../lib/networking';
+---
+
+<load-balancer class="playground load-balancer">
+  <p class="tries" role="group" aria-label="Policy">
+    {policies.map((policy, i) => <button type="button" data-policy={policy} aria-pressed={i === 0 ? 'true' : 'false'}>{policy}</button>)}
+  </p>
+  <div class="columns backends">
+    {
+      ['A', 'B', 'C'].map((name) => (
+        <div class="env" data-server={name}>
+          <h4>Server {name}{name === 'C' ? ', slow' : ''}</h4>
+          <p class="slots" data-out="active"><i class="none">idle</i></p>
+          <dl class="readouts"><div><dt>Handled</dt><dd data-out="handled">0</dd></div></dl>
+          <p class="tries"><button type="button" data-toggle={name}>Take down</button></p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="tries">
+    <button type="button" data-send="1">Send a request</button>
+    <button type="button" data-send="10">× 10</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Each box is a request in progress. Server C takes three times as long as A and B to finish one. Send some requests.</p>
+</load-balancer>
+
+<script>
+  import { LoadBalancer, type Policy } from '../lib/networking';
+
+  class LoadBalancerDemo extends HTMLElement {
+    connectedCallback() {
+      let balancer = new LoadBalancer();
+      let policy: Policy = 'round robin';
+      const status = this.querySelector('[data-out="status"]')!;
+      const about: Record<Policy, string> = {
+        'round robin': 'Round robin takes the servers in turn. It ignores how busy each one is, so work piles up on the slow one.',
+        'least connections': 'Least connections picks whichever server has the fewest requests in progress, so a slow server is given less.',
+        random: 'Random picks any healthy server. Over many requests it evens out like round robin, with no state to keep.',
+        'client hash': 'Client hash sends each client to the same server every time, which keeps sessions and caches together but can spread load unevenly.',
+      };
+      const render = (message: string) => {
+        for (const server of balancer.servers) {
+          const box = this.querySelector<HTMLElement>(`[data-server="${server.name}"]`)!;
+          box.dataset.up = String(server.up);
+          box.querySelector('[data-out="active"]')!.replaceChildren(
+            ...(server.active.length ? server.active : ['']).map((left) => {
+              const cell = document.createElement('i');
+              cell.textContent = left === '' ? (server.up ? 'idle' : 'down') : String(left);
+              if (left === '') cell.className = 'none';
+              return cell;
+            }),
+          );
+          box.querySelector('[data-out="handled"]')!.textContent = String(server.handled);
+          box.querySelector('[data-toggle]')!.textContent = server.up ? 'Take down' : 'Bring back';
+        }
+        for (const button of this.querySelectorAll<HTMLElement>('[data-policy]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.policy === policy));
+        }
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.policy) {
+          policy = button.dataset.policy as Policy;
+          balancer = new LoadBalancer();
+          render(about[policy]);
+        } else if (button.dataset.toggle) {
+          const server = balancer.servers.find((each) => each.name === button.dataset.toggle)!;
+          server.up = !server.up;
+          if (!server.up) server.active = [];
+          render(
+            server.up
+              ? `Server ${server.name} passes its health check again and rejoins the pool.`
+              : `Server ${server.name} fails its health check. The balancer stops sending it traffic, and clients never notice.`,
+          );
+        } else if (button.dataset.act === 'reset') {
+          balancer = new LoadBalancer();
+          render('All counters cleared.');
+        } else {
+          let last: ReturnType<LoadBalancer['send']> = null;
+          for (let i = 0; i < Number(button.dataset.send); i++) last = balancer.send(policy);
+          const busiest = balancer.servers.reduce((a, b) => (b.active.length > a.active.length ? b : a));
+          render(
+            !last
+              ? 'Every server is down. The balancer has nowhere to send the request and answers 503 Service Unavailable.'
+              : `Client ${last.client} went to server ${last.server.name}. The number in each box is the time that request still needs. Busiest now: ${busiest.name}, with ${busiest.active.length} in progress.`,
+          );
+        }
+      });
+    }
+  }
+
+  customElements.define('load-balancer', LoadBalancerDemo);
+</script>

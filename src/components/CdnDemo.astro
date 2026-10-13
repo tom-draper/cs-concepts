@@ -1,0 +1,67 @@
+---
+// Fetching a file from a distant origin server, with and without an edge
+// cache in the reader's chosen city.
+import { cities, fetchTimes } from '../lib/networking';
+
+const names = Object.keys(cities);
+const first = fetchTimes('Sydney');
+---
+
+<cdn-demo class="playground cdn-demo">
+  <p class="tries" role="group" aria-label="Where the user is">
+    User in:
+    {names.map((city) => <button type="button" data-city={city} aria-pressed={city === 'Sydney' ? 'true' : 'false'}>{city}</button>)}
+  </p>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Round trip to the origin</dt><dd data-out="rtt">{cities.Sydney} ms</dd></div>
+    <div><dt>Fetch with no CDN</dt><dd data-out="direct">{first.direct} ms</dd></div>
+    <div><dt>Fetch through the CDN</dt><dd data-out="cdn">not requested yet</dd></div>
+    <div><dt>Edge cache in this city</dt><dd data-out="cache">empty</dd></div>
+  </dl>
+  <p class="tries">
+    <button type="button" data-act="fetch">Request the file</button>
+    <button type="button" data-act="purge">Purge the caches</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">The origin server is in Virginia. A new connection needs three round trips before the file starts to arrive. Request the file twice.</p>
+</cdn-demo>
+
+<script>
+  import { cities, fetchTimes } from '../lib/networking';
+
+  class CdnDemo extends HTMLElement {
+    connectedCallback() {
+      let city = 'Sydney';
+      const cached = new Set<string>();
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (cdn: string, status: string) => {
+        for (const button of this.querySelectorAll<HTMLElement>('[data-city]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.city === city));
+        }
+        out('rtt').textContent = `${cities[city]} ms`;
+        out('direct').textContent = `${fetchTimes(city).direct} ms`;
+        out('cdn').textContent = cdn;
+        out('cache').textContent = cached.has(city) ? 'has the file' : 'empty';
+        out('status').textContent = status;
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        const times = fetchTimes(city);
+        if (button.dataset.city) {
+          city = button.dataset.city;
+          render('not requested yet', `A user in ${city} is ${cities[city]} ms from the origin, there and back.`);
+        } else if (button.dataset.act === 'purge') {
+          cached.clear();
+          render('not requested yet', 'Every edge has dropped its copy. The next request in each city will be a miss.');
+        } else if (cached.has(city)) {
+          render(`${times.hit} ms, a cache hit`, `The edge in ${city} already has the file and answers by itself. The origin never hears about this request. ${Math.round(times.direct / times.hit)} times faster than going direct.`);
+        } else {
+          cached.add(city);
+          render(`${times.miss} ms, a cache miss`, `The edge in ${city} did not have the file, so it fetched it from the origin and kept a copy. Still faster than going direct, because the edge keeps a connection to the origin open. Request it again.`);
+        }
+      });
+    }
+  }
+
+  customElements.define('cdn-demo', CdnDemo);
+</script>

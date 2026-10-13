@@ -1,0 +1,94 @@
+---
+// TCP's congestion window over time: it grows while packets get through and
+// is cut when the reader makes one go missing.
+const WIDTH = 640;
+const HEIGHT = 220;
+---
+
+<congestion-demo class="playground congestion-demo">
+  <div class="viz-scroll">
+    <svg class="viz-svg chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="Congestion window size over time">
+      <line class="axis" x1="34" y1={HEIGHT - 24} x2={WIDTH - 6} y2={HEIGHT - 24}></line>
+      <line class="axis" x1="34" y1="8" x2="34" y2={HEIGHT - 24}></line>
+      <text class="v-small" x={WIDTH / 2} y={HEIGHT - 8}>round trips</text>
+      <text class="v-small" x="16" y="12" data-out="top">64</text>
+      <text class="v-small" x="16" y={HEIGHT - 24}>0</text>
+      <polyline class="threshold" data-out="threshold" points=""></polyline>
+      <polyline class="window" data-out="line" points=""></polyline>
+      <g data-out="marks"></g>
+    </svg>
+  </div>
+  <p class="tries">
+    <button type="button" data-act="round">One round trip</button>
+    <button type="button" data-act="rounds">× 5</button>
+    <button type="button" data-act="loss">Lose a packet</button>
+    <button type="button" data-act="timeout">Time out</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Window</dt><dd data-out="window">1 segment</dd></div>
+    <div><dt>Threshold</dt><dd data-out="limit">32</dd></div>
+    <div><dt>Phase</dt><dd data-out="phase">slow start</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The sender starts with a window of one segment. Send some round trips.</p>
+</congestion-demo>
+
+<script>
+  import { Congestion } from '../lib/networking';
+
+  class CongestionDemo extends HTMLElement {
+    connectedCallback() {
+      let sender = new Congestion();
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (status: string) => {
+        // Keep the latest 60 rounds in view.
+        const points = sender.history.slice(-60);
+        const top = Math.max(40, ...points.map((point) => Math.max(point.window, Math.min(point.threshold, 64)))) + 4;
+        const x = (i: number) => 34 + (i / 59) * 596;
+        const y = (value: number) => 196 - (Math.min(value, top) / top) * 186;
+        out('line').setAttribute('points', points.map((point, i) => `${x(i).toFixed(1)},${y(point.window).toFixed(1)}`).join(' '));
+        out('threshold').setAttribute('points', points.map((point, i) => `${x(i).toFixed(1)},${y(point.threshold).toFixed(1)}`).join(' '));
+        out('marks').replaceChildren(
+          ...points.flatMap((point, i) => {
+            if (point.event !== 'loss' && point.event !== 'timeout') return [];
+            const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            dot.setAttribute('cx', x(i).toFixed(1));
+            dot.setAttribute('cy', y(point.window).toFixed(1));
+            dot.setAttribute('r', '4');
+            return [dot];
+          }),
+        );
+        out('top').textContent = String(top);
+        out('window').textContent = `${sender.window} ${sender.window === 1 ? 'segment' : 'segments'}`;
+        out('limit').textContent = String(sender.threshold);
+        out('phase').textContent = sender.window < sender.threshold ? 'slow start' : 'congestion avoidance';
+        out('status').textContent = status;
+      };
+      this.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (!act) return;
+        const before = sender.window;
+        if (act === 'reset') {
+          sender = new Congestion();
+          render('A new connection, starting from one segment.');
+        } else if (act === 'loss') {
+          sender.loss();
+          render(`Duplicate acknowledgements show one segment was lost while others arrived. The window is halved, from ${before} to ${sender.window}, and growth continues from there.`);
+        } else if (act === 'timeout') {
+          sender.timeout();
+          render(`Nothing came back at all, which suggests serious congestion. The window drops from ${before} to 1 and slow start begins again, up to the new threshold of ${sender.threshold}.`);
+        } else {
+          for (let i = 0; i < (act === 'rounds' ? 5 : 1); i++) sender.round();
+          render(
+            sender.history.at(-1)!.event === 'slow start'
+              ? `Slow start: every acknowledgement grows the window, so it doubles each round trip. Now ${sender.window}.`
+              : `Congestion avoidance: past the threshold, the window grows by one segment per round trip. Now ${sender.window}.`,
+          );
+        }
+      });
+      render('The sender starts with a window of one segment. Send some round trips.');
+    }
+  }
+
+  customElements.define('congestion-demo', CongestionDemo);
+</script>
