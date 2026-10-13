@@ -1,0 +1,125 @@
+---
+description: Partitioning splits a large dataset across several machines so that each holds only a part. It lets a database grow beyond what one machine can store or serve, at the cost of making some queries and transactions much harder.
+difficulty: intermediate
+---
+
+[Replication](/distributed-systems/replication/) puts a full copy of the data on every machine. That helps with failures and with reads. It does nothing when there is simply too much data for one machine's disks, or too many writes for one machine to absorb.
+
+**Partitioning**, also called **sharding**, splits the data. Each record belongs to exactly one **partition**, each partition lives on one machine, and a cluster of machines holds the whole. Capacity for storage and for writes then grows with the number of machines.
+
+Large systems do both. The data is cut into partitions, and each partition is replicated to several machines.
+
+## Deciding where a record goes
+
+Every record has a **partition key**, such as a user id. A rule maps the key to a partition. The choice of rule decides how evenly the load is spread, and which queries stay cheap.
+
+Here are 24 customers to distribute. Compare the two schemes, then change the number of partitions.
+
+<PartitionDemo />
+
+## By key range
+
+Each partition holds a continuous range of keys, like the volumes of an encyclopaedia: A to I, J to R, S to Z.
+
+Keys that are close together are stored together. A query for a range of keys, such as every name from Ja to Jo, or every reading between two timestamps, goes to one partition, or a few neighbours, and reads the keys in order.
+
+The weakness is **skew**. Real keys are not spread evenly. In the widget, the first two thirds of the alphabet hold 21 of the 24 names and the last third holds three. One machine does most of the work while another sits idle.
+
+Skew is at its worst when the key grows steadily. If the key is a timestamp, every new record belongs to the last range, so one partition receives all the writes. That partition is a **hot spot**, and the cluster performs no better than a single machine.
+
+Range boundaries are therefore not fixed. Databases that partition by range, such as HBase, CockroachDB and TiDB, split a range in two when it grows too large and merge ranges that shrink.
+
+## By hash of the key
+
+The key is passed through a [hash function](/data-structures/hash-functions/), and the hash decides the partition. A good hash scatters keys uniformly whatever pattern they have, so the partitions come out close to equal. Timestamps and sequential ids, which ruin range partitioning, are spread evenly.
+
+What is lost is order. Neighbouring keys land on unrelated partitions, so a range query must ask every partition and combine the answers.
+
+| | Key range | Hash |
+| --- | --- | --- |
+| Even spread of load | depends on the keys | yes |
+| Range queries | efficient, one or a few partitions | must ask every partition |
+| Sequential keys | create a hot spot | spread evenly |
+| Used by | HBase, Bigtable, CockroachDB | Cassandra, DynamoDB, Redis Cluster |
+
+A common hybrid uses a key with two parts. The first is hashed to choose the partition, and the second keeps records sorted within it. With a key of (user id, timestamp), one user's records are all on one partition, in time order, and different users are spread evenly. "All of this user's activity last week" is then a cheap range scan on one machine.
+
+Hashing cannot fix a single key that is itself hot. If one celebrity account receives a large share of all traffic, every request for it hashes to the same partition.
+
+## Adding machines
+
+Clusters grow. When a machine is added, some data must move to it. This is **rebalancing**, and the aim is to move as little as possible.
+
+The obvious hashing rule is `hash(key) mod N` for N machines. In the widget, pick "hash of key" and change the number of partitions. Almost every key moves, because changing N changes the remainder for nearly all of them. Moving most of a large database across the network whenever a machine is added is not practical.
+
+Three approaches avoid it.
+
+| Approach | How it works |
+| --- | --- |
+| Fixed number of partitions | create many more partitions than machines, say 1,000 for 10 machines. A new machine takes whole partitions from the others. A key's partition never changes, only the machine holding it |
+| Dynamic splitting | split a partition when it grows past a size limit and move one half |
+| [Consistent hashing](/distributed-systems/consistent-hashing/) | arrange machines on a ring so that adding one takes keys only from its neighbours |
+
+All of them move roughly a 1/N share of the data when a machine joins, which is the least that could be moved while keeping the load even.
+
+Rebalancing is expensive while it runs. Data is being copied and requests are being redirected, and if it is triggered automatically by a machine that only looked dead, it adds load at the worst moment. Many operators have a person approve it.
+
+## Finding the right partition
+
+A client with a key needs to know which machine to ask. This is **request routing**.
+
+| Design | The client contacts | Who knows the map |
+| --- | --- | --- |
+| Any node forwards | any node, which passes the request on if needed | every node, kept current by [gossip](/distributed-systems/gossip-protocols/) |
+| Routing tier | a proxy that forwards to the right node | the proxy |
+| Smart client | the right node directly | the client library |
+
+In every design something must hold an accurate, shared map of partitions to machines. Since nodes join, leave and fail, keeping that map agreed is a [consensus](/distributed-systems/consensus/) problem. Many systems hand it to a dedicated coordination service such as ZooKeeper or etcd.
+
+## What gets harder
+
+Partitioning is not free. Operations that touch one partition are as fast as ever. Operations that span partitions are not.
+
+**Queries without the partition key.** A table partitioned by user id answers "this user's orders" from one machine. "All orders over 1,000" has no partition key, so the request goes to every partition and the results are merged. This is called scatter and gather. It is slow, and its response time is set by the slowest partition.
+
+**Secondary indexes.** An index on a column other than the partition key has two possible designs.
+
+| | Local index | Global index |
+| --- | --- | --- |
+| Each partition indexes | its own data only | the index is a separate structure, itself partitioned by the indexed value |
+| Writes | touch one partition | touch two or more |
+| Reads by the indexed column | must ask every partition | go to one partition |
+
+**Joins.** A [join](/databases/joins/) between rows on different machines means moving one side across the network. Schemas for partitioned databases are designed so that rows joined often share a partition key and therefore a machine.
+
+**Transactions.** A [transaction](/databases/acid/) that changes rows in two partitions must commit on both or neither, which needs a protocol such as [two-phase commit](/distributed-systems/two-phase-commit/). That adds round trips and new ways to fail.
+
+**Uniqueness and sequences.** "No two users share an email" cannot be checked by one partition unless email is the partition key. Auto-incrementing ids need a central counter or a scheme that hands out ranges.
+
+## Choosing a partition key
+
+The key is the most consequential decision, and it is hard to change afterwards.
+
+| A good key | Because |
+| --- | --- |
+| has many distinct values | so load can spread |
+| is not dominated by a few values | so no partition is hot |
+| appears in most queries | so they hit one partition |
+| groups data that is used together | so joins and transactions stay local |
+
+For an application serving many customers, the customer id is often right: each customer's data sits together, and queries nearly always concern one customer. The exception is a customer far larger than the rest, who then needs special handling.
+
+## Avoid it until you need it
+
+A single modern machine can hold terabytes and serve tens of thousands of queries a second. Many applications never outgrow one, especially with replicas taking the reads.
+
+Partitioning adds permanent complexity to queries, transactions, operations and schema design. The sensible order is to make the single machine bigger, then add read replicas and caching, and to partition only when writes or storage genuinely exceed what one machine can do.
+
+## Key takeaways
+
+- Partitioning splits data across machines so that storage and write capacity can grow past one machine.
+- Partitioning by key range keeps neighbouring keys together and supports range queries, and risks skew and hot spots.
+- Partitioning by hash spreads load evenly and loses the ability to scan a range cheaply.
+- `hash mod N` moves almost every key when N changes. Fixed partitions, dynamic splitting or consistent hashing move only a small share.
+- Queries, indexes, joins and transactions that cross partitions are much more expensive than those that stay within one.
+- The partition key should match how the data is queried, and partitioning should wait until one machine is really not enough.
