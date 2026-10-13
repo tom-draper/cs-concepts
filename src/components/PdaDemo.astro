@@ -1,0 +1,84 @@
+---
+// A pushdown automaton checking that brackets balance: the input on a tape and
+// the stack beside it.
+import Controls from './Controls.astro';
+
+interface Props {
+  input?: string;
+}
+
+const { input = '([]{})' } = Astro.props;
+const tries = ['([]{})', '(()', '(]', '())'];
+---
+
+<pda-demo class="playground pda-demo" tabindex="0" role="group" aria-label="Pushdown automaton step-through">
+  <label>Input <input value={input} maxlength="14" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <div class="pda-layout">
+    <div><h4>Input</h4><p class="tape" data-out="tape">{[...input].map((symbol) => <i>{symbol}</i>)}</p></div>
+    <div><h4>Stack, top on the right</h4><p class="slots" data-out="pile"><i class="none">empty</i></p></div>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">Start with an empty stack.</p>
+  <Controls />
+</pda-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { pdaTrace, type PdaFrame } from '../lib/theory';
+
+  class PdaDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const cells = (items: string[], className = '') =>
+        items.map((item) => {
+          const cell = document.createElement('i');
+          cell.textContent = item;
+          cell.className = className;
+          return cell;
+        });
+      let frames: PdaFrame[] = [];
+      const load = () => {
+        frames = pdaTrace(field.value);
+        out('tape').replaceChildren(...cells([...field.value]));
+      };
+
+      load();
+      const stepper = attachStepper(this, {
+        count: () => frames.length,
+        interval: 1300,
+        render: (index) => {
+          const frame = frames[index];
+          // The symbol just read, unless this frame is only the final verdict.
+          const fresh = index > 0 && frames[index - 1].read !== frame.read;
+          [...out('tape').children].forEach((cell, i) => {
+            cell.classList.toggle('done', i < frame.read - (fresh ? 1 : 0));
+            cell.classList.toggle('now', fresh && i === frame.read - 1);
+          });
+          out('pile').replaceChildren(...(frame.stack.length ? cells(frame.stack) : cells(['empty'], 'none')));
+          const note = out('note');
+          note.textContent = frame.note;
+          note.classList.toggle('good', frame.verdict === 'accept');
+          note.classList.toggle('bad', frame.verdict === 'reject');
+        },
+      });
+      const restart = () => {
+        load();
+        stepper.go(frames.length - 1);
+      };
+      field.addEventListener('input', restart);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest<HTMLElement>('[data-try]')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        load();
+        stepper.go(0);
+      });
+    }
+  }
+
+  customElements.define('pda-demo', PdaDemo);
+</script>

@@ -1,5 +1,12 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import AutomatonDemo from './AutomatonDemo.astro';
+import LambdaDemo from './LambdaDemo.astro';
+import PdaDemo from './PdaDemo.astro';
+import RegexDemo from './RegexDemo.astro';
+import SatDemo from './SatDemo.astro';
+import SubsetSumDemo from './SubsetSumDemo.astro';
+import TuringDemo from './TuringDemo.astro';
 import AllocatorDemo from './AllocatorDemo.astro';
 import Aside from './Aside.astro';
 import BirthdayDemo from './BirthdayDemo.astro';
@@ -39,6 +46,7 @@ import SortDemo from './SortDemo.astro';
 import Step from './Step.astro';
 import Steps from './Steps.astro';
 import ArrayViz from './viz/ArrayViz.astro';
+import Automaton from './viz/Automaton.astro';
 import FenwickViz from './viz/FenwickViz.astro';
 import Gates from './viz/Gates.astro';
 import Graph from './viz/Graph.astro';
@@ -52,6 +60,14 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  Automaton,
+  AutomatonDemo,
+  LambdaDemo,
+  PdaDemo,
+  RegexDemo,
+  SatDemo,
+  SubsetSumDemo,
+  TuringDemo,
   ChannelDemo,
   EventLoopDemo,
   InterleaveDemo,

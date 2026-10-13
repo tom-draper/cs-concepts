@@ -1,0 +1,92 @@
+---
+// A small 3-SAT instance: set the variables by hand and watch which clauses hold.
+import { literalName, type Clause } from '../lib/theory';
+
+interface Props {
+  clauses?: Clause[];
+}
+
+const {
+  clauses = [
+    [1, 2, -3],
+    [-1, 3, 4],
+    [-2, -3, -4],
+    [1, -2, 4],
+    [-1, -3, 4],
+    [1, 2, 3],
+    [-2, 3, -4],
+  ],
+} = Astro.props;
+const variables = Math.max(...clauses.flat().map(Math.abs));
+---
+
+<sat-demo class="playground sat-demo" data-clauses={JSON.stringify(clauses)} data-variables={variables}>
+  <p class="tries" role="group" aria-label="Variables">
+    {Array.from({ length: variables }, (_, i) => <button type="button" data-variable={i} aria-pressed="false">{literalName(i + 1)} = false</button>)}
+  </p>
+  <p class="clauses">
+    {
+      clauses.map((clause, i) => (
+        <span data-clause={i}>({clause.map(literalName).join(' ∨ ')})</span>
+      ))
+    }
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Clauses satisfied</dt><dd data-out="count">-</dd></div>
+    <div><dt>Possible assignments</dt><dd>{2 ** variables}</dd></div>
+  </dl>
+  <p class="tries">
+    <button type="button" data-act="search">Try every assignment</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Click a variable to flip it. Every clause must contain at least one true literal.</p>
+</sat-demo>
+
+<script>
+  import { clauseHolds, literalName, solveSat, type Clause } from '../lib/theory';
+
+  class SatDemo extends HTMLElement {
+    connectedCallback() {
+      const clauses: Clause[] = JSON.parse(this.dataset.clauses!);
+      let values: boolean[] = Array(Number(this.dataset.variables)).fill(false);
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message?: string) => {
+        this.querySelectorAll<HTMLElement>('[data-variable]').forEach((button, i) => {
+          button.setAttribute('aria-pressed', String(values[i]));
+          button.textContent = `${literalName(i + 1)} = ${values[i]}`;
+        });
+        let held = 0;
+        this.querySelectorAll<HTMLElement>('[data-clause]').forEach((chip, i) => {
+          const holds = clauseHolds(clauses[i], values);
+          chip.dataset.holds = String(holds);
+          held += Number(holds);
+        });
+        this.querySelector('[data-out="count"]')!.textContent = `${held} of ${clauses.length}`;
+        status.textContent =
+          message ??
+          (held === clauses.length
+            ? 'Every clause holds. The formula is satisfiable, and this assignment is the proof.'
+            : `${clauses.length - held} ${clauses.length - held === 1 ? 'clause is' : 'clauses are'} still false.`);
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.variable) {
+          const index = Number(button.dataset.variable);
+          values[index] = !values[index];
+          render();
+        } else {
+          const result = solveSat(clauses, values.length);
+          if (result.values) values = result.values;
+          render(
+            result.values
+              ? `Found on attempt ${result.tried} of ${result.total}. Each extra variable doubles the number of assignments.`
+              : `No assignment works. Being sure of that took all ${result.total} attempts.`,
+          );
+        }
+      });
+      render(status.textContent!);
+    }
+  }
+
+  customElements.define('sat-demo', SatDemo);
+</script>
