@@ -1,0 +1,131 @@
+---
+description: Consensus is the problem of getting several machines to agree on a single value, even when some of them crash and messages are delayed or lost. It is the foundation for leader election, distributed locks and replicated databases that never disagree with themselves.
+difficulty: advanced
+---
+
+Many problems in a distributed system reduce to one. Which node is the leader? Did this transaction commit? Who holds the lock? What is the next entry in the log? In each case, several machines must arrive at the **same answer**, and stick to it.
+
+That is easy when nothing fails. It becomes hard when machines can crash at any moment, messages can be lost or delayed, and no machine can tell a crashed peer from a slow one. Getting agreement under those conditions is the **consensus** problem.
+
+## Why it is not simple
+
+Suppose three nodes must agree on a leader, and the rule is "the first to claim it wins".
+
+Node A announces itself. Its message reaches B and is delayed on the way to C. Meanwhile C, having heard nothing, announces itself. B has A as leader, C has C as leader, and A does not know there is a dispute. Now there are two leaders, each accepting writes. This is **split brain**.
+
+Fixing it with timeouts does not work, since a timeout is a guess. Having one node act as the judge does not work either, because that node can fail, and then choosing a new judge is the same problem again.
+
+## The requirements
+
+A correct consensus algorithm guarantees four things.
+
+| Property | Meaning |
+| --- | --- |
+| Agreement | no two nodes decide differently |
+| Validity | the value decided was proposed by some node |
+| Integrity | a node decides at most once, and never changes its mind |
+| Termination | every node that does not crash eventually decides |
+
+The first three are **safety** properties: nothing bad ever happens. The last is a **liveness** property: something good eventually happens.
+
+The distinction matters because of a famous impossibility result, known as [FLP](/distributed-systems/failure-detection/#a-limit-that-cannot-be-engineered-away). With no bound on message delay, no algorithm can guarantee all four if even one node may crash.
+
+Practical algorithms respond by never compromising on safety, and by guaranteeing liveness only when the network behaves reasonably. If messages are badly delayed, the system may stall. It will not give a wrong answer.
+
+## Majorities
+
+The idea that makes consensus possible is the **quorum**: require agreement from more than half the nodes before anything is decided.
+
+Any two majorities of the same group share at least one member. Two groups of three out of five cannot be disjoint, since that would need six nodes. So two conflicting decisions can never both gather a majority, because the node in the overlap would have had to agree to both.
+
+That is what prevents split brain. During a [network partition](/distributed-systems/the-cap-theorem/), at most one side holds a majority. That side carries on, and the other side cannot decide anything.
+
+| Nodes | Majority | Failures tolerated |
+| --- | --- | --- |
+| 1 | 1 | 0 |
+| 2 | 2 | 0 |
+| 3 | 2 | 1 |
+| 4 | 3 | 1 |
+| 5 | 3 | 2 |
+| 7 | 4 | 3 |
+
+To survive f failures, a cluster needs 2f + 1 nodes.
+
+The table also shows why clusters have odd sizes. Four nodes tolerate one failure, the same as three, while needing a larger quorum and having one more machine that can fail. Three and five are by far the commonest sizes. Larger clusters tolerate more failures and are slower, since every decision waits for more replies.
+
+## Paxos
+
+The first practical algorithm was **Paxos**, devised by Leslie Lamport in 1989 and published in 1998. It decides one value in two phases, each needing a majority.
+
+<SequenceDemo scenario="paxos" />
+
+**Phase one: prepare.** A proposer picks a proposal number higher than any it has seen and asks the acceptors to promise not to accept anything with a lower number. Each acceptor that promises also reports any value it has already accepted.
+
+**Phase two: accept.** If a majority promised, the proposer asks them to accept a value. If any acceptor reported an already-accepted value, the proposer must propose that value, taking the one with the highest number, and may not propose its own.
+
+That last rule is the heart of it. Once a value has been accepted by a majority, any later proposer's first phase is sure to reach at least one acceptor that has it, because majorities overlap. The proposer is then obliged to carry that value forward. A chosen value can never be replaced.
+
+Proposal numbers settle competition. An acceptor that has promised number 7 ignores a late message for number 5. Two proposers can keep outbidding each other for ever, each interrupting the other's second phase, which is the liveness failure that FLP says cannot be ruled out. In practice a random delay before retrying breaks the tie.
+
+Paxos has a reputation for being difficult. The single-value form above is compact, but real systems need a sequence of decisions, and extending Paxos to that leaves many details to the implementer.
+
+## A log of decisions
+
+One decision is rarely enough. The useful object is a **replicated log**: an ordered list of commands, on which every node agrees.
+
+If every node starts in the same state and applies the same commands in the same order, every node ends in the same state. This is **state machine replication**, and it turns consensus into a general tool. Any deterministic service, whether a key-value store, a lock manager or a database, can be made fault-tolerant by running it on several nodes that agree on a log of its inputs.
+
+Agreeing on a log is consensus repeated, once for each slot. Modern algorithms are designed around the log from the start, and pick a stable **leader** to propose entries, which avoids the first phase most of the time.
+
+| Algorithm | Notes |
+| --- | --- |
+| Multi-Paxos | Paxos with a stable leader. Underlies several of Google's systems |
+| [Raft](/distributed-systems/raft/) | designed in 2014 to be understandable. The most widely implemented |
+| Zab | the protocol inside ZooKeeper |
+| Viewstamped Replication | from 1988, close to Raft in structure |
+
+They are near relatives. All use majorities, all number their leadership periods so that a stale leader can be recognised and ignored, and all require a new leader to have every decision made so far.
+
+## What it is used for
+
+| Use | The value being agreed |
+| --- | --- |
+| Leader election | which node is the leader for this term |
+| Distributed locks | who holds the lock, with a [fencing token](/distributed-systems/failure-detection/#fencing) |
+| Cluster membership | which nodes are part of the cluster |
+| Configuration | the current settings, seen identically by every node |
+| Atomic commit | whether a transaction commits or aborts |
+| Strongly consistent databases | the order of every write |
+
+Most applications do not implement consensus. They use a service that does. ZooKeeper, etcd and Consul are small, strongly consistent stores built on it, used to hold the facts a larger system must never disagree about. Kubernetes keeps all its cluster state in etcd.
+
+Distributed databases that offer strong consistency, such as Spanner, CockroachDB and TiDB, run a separate consensus group for each partition of the data.
+
+## The cost
+
+**Latency.** Every decision needs a round trip from the leader to a majority. Within one data centre that is about a millisecond. With nodes in several regions, it is the round trip to the nearest majority.
+
+**Throughput.** All decisions pass through the leader, which becomes the bottleneck. Systems batch many commands into one round to compensate.
+
+**Availability.** A cluster that cannot form a majority stops accepting writes entirely. Consensus chooses consistency over availability, as the [CAP theorem](/distributed-systems/the-cap-theorem/) says it must.
+
+**Difficulty.** These algorithms are subtle, and bugs in them appear only under rare combinations of failure. Use an established implementation.
+
+Consensus should be reserved for the things that need it. A small number of critical decisions go through consensus. The bulk of the data can use cheaper [replication](/distributed-systems/replication/), coordinated by what was decided.
+
+## Faulty or malicious nodes
+
+Everything above assumes nodes fail by stopping. A node that is still running and sends wrong or contradictory messages, through a bug, corruption or an attacker, is a **Byzantine** fault, named after a thought experiment about generals who may be traitors.
+
+Tolerating f Byzantine nodes takes 3f + 1 nodes in total, and more rounds of messages, since no single node's word can be trusted. Algorithms such as PBFT do this.
+
+Inside one organisation's data centre the extra cost is rarely justified. It is essential where participants do not trust each other, which is the setting of blockchains. Proof of work reaches a form of consensus among anonymous participants by making it costly to propose, a quite different mechanism with only probabilistic guarantees.
+
+## Key takeaways
+
+- Consensus means several nodes deciding on one value, despite crashes and unreliable messages.
+- It must always be safe, with no two nodes deciding differently, and it makes progress whenever the network is behaving.
+- Requiring a majority works because any two majorities overlap, so conflicting decisions cannot both succeed.
+- A cluster of 2f + 1 nodes tolerates f failures, which is why clusters have three or five members.
+- Agreeing on a log of commands lets any deterministic service be replicated as a state machine.
+- Consensus is slow relative to plain replication and unavailable without a majority, so it is used for the critical decisions and not for everything.
