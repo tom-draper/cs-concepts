@@ -1,0 +1,56 @@
+---
+// Build an HTTP request from a method and a path and see the raw text that
+// goes over the wire in each direction.
+import { httpExchange, httpMethods, httpPaths } from '../lib/networking';
+
+const first = httpExchange('GET', '/', false);
+---
+
+<http-demo class="playground http-demo">
+  <p class="tries" role="group" aria-label="Method">
+    {httpMethods.map((method, i) => <button type="button" data-method={method} aria-pressed={i === 0 ? 'true' : 'false'}>{method}</button>)}
+  </p>
+  <p class="tries" role="group" aria-label="Path">
+    {httpPaths.map((path, i) => <button type="button" data-path={path} aria-pressed={i === 0 ? 'true' : 'false'}>{path}</button>)}
+  </p>
+  <p class="tries">
+    <button type="button" data-act="conditional" aria-pressed="false">I already have a copy</button>
+  </p>
+  <div class="columns">
+    <div><h4>Request</h4><pre data-out="request">{first.request}</pre></div>
+    <div><h4>Response</h4><pre data-out="response">{first.response}</pre></div>
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">{first.why}</p>
+</http-demo>
+
+<script>
+  import { httpExchange } from '../lib/networking';
+
+  class HttpDemo extends HTMLElement {
+    connectedCallback() {
+      let method = 'GET';
+      let path = '/';
+      let conditional = false;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        method = button.dataset.method ?? method;
+        path = button.dataset.path ?? path;
+        if (button.dataset.act) conditional = !conditional;
+        for (const each of this.querySelectorAll<HTMLElement>('button')) {
+          each.setAttribute(
+            'aria-pressed',
+            String(each.dataset.method === method || each.dataset.path === path || (Boolean(each.dataset.act) && conditional)),
+          );
+        }
+        const exchange = httpExchange(method, path, conditional);
+        out('request').textContent = exchange.request;
+        out('response').textContent = exchange.response;
+        out('status').textContent = exchange.why;
+      });
+    }
+  }
+
+  customElements.define('http-demo', HttpDemo);
+</script>

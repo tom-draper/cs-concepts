@@ -1,0 +1,58 @@
+---
+// One HTTP request travelling down the layers of one machine, through a
+// router and up the layers of another, gaining and losing headers on the way.
+import Controls from './Controls.astro';
+import { headerText, journey, layers } from '../lib/networking';
+
+const first = journey[0];
+---
+
+<layers-demo class="playground layers-demo" tabindex="0" role="group" aria-label="Encapsulation step-through">
+  <div class="loop-layout">
+    <div>
+      <h4 data-out="where">On {first.where}</h4>
+      <ol class="loop-code">
+        {layers.map((layer, i) => <li class={i === first.layer ? 'now' : ''}>{layer}</li>)}
+      </ol>
+    </div>
+    <div>
+      <h4>What is being carried</h4>
+      <p class="packet" data-out="packet">{first.parts.map((part) => <i data-part={part}>{headerText[part]}</i>)}</p>
+    </div>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">{first.note}</p>
+  <Controls />
+</layers-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { headerText, journey } from '../lib/networking';
+
+  class LayersDemo extends HTMLElement {
+    connectedCallback() {
+      const rows = [...this.querySelectorAll('.loop-code li')];
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      attachStepper(this, {
+        count: () => journey.length,
+        interval: 2600,
+        render: (index) => {
+          const frame = journey[index];
+          rows.forEach((row, i) => row.classList.toggle('now', i === frame.layer));
+          out('where').textContent = `On ${frame.where}`;
+          out('packet').replaceChildren(
+            ...frame.parts.map((part) => {
+              const cell = document.createElement('i');
+              cell.dataset.part = part;
+              cell.textContent = headerText[part];
+              if (part === frame.fresh) cell.className = 'fresh';
+              return cell;
+            }),
+          );
+          out('note').textContent = frame.note;
+        },
+      });
+    }
+  }
+
+  customElements.define('layers-demo', LayersDemo);
+</script>

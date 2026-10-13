@@ -1,5 +1,12 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import CdnDemo from './CdnDemo.astro';
+import CongestionDemo from './CongestionDemo.astro';
+import HttpDemo from './HttpDemo.astro';
+import LayersDemo from './LayersDemo.astro';
+import LoadBalancerDemo from './LoadBalancerDemo.astro';
+import SequenceDemo from './SequenceDemo.astro';
+import SubnetDemo from './SubnetDemo.astro';
 import ClosureDemo from './ClosureDemo.astro';
 import CompilerDemo from './CompilerDemo.astro';
 import GcDemo from './GcDemo.astro';
@@ -66,6 +73,13 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  CdnDemo,
+  CongestionDemo,
+  HttpDemo,
+  LayersDemo,
+  LoadBalancerDemo,
+  SequenceDemo,
+  SubnetDemo,
   ClosureDemo,
   CompilerDemo,
   GcDemo,

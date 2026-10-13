@@ -1,0 +1,105 @@
+---
+// A message sequence between machines, revealed one message at a time: the
+// TCP handshake, a DNS lookup, a TLS handshake and so on.
+import Controls from './Controls.astro';
+import { arrowHead, fit } from './viz/geom';
+import { sequences, type Sequence, type SequenceName } from '../lib/networking';
+
+interface Props {
+  scenario: SequenceName;
+}
+
+const { scenario: name } = Astro.props;
+const { actors, steps }: Sequence = sequences[name];
+const GAP = actors.length === 2 ? 340 : 152;
+const localHalf = (label: string) => label.length * 3.7 + 10;
+// Leave room at the edges for the widest box drawn on an outer lifeline.
+const SIDE = Math.max(62, ...steps.filter((step) => step.from === step.to).map((step) => localHalf(step.label) + 6));
+const TOP = 34;
+const ROW = 42;
+const width = SIDE * 2 + GAP * (actors.length - 1);
+const height = TOP + steps.length * ROW + 14;
+const x = (actor: number) => SIDE + actor * GAP;
+
+const rows = steps.map((step, i) => {
+  const y = TOP + 22 + i * ROW;
+  if (step.from === step.to) {
+    return { ...step, local: true as const, y, cx: x(step.from), half: localHalf(step.label) };
+  }
+  const x1 = x(step.from);
+  // A lost message stops short of its destination.
+  const x2 = step.lost ? x1 + (x(step.to) - x1) * 0.62 : x(step.to);
+  const y2 = y + 12;
+  const toward = Math.sign(x2 - x1);
+  return {
+    ...step,
+    local: false as const,
+    x1,
+    y,
+    x2,
+    y2,
+    lineEnd: step.lost ? x2 : x2 - toward * 7,
+    head: arrowHead(x1, y, x2 - toward * 1.5, y2, 9),
+    lx: (x1 + x(step.to)) / 2,
+  };
+});
+---
+
+<sequence-demo class="playground sequence-demo" data-scenario={name} tabindex="0" role="group" aria-label="Message sequence step-through">
+  <div class="viz-scroll">
+    <svg class="viz-svg sequence" viewBox={`0 0 ${width} ${height}`} style={fit(width)} role="img" aria-label={`Messages between ${actors.join(', ')}`}>
+      {
+        actors.map((actor, i) => (
+          <g>
+            <line class="lifeline" x1={x(i)} y1={TOP - 8} x2={x(i)} y2={height - 6} />
+            <text class="v-text" x={x(i)} y={14}>{actor}</text>
+          </g>
+        ))
+      }
+      {
+        rows.map((row) =>
+          row.local ? (
+            <g class="msg local" data-step>
+              <rect x={row.cx - row.half} y={row.y - 6} width={row.half * 2} height={22} rx={5} />
+              <text class="v-sym" x={row.cx} y={row.y + 5}>{row.label}</text>
+            </g>
+          ) : (
+            <g class={`msg v-gedge ${row.lost ? 'lost' : ''}`} data-step>
+              <line x1={row.x1} y1={row.y} x2={row.lineEnd} y2={row.y2 - (row.lost ? 0 : 1)} />
+              {row.lost ? <text class="cross" x={row.x2 + Math.sign(row.x2 - row.x1) * 9} y={row.y2}>✕</text> : <polygon points={row.head} />}
+              <text class="v-sym" x={row.lx} y={row.y - 6}>{row.label}</text>
+            </g>
+          ),
+        )
+      }
+    </svg>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">{steps[0].note}</p>
+  <Controls />
+</sequence-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { sequences, type Sequence, type SequenceName } from '../lib/networking';
+
+  class SequenceDemo extends HTMLElement {
+    connectedCallback() {
+      const { steps }: Sequence = sequences[this.dataset.scenario as SequenceName];
+      const rows = [...this.querySelectorAll<SVGElement>('[data-step]')];
+      const note = this.querySelector('[data-out="note"]')!;
+      attachStepper(this, {
+        count: () => steps.length,
+        interval: 2200,
+        render: (index) => {
+          rows.forEach((row, i) => {
+            row.classList.toggle('later', i > index);
+            row.classList.toggle('on', i === index);
+          });
+          note.textContent = steps[index].note;
+        },
+      });
+    }
+  }
+
+  customElements.define('sequence-demo', SequenceDemo);
+</script>
