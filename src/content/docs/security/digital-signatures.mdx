@@ -1,0 +1,171 @@
+---
+description: A digital signature is a value that only the holder of a private key can produce and anyone with the public key can check. It proves who wrote a message and that it has not changed, and it is what makes certificates, software updates and signed tokens trustworthy.
+difficulty: advanced
+---
+
+Your laptop downloads an operating system update from a server in a data centre it knows nothing about, over a network it does not control. Before installing code that will run with full privileges, it needs to know two things: that the vendor wrote it, and that nobody altered it on the way.
+
+Encryption does not answer either. A **digital signature** does. It is a short value attached to a message, made with a private key, that anyone can check with the matching public key.
+
+## The key pair, used backwards
+
+[Public-key encryption](/security/public-key-cryptography/) has everyone lock with the public key and one person unlock with the private key. A signature runs the pair the other way. One person transforms the message with the private key, and everyone can reverse it with the public key and see that it fits.
+
+| | Uses the private key | Uses the public key |
+| --- | --- | --- |
+| Encryption | to decrypt | to encrypt |
+| Signature | to sign | to verify |
+
+The widget signs with RSA. Edit the received message.
+
+<RsaDemo mode="sign" />
+
+## Sign the digest
+
+Signing happens in two steps.
+
+1. Hash the message with a [cryptographic hash function](/security/cryptographic-hash-functions/).
+2. Apply the private key to the digest.
+
+To verify, hash the received message, apply the public key to the signature, and compare the two numbers.
+
+With the widget's default key, n = 3233, e = 7 and d = 1783, and the message `Pay Bob 10`.
+
+| Step | Calculation | Result |
+| --- | --- | --- |
+| Digest of the message | SHA-256, reduced to fit below n | 2125 |
+| Sign | 2125¹⁷⁸³ mod 3233 | 946 |
+| Verify: open the signature | 946⁷ mod 3233 | 2125 |
+| Verify: digest of what arrived | SHA-256 again | 2125, a match |
+
+Change the received message to `Pay Bob 90` and its digest becomes some unrelated number. The signature still opens to 2125, the two no longer match, and verification fails.
+
+Hashing first has three purposes. The private key operation can only handle a number smaller than n, and a digest always fits. It is fast, since only 32 bytes go through the slow arithmetic. And it blocks forgeries that exploit the structure of the raw mathematics, such as multiplying two signatures together to get a valid signature on the product of the messages.
+
+<Aside title="The toy digest is the weak point">
+
+The widget squeezes the digest into a number below n. With n = 3233 there are only 3233 possible digests, so about one message in three thousand shares a digest with `Pay Bob 10`, and its signature would verify too. A real signature uses the full 256-bit digest, where finding such a message is infeasible.
+
+</Aside>
+
+## What a signature proves
+
+**Authenticity.** Only the holder of the private key could have produced it.
+
+**Integrity.** Any change to the message breaks it.
+
+**Non-repudiation.** The signer cannot later deny it, since nobody else has the key.
+
+The third is what separates a signature from a [message authentication code](/security/cryptographic-hash-functions/#hashing-with-a-key).
+
+| | MAC | Signature |
+| --- | --- | --- |
+| Key | one shared secret | private to sign, public to verify |
+| Who can verify | holders of the secret | anyone |
+| Who could have made it | any holder of the secret | one party |
+| Speed | very fast | slower |
+| Size | 16 to 32 bytes | 64 to 512 bytes |
+
+A MAC is enough between two parties who trust each other. If the verifier should not be able to forge, or if a third party has to be convinced, it must be a signature.
+
+A signature does not prove when something was signed, and it does not hide the message. It also proves nothing about a key you have not tied to an identity.
+
+## Algorithms
+
+| Scheme | Built on | Signature size | Notes |
+| --- | --- | --- | --- |
+| RSA-PSS | factoring | 256 bytes at 2048 bits | Fast to verify. Use PSS padding. |
+| ECDSA | elliptic curves | 64 bytes | Widely deployed. Needs a fresh secret number per signature. |
+| Ed25519 | elliptic curves | 64 bytes | Deterministic, fast, hard to misuse. The modern default. |
+| ML-DSA | lattices | about 2400 bytes | Post-quantum, standardised in 2024. |
+
+ECDSA's per-signature secret number is its hazard. If the same value is used for two signatures, simple algebra on the two reveals the private key. Sony used a constant for the PlayStation 3's code signing, and in 2010 the key was recovered from two signed files. Ed25519 derives the number from the message and the key, so it cannot repeat by accident.
+
+## Certificates and chains
+
+A signature shifts the question from "is this message genuine?" to "is this public key genuine?". **Certificates** answer that with more signatures.
+
+A certificate is a signed statement: this public key belongs to this name, valid between these dates. It is signed by a **certificate authority**. The authority's own key is vouched for by another certificate, and so on, up to a **root** whose certificate ships with the operating system or browser.
+
+<Tree
+  root={{ k: 'Root authority', c: [{ k: 'Intermediate authority', c: ['example.com', 'shop.example'] }, { k: 'Another intermediate', c: ['bank.example'] }] }}
+  caption="Each line is a signature by the key above. Trusting the root means trusting every key below it that it has vouched for."
+/>
+
+To check a server's certificate, a client verifies each signature in the chain until it reaches a root it already holds. The server then signs part of the [TLS handshake](/networking/tls/#the-handshake) to prove it has the private key that the certificate names.
+
+The scheme is only as strong as the weakest authority. In 2011 the Dutch authority DigiNotar was compromised and issued false certificates for Google, which were used to intercept traffic. Browsers removed it from their root lists and it went bankrupt within weeks. Since then, every issued certificate must be recorded in public append-only logs, built from [Merkle trees](/data-structures/merkle-trees/), so that a mis-issued one can be noticed.
+
+## Costs
+
+<Ops items={[
+  ['Sign, Ed25519', '~20 µs', 'tens of thousands a second per core'],
+  ['Verify, Ed25519', '~50 µs', ''],
+  ['Sign, RSA 2048', '~1 ms', 'the private exponent is large'],
+  ['Verify, RSA 2048', '~30 µs', 'the public exponent is small'],
+]} />
+
+RSA is lopsided: slow to sign and quick to verify. That suits certificates, which are signed once and verified millions of times.
+
+## Implementation
+
+The toy version, matching the widget.
+
+```python
+import hashlib
+
+n, e, d = 3233, 7, 1783
+
+def digest(message):
+    return int.from_bytes(hashlib.sha256(message).digest()[:4], 'big') % n
+
+def sign(message):
+    return pow(digest(message), d, n)
+
+def verify(message, signature):
+    return pow(signature, e, n) == digest(message)
+
+signature = sign(b'Pay Bob 10')          # 946
+verify(b'Pay Bob 10', signature)         # True
+verify(b'Pay Bob 90', signature)         # False
+```
+
+And the real thing.
+
+```python
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+private = Ed25519PrivateKey.generate()
+public = private.public_key()
+
+signature = private.sign(b'Pay Bob 10')
+public.verify(signature, b'Pay Bob 10')      # returns quietly
+public.verify(signature, b'Pay Bob 90')      # raises InvalidSignature
+```
+
+## Where they are used
+
+**Software updates and packages.** Operating systems, app stores and package managers refuse code that is not signed by a key they trust. The mirror serving the file does not need to be trusted at all.
+
+**TLS.** Certificates are signatures, and the server signs the handshake.
+
+**SSH.** Logging in with a key means signing a challenge from the server. The private key never crosses the network.
+
+**Git.** Commits and tags can be signed, so a repository's history can be attributed.
+
+**Tokens.** A JSON Web Token signed with a private key can be verified by any service holding the public key, as on the [authentication](/security/authentication/) page.
+
+**Passkeys.** A website stores your public key, and your device signs a fresh challenge at each login.
+
+**Blockchains.** A transaction is an instruction signed by the key that owns the funds.
+
+**Documents and email.** Signed PDFs, and DKIM, in which a mail server signs outgoing messages so receivers can check the sending domain.
+
+## Key takeaways
+
+- A signature is made with a private key and checked with the public key.
+- The message is hashed first, and the digest is what gets signed.
+- A valid signature shows who signed and that nothing has changed. It does not hide the message.
+- Unlike a MAC, a signature can be verified by anyone and forged by nobody but the signer.
+- Certificates are signatures that bind names to public keys, chained up to a root the client already trusts.
+- Prefer Ed25519 where there is a choice.
