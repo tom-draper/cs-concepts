@@ -1,0 +1,44 @@
+---
+// Two closures made by the same function, each with its own captured variable.
+const code = ['function makeCounter() {', '  let count = 0;', '  return () => ++count;', '}', '', 'const a = makeCounter();', 'const b = makeCounter();'];
+---
+
+<closure-demo class="playground closure-demo">
+  <ol class="loop-code">{code.map((line) => <li><code>{line || ' '}</code></li>)}</ol>
+  <div class="columns">
+    {
+      ['a', 'b'].map((name) => (
+        <div class="env" data-env={name}>
+          <h4>Closure {name}</h4>
+          <p class="slots"><i class="none">code: () =&gt; ++count</i></p>
+          <p class="slots"><i data-out="count">count = 0</i></p>
+          <p class="tries"><button type="button" data-call={name}>{name}()</button></p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">makeCounter has already returned twice, yet each count is still alive. Call the closures.</p>
+</closure-demo>
+
+<script>
+  class ClosureDemo extends HTMLElement {
+    connectedCallback() {
+      // The real thing: each call makes a new `count` for its closure to keep.
+      const makeCounter = () => {
+        let count = 0;
+        return () => ++count;
+      };
+      const closures: Record<string, () => number> = { a: makeCounter(), b: makeCounter() };
+      this.addEventListener('click', (event) => {
+        const name = (event.target as HTMLElement).closest<HTMLElement>('[data-call]')?.dataset.call;
+        if (!name) return;
+        const value = closures[name]();
+        const other = name === 'a' ? 'b' : 'a';
+        this.querySelector(`[data-env="${name}"] [data-out="count"]`)!.textContent = `count = ${value}`;
+        this.querySelector('[data-out="status"]')!.textContent = `${name}() returned ${value}. It changed its own count and left the one belonging to ${other} alone.`;
+      });
+    }
+  }
+
+  customElements.define('closure-demo', ClosureDemo);
+</script>

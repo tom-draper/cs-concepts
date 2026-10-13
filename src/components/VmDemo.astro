@@ -1,0 +1,90 @@
+---
+// Compiles an expression to stack code and steps a stack machine through it.
+import Controls from './Controls.astro';
+import { parse, showInstruction, toStackCode } from '../lib/languages';
+
+interface Props {
+  source?: string;
+  tries?: string[];
+}
+
+const { tries = ['1 + 2 * 3', '(1 + 2) * 3', 'if n < 3 then "small" else "big"', '1 + "2"'], source = tries[0] } = Astro.props;
+const code = toStackCode(parse(source));
+---
+
+<vm-demo class="playground vm-demo" tabindex="0" role="group" aria-label="Stack machine step-through">
+  <label>Source <input value={source} maxlength="48" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <div class="loop-layout">
+    <div>
+      <h4>Code</h4>
+      <ol class="loop-code listing" start="0" data-out="code">{code.map((instruction) => <li><code>{showInstruction(instruction)}</code></li>)}</ol>
+    </div>
+    <div><h4>Stack</h4><p class="slots" data-out="stack"></p></div>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">The stack starts empty.</p>
+  <Controls />
+</vm-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { parse, runStackCode, showInstruction, toStackCode, type VmFrame } from '../lib/languages';
+
+  class VmDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const items = (texts: string[], wrap?: string) =>
+        texts.map((text) => {
+          const item = document.createElement(wrap ? 'li' : 'i');
+          if (wrap) item.append(Object.assign(document.createElement(wrap), { textContent: text }));
+          else item.textContent = text;
+          return item;
+        });
+      let frames: VmFrame[] = [];
+      const load = () => {
+        try {
+          const code = toStackCode(parse(field.value));
+          frames = runStackCode(code);
+          out('code').replaceChildren(...items(code.map(showInstruction), 'code'));
+        } catch (error) {
+          frames = [{ pc: -1, stack: [], note: `This does not compile. ${(error as Error).message}`, error: true }];
+          out('code').replaceChildren();
+        }
+      };
+
+      load();
+      const stepper = attachStepper(this, {
+        count: () => frames.length,
+        interval: 1300,
+        render: (index) => {
+          const frame = frames[index];
+          [...out('code').children].forEach((line, i) => {
+            line.classList.toggle('now', i === frame.pc && !frame.error);
+            line.classList.toggle('failed', i === frame.pc && Boolean(frame.error));
+          });
+          out('stack').replaceChildren(...items(frame.stack));
+          const note = out('note');
+          note.textContent = frame.note;
+          note.classList.toggle('bad', Boolean(frame.error));
+        },
+      });
+      const restart = () => {
+        load();
+        stepper.go(0);
+      };
+      field.addEventListener('input', restart);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest<HTMLElement>('[data-try]')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        restart();
+      });
+    }
+  }
+
+  customElements.define('vm-demo', VmDemo);
+</script>

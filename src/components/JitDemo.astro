@@ -1,0 +1,93 @@
+---
+// A function that warms up: interpreted at first, compiled once it is hot,
+// and thrown back to the interpreter when an assumption breaks.
+---
+
+<jit-demo class="playground jit-demo">
+  <ol class="loop-code">
+    <li><code>function add(a, b) {"{"} return a + b; {"}"}</code></li>
+  </ol>
+  <p class="tries">
+    <button type="button" data-calls="1">add(1, 2)</button>
+    <button type="button" data-calls="10">× 10</button>
+    <button type="button" data-calls="1000">× 1000</button>
+    <button type="button" data-act="string">add("a", "b")</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Calls so far</dt><dd data-out="calls">0</dd></div>
+    <div><dt>Running as</dt><dd data-out="tier">bytecode in the interpreter</dd></div>
+    <div><dt>Cost of a call</dt><dd data-out="cost">100 ns</dd></div>
+    <div><dt>Total time</dt><dd data-out="total">0 ns</dd></div>
+    <div><dt>If always interpreted</dt><dd data-out="baseline">0 ns</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Nothing has been compiled. Call the function and watch what the engine decides. The timings are illustrative.</p>
+</jit-demo>
+
+<script>
+  // Illustrative costs in nanoseconds, in the right proportions for a real engine.
+  const tiers = [
+    { name: 'bytecode in the interpreter', cost: 100, until: 10, compile: 0 },
+    { name: 'quickly compiled machine code', cost: 20, until: 1000, compile: 2000 },
+    { name: 'optimised machine code, numbers only', cost: 2, until: Infinity, compile: 50000 },
+  ];
+
+  class JitDemo extends HTMLElement {
+    connectedCallback() {
+      let calls = 0;
+      let hot = 0;
+      let tier = 0;
+      let total = 0;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const time = (ns: number) => (ns >= 1e6 ? `${(ns / 1e6).toFixed(2)} ms` : ns >= 1e3 ? `${(ns / 1e3).toFixed(1)} µs` : `${ns} ns`);
+      const render = (status: string) => {
+        out('calls').textContent = calls.toLocaleString('en');
+        out('tier').textContent = tiers[tier].name;
+        out('cost').textContent = time(tiers[tier].cost);
+        out('total').textContent = time(total);
+        out('baseline').textContent = time(calls * tiers[0].cost);
+        out('status').textContent = status;
+      };
+      const call = (times: number) => {
+        let status = `Ran ${times === 1 ? 'once' : `${times} times`} as ${tiers[tier].name}.`;
+        for (let i = 0; i < times; i++) {
+          calls++;
+          hot++;
+          total += tiers[tier].cost;
+          if (hot >= tiers[tier].until) {
+            tier++;
+            total += tiers[tier].compile;
+            status =
+              tier === 1
+                ? `After ${hot} calls the function counts as warm. The engine spent ${time(tiers[1].compile)} compiling it, without optimising.`
+                : `After ${hot} calls the function is hot. Every call so far added two numbers, so the engine spent ${time(tiers[2].compile)} compiling a version that assumes numbers.`;
+          }
+        }
+        render(status);
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.calls) {
+          call(Number(button.dataset.calls));
+        } else if (button.dataset.act === 'reset') {
+          calls = hot = tier = total = 0;
+          render('Nothing has been compiled.');
+        } else if (tier === 2) {
+          calls++;
+          hot = 0;
+          tier = 0;
+          total += 5000;
+          render('The optimised code checked its assumption, found strings and bailed out. This is deoptimisation: the call finished in the interpreter, the fast code was thrown away, and the warm-up starts again.');
+        } else {
+          calls++;
+          hot++;
+          total += tiers[tier].cost;
+          render('Strings are fine here. This code makes no assumptions about types, so it checks them on every call.');
+        }
+      });
+    }
+  }
+
+  customElements.define('jit-demo', JitDemo);
+</script>
