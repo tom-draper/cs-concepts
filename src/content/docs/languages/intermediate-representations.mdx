@@ -1,0 +1,152 @@
+---
+description: An intermediate representation is the form a compiler holds a program in between parsing and generating machine code. It is simple enough to analyse and rewrite, which is where optimisation happens.
+difficulty: advanced
+---
+
+A [syntax tree](/languages/abstract-syntax-trees/) mirrors the way a program was written. Machine code mirrors what one processor can do. They are a long way apart, and translating in one jump leaves no good place to improve the program on the way.
+
+So compilers use something in between: an **intermediate representation**, or IR. It is a small, regular language with no connection to any particular source language or machine. The front end translates into it, the optimiser rewrites it, and the back end translates out of it.
+
+## Why not optimise the tree?
+
+Trees are awkward for the questions an optimiser asks. "Has this value been computed already?" "Is this variable used again?" "Can this line run more than once?" Answering them means following the flow of the program, and a tree hides that inside the nesting of loops and conditions.
+
+An IR flattens the program so that the flow is on the surface.
+
+| | Syntax tree | Typical IR | Machine code |
+| --- | --- | --- | --- |
+| Shape | nested | a flat list of simple instructions | a flat list of instructions |
+| Control flow | `if`, `while`, `for` | labels and jumps | addresses and jumps |
+| Values held in | named variables | unlimited temporaries | a few [registers](/architecture/flip-flops-and-registers/) |
+| Tied to | the source language | nothing | one processor |
+
+## Three-address code
+
+The classic IR is **three-address code**. Every instruction does one operation and has at most three names in it: two operands and a result.
+
+Type an expression. The left column is a direct translation, and the right is the same code after the optimiser has been over it.
+
+<CompilerDemo show="optimise" />
+
+A nested expression has been unrolled into a sequence. Each intermediate result gets its own temporary name, `t1`, `t2` and so on, and the compiler invents as many as it likes. Deciding which ones live in real registers is a problem for later.
+
+An `if` becomes a test, a conditional jump and some labels. Try `if 1 < 2 then n else n / 0` and look at the left column: there is no nesting left, only a list of instructions with jumps between them.
+
+## Optimisations
+
+The widget applies three of the simplest optimisations. Each is a rule for replacing a pattern with something cheaper that gives the same answer.
+
+| Optimisation | Before | After |
+| --- | --- | --- |
+| Constant folding | `t1 = 2 + 3` | `t1 = 5` |
+| Algebraic simplification | `t2 = n * 1` | `t2 = n` |
+| Dead code elimination | a branch that can never be taken | removed |
+| Constant propagation | `x = 4` then `y = x + 1` | `y = 5` |
+| Common subexpression elimination | `a * b` computed twice | computed once and reused |
+| Copy propagation | `t1 = n` then `t2 = t1 + 1` | `t2 = n + 1` |
+| Strength reduction | `n * 8` | `n << 3` |
+| Loop-invariant code motion | a calculation inside a loop that gives the same result each time | moved in front of the loop |
+| Inlining | a call to a small function | the body of the function |
+
+Optimisations feed each other. Inlining a function exposes constants, which propagate, which fold, which makes a condition constant, which makes a branch dead, which removes the only use of a variable, which makes its calculation dead as well. So compilers run the passes in sequence and often several times over.
+
+The third example in the widget shows a small chain: the test `1 < 2` folds to `true`, which makes the `else` branch unreachable, which removes the division by zero from the program altogether.
+
+<Aside type="warning" title="Same answer, by the language's definition">
+
+An optimiser may make any change that preserves what the language standard guarantees. It need not preserve behaviour the standard leaves undefined. In C, overflow of a signed integer is undefined, so a compiler may assume it never happens and delete a check such as `if (x + 1 < x)`. Code that relied on wrapping around then breaks, at higher optimisation levels only.
+
+</Aside>
+
+## Basic blocks and the flow graph
+
+To reason about jumps, the flat list is cut into **basic blocks**. A block is a run of instructions with one way in at the top and one way out at the bottom, so if the first instruction runs, they all do.
+
+Blocks are joined by arrows for the jumps between them. The result is the **control-flow graph**.
+
+```
+total = 0
+i = 0
+while i < n:
+    total = total + i
+    i = i + 1
+return total
+```
+
+<Graph
+  directed
+  nodes={{ entry: [1, 0], test: [1, 1], body: [0, 2], exit: [2, 2] }}
+  edges={[['entry', 'test'], ['test', 'body'], ['body', 'test'], ['test', 'exit']]}
+  caption="Four basic blocks. <code>entry</code> sets total and i, <code>test</code> compares i with n, <code>body</code> adds and increments, <code>exit</code> returns. The arrow from body back to test is the loop."
+/>
+
+A loop is a cycle in this [graph](/foundations/graph-theory/). Unreachable code is a block with no path from the entry. The questions an optimiser asks become graph problems, answered with [graph traversals](/algorithms/depth-first-search/).
+
+## Static single assignment
+
+Most modern compilers put their IR in **static single assignment** form, or SSA. The rule is that every variable is assigned exactly once. A variable that is assigned several times in the source is split into numbered versions.
+
+| Ordinary code | SSA form |
+| --- | --- |
+| `x = 1` | `x1 = 1` |
+| `x = x + 2` | `x2 = x1 + 2` |
+| `y = x * 3` | `y1 = x2 * 3` |
+
+With one assignment per name, every use of a value points at exactly one definition. Questions that needed a search now need a lookup. "Is `x1` constant?" Look at its one definition. "Is `x1` ever used?" If nothing mentions it, delete it.
+
+Where two paths join, a variable might have come from either. SSA handles this with a **phi function**, written φ, which stands for "whichever version arrived".
+
+```
+if c goto L1
+x1 = 1
+goto L2
+L1:
+x2 = 2
+L2:
+x3 = φ(x1, x2)
+```
+
+No processor has a φ instruction. It is bookkeeping, and it is replaced by ordinary copies before machine code is produced.
+
+## Levels of IR
+
+Large compilers use several intermediate representations, each closer to the machine than the last. Lowering in steps lets each optimisation run at the level where the information it needs is still visible.
+
+| Level | Still knows about | Good for |
+| --- | --- | --- |
+| High | loops, types, method calls | inlining, removing bounds checks, language-specific rules |
+| Middle | arithmetic and jumps on typed values | the general optimisations in the table above |
+| Low | registers, addressing modes, calling conventions | choosing instructions, allocating registers |
+
+Rust, for example, goes from syntax tree to a typed tree, then to its own mid-level IR where borrow checking is done, then to LLVM IR, then to machine instructions.
+
+## The back end
+
+The last stages turn optimised IR into real instructions.
+
+**Instruction selection** chooses machine instructions for each IR operation. One IR instruction may need several machine instructions, and several may collapse into one.
+
+**Register allocation** maps the unlimited temporaries onto the handful of registers the processor has. Two temporaries can share a register if they are never needed at the same time. Deciding who shares is a [graph colouring](/theory/np-completeness/) problem, which is NP-complete, so compilers use heuristics. Temporaries that do not fit are kept in memory on the [stack](/foundations/stack-and-heap/).
+
+**Scheduling and layout** order the instructions and blocks to suit the processor's [pipeline](/architecture/pipelining/), [branch predictor](/architecture/branch-prediction/) and [caches](/architecture/cpu-caches/).
+
+## IRs you can see
+
+| IR | Used by | Form |
+| --- | --- | --- |
+| LLVM IR | Clang, Rust, Swift, Julia | typed SSA, with a readable text form |
+| JVM bytecode | Java, Kotlin, Scala | stack machine code |
+| WebAssembly | browsers, as a compilation target | stack machine code, designed to be verified quickly |
+| CPython bytecode | Python | stack machine code |
+| GIMPLE and RTL | GCC | three-address SSA, then a low-level form |
+
+Stack-based forms are compact and simple to produce and interpret, as on the [compilers and interpreters](/languages/compilers-and-interpreters/) page. Register-based SSA forms are better for optimising. A [just-in-time compiler](/languages/just-in-time-compilation/) usually receives the first and converts it into the second.
+
+## Key takeaways
+
+- An intermediate representation is a simple, machine-independent form of a program that sits between the front end and the back end of a compiler.
+- Three-address code flattens nested expressions and structured control flow into single operations, temporaries, labels and jumps.
+- Optimisations are small rewrites that preserve meaning. They are run repeatedly because each one creates opportunities for the others.
+- The control-flow graph of basic blocks turns questions about a program into questions about a graph.
+- In SSA form each variable is assigned once, which makes the link between a value's definition and its uses immediate.
+- The back end selects instructions and fits unlimited temporaries into a fixed number of registers.
