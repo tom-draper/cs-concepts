@@ -3473,3 +3473,80 @@ main {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Information and coding widgets ---------- */
+
+.entropy-demo td.bar {
+  width: 40%;
+  min-width: 6rem;
+}
+
+.entropy-demo td.bar i {
+  display: block;
+  height: 0.6rem;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.huffman-demo h4,
+.lz-demo h4,
+.checksum-demo h4,
+.hamming-demo h4 {
+  margin-top: 0.9rem;
+}
+
+.bitstream i,
+.lz-tokens i {
+  white-space: pre;
+}
+
+.entropy-demo .readouts dt,
+.huffman-demo .readouts dt,
+.lz-demo .readouts dt,
+.hamming-demo .readouts dt {
+  min-width: 12rem;
+}
+
+.hamming-word {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.9rem !important;
+}
+
+.hamming-word button {
+  display: grid;
+  justify-items: center;
+  min-width: 3rem;
+  height: auto;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.hamming-word button b {
+  font: 600 1.2rem/1.4 var(--mono);
+}
+
+.hamming-word button small {
+  color: var(--text-2);
+  font-size: 0.7rem;
+}
+
+.hamming-word button[data-kind='parity'] {
+  border-style: dashed;
+}
+
+.hamming-word button[aria-pressed='true'] b {
+  color: var(--alt);
+}
+
+.hamming-word button[data-blamed] {
+  border-color: var(--alt);
+  border-style: solid;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--alt) 25%, transparent);
+}

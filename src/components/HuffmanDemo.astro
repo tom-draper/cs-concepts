@@ -1,0 +1,64 @@
+---
+// Builds a Huffman code for a text: the tree, the code for each symbol, and
+// the encoded bits, compared with a fixed-width code and with the entropy.
+import { huffman, huffmanView } from '../lib/information';
+import { treeSvg } from '../lib/languages';
+
+interface Props {
+  text?: string;
+}
+
+const { text = 'abracadabra' } = Astro.props;
+const view = huffmanView(text);
+const { tree } = huffman(text);
+---
+
+<huffman-demo class="playground huffman-demo">
+  <label class="wide">Text <input value={text} maxlength="60" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {['abracadabra', 'mississippi river', 'she sells sea shells', 'abcdefgh', 'aaaaaaab'].map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <div class="viz-scroll" data-out="tree" set:html={tree ? treeSvg(tree) : ''} />
+  <table class="grid">
+    <thead><tr><th>symbol</th><th>count</th><th>code</th><th>bits used</th></tr></thead>
+    <tbody data-out="rows" set:html={view.rows} />
+  </table>
+  <h4>Encoded</h4>
+  <p class="slots bitstream" data-out="encoded" set:html={view.encoded} />
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Huffman code</dt><dd data-out="size">{view.size}</dd></div>
+    <div><dt>Fixed-width code</dt><dd data-out="fixed">{view.fixed}</dd></div>
+    <div><dt>Entropy limit</dt><dd data-out="limit">{view.limit}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">{view.status}</p>
+</huffman-demo>
+
+<script>
+  import { huffman, huffmanView } from '../lib/information';
+  import { treeSvg } from '../lib/languages';
+
+  class HuffmanDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = () => {
+        const view = huffmanView(field.value);
+        const { tree } = huffman(field.value);
+        out('tree').innerHTML = tree ? treeSvg(tree) : '';
+        out('rows').innerHTML = view.rows;
+        out('encoded').innerHTML = view.encoded;
+        for (const name of ['size', 'fixed', 'limit', 'status'] as const) out(name).textContent = view[name];
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest('button')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        render();
+      });
+    }
+  }
+
+  customElements.define('huffman-demo', HuffmanDemo);
+</script>

@@ -1,0 +1,63 @@
+---
+// A message, a kind of damage in transit, and three checks of increasing
+// strength, to show which kinds of damage each one notices.
+import { checksumView, toBytes } from '../lib/information';
+
+interface Props {
+  text?: string;
+}
+
+const { text = 'PAY 100' } = Astro.props;
+const view = checksumView(toBytes(text), toBytes(text));
+---
+
+<checksum-demo class="playground checksum-demo">
+  <label class="wide">Message <input value={text} maxlength="24" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries" role="group" aria-label="Damage in transit">
+    Damage:
+    <button type="button" data-damage="" aria-pressed="true">none</button>
+    <button type="button" data-damage="one-bit" aria-pressed="false">flip one bit</button>
+    <button type="button" data-damage="two-bits" aria-pressed="false">flip two bits</button>
+    <button type="button" data-damage="swap" aria-pressed="false">swap two bytes</button>
+    <button type="button" data-damage="burst" aria-pressed="false">burst of five bits</button>
+  </p>
+  <h4>Bytes sent</h4>
+  <p class="slots" data-out="sent" set:html={view.sent} />
+  <h4>Bytes received, reading <span data-out="text">{view.text}</span></h4>
+  <p class="slots" data-out="received" set:html={view.received} />
+  <table class="grid">
+    <thead><tr><th>check</th><th>sent with the message</th><th>computed on arrival</th><th>result</th></tr></thead>
+    <tbody data-out="rows" set:html={view.rows} />
+  </table>
+  <p class="hint" data-out="status" aria-live="polite">{view.status}</p>
+</checksum-demo>
+
+<script>
+  import { checksumView, damage, toBytes, type Damage } from '../lib/information';
+
+  class ChecksumDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('input')!;
+      let kind = '';
+      const render = () => {
+        const sent = toBytes(field.value);
+        const view = checksumView(sent, kind ? damage(sent, kind as Damage) : sent);
+        for (const [name, value] of Object.entries(view)) {
+          const target = this.querySelector(`[data-out="${name}"]`)!;
+          if (name === 'text' || name === 'status') target.textContent = value;
+          else target.innerHTML = value;
+        }
+        for (const button of this.querySelectorAll<HTMLElement>('[data-damage]')) button.setAttribute('aria-pressed', String(button.dataset.damage === kind));
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const chosen = (event.target as HTMLElement).closest('button')?.dataset.damage;
+        if (chosen === undefined) return;
+        kind = chosen;
+        render();
+      });
+    }
+  }
+
+  customElements.define('checksum-demo', ChecksumDemo);
+</script>

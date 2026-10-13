@@ -1,0 +1,63 @@
+---
+// The Hamming(7,4) code: four data bits, three parity bits, and a receiver
+// that finds and repairs any single flipped bit.
+import { hammingView } from '../lib/information';
+
+const data = [1, 0, 1, 1];
+const view = hammingView(data, []);
+---
+
+<hamming-demo class="playground hamming-demo">
+  <p class="tries" role="group" aria-label="Data bits">
+    Data bits:
+    {data.map((bit, i) => <button type="button" data-bit={i} aria-pressed={String(bit === 1)}>d{i + 1} = {bit}</button>)}
+    <button type="button" data-act="clear">Undo the damage</button>
+  </p>
+  <h4>Codeword as received. Click a bit to flip it in transit.</h4>
+  <p class="hamming-word" data-out="cells" set:html={view.cells} />
+  <table class="grid">
+    <thead><tr><th>check</th><th>covers positions</th><th>bits there</th><th>result</th></tr></thead>
+    <tbody data-out="rows" set:html={view.rows} />
+  </table>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Codeword sent</dt><dd data-out="sent">{view.sent}</dd></div>
+    <div><dt>Failed checks add up to</dt><dd data-out="syndrome">{view.syndrome}</dd></div>
+    <div><dt>Data after correction</dt><dd data-out="decoded">{view.decoded}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">{view.status}</p>
+</hamming-demo>
+
+<script>
+  import { hammingView } from '../lib/information';
+
+  class HammingDemo extends HTMLElement {
+    connectedCallback() {
+      const data = [1, 0, 1, 1];
+      let flipped: number[] = [];
+      const render = () => {
+        const view = hammingView(data, flipped);
+        for (const [name, value] of Object.entries(view)) {
+          const target = this.querySelector(`[data-out="${name}"]`)!;
+          if (name === 'cells' || name === 'rows') target.innerHTML = value;
+          else target.textContent = value;
+        }
+        this.querySelectorAll<HTMLElement>('[data-bit]').forEach((button, i) => {
+          button.textContent = `d${i + 1} = ${data[i]}`;
+          button.setAttribute('aria-pressed', String(data[i] === 1));
+        });
+      };
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        if (set.bit !== undefined) data[Number(set.bit)] ^= 1;
+        else if (set.position !== undefined) {
+          const position = Number(set.position);
+          flipped = flipped.includes(position) ? flipped.filter((at) => at !== position) : [...flipped, position];
+        } else flipped = [];
+        render();
+      });
+    }
+  }
+
+  customElements.define('hamming-demo', HammingDemo);
+</script>
