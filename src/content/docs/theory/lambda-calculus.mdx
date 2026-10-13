@@ -1,0 +1,162 @@
+---
+description: The lambda calculus is a model of computation with only three things in it, variables, functions of one argument and function calls. It can compute everything a Turing machine can, and it is the foundation of functional programming.
+difficulty: advanced
+---
+
+A [Turing machine](/theory/turing-machines/) explains computation as a device changing a tape, one cell at a time. In the same year, 1936, Alonzo Church published a completely different account. It has no machine, no memory and no steps in time. It has functions, and the act of applying a function to an argument.
+
+The two turned out to compute exactly the same things. Where the Turing machine became the picture behind hardware, the **lambda calculus** became the picture behind programming languages.
+
+## Three kinds of term
+
+Everything in the lambda calculus is a **term**, and there are three ways to make one.
+
+| Kind | Written | In JavaScript |
+| --- | --- | --- |
+| Variable | `x` | `x` |
+| Abstraction: a function with one parameter | `λx.body` | `x => body` |
+| Application: a function call | `f a` | `f(a)` |
+
+That is the complete language. There are no numbers, no booleans, no `if`, no loops and no names for functions.
+
+Two conventions keep the brackets down. Application groups to the left, so `f a b` means `(f a) b`. And the body of a `λ` runs as far to the right as it can, so `λx.f x` is a function whose body is `f x`.
+
+## One rule
+
+Computing means simplifying a term, and there is one rule for it. When a function is applied to an argument, replace the parameter with the argument throughout the body. This is **beta reduction**.
+
+```
+(λx.x) a          →    a
+(λx.f x x) a      →    f a a
+```
+
+A term with nothing left to reduce is in **normal form**. That is the answer.
+
+Try it. Each line is one substitution.
+
+<LambdaDemo />
+
+In the starting example, `λx.λy.x` takes an argument, and returns a function that takes a second argument and ignores it. Applied to `a` and then `b`, it returns `a`.
+
+## Several arguments
+
+Functions take exactly one argument, but that is no restriction. A function of two arguments is written as a function that takes the first and returns a function waiting for the second.
+
+```
+λx.λy.x
+```
+
+This is called **currying**, after Haskell Curry. It is the same trick as `x => y => x` in JavaScript, and it only works because the inner function remembers the `x` it was created with. That memory is a [closure](/languages/closures/).
+
+## Renaming
+
+Substitution has one trap. Try the "renaming" example in the widget: `(λx.λy.x) y`.
+
+Replacing `x` with `y` naively would give `λy.y`, the identity function. That is wrong. The `y` being passed in is a **free** variable from outside, and it would have been **captured** by an unrelated parameter that happens to share its name.
+
+The parameter's name carries no meaning. `λy.x` and `λz.x` are the same function, just as `def f(y)` and `def f(z)` are. So before substituting, the inner parameter is renamed out of the way, and the widget gives `λy'.y`. This renaming is **alpha conversion**. Every language with nested functions has to deal with it, usually by resolving each name to its definition before running anything.
+
+## Building data from functions
+
+With no data types built in, values have to be represented as functions. The idea is to represent a value by what it does.
+
+**Booleans.** A boolean is used to choose between two things, so make each boolean a function that chooses.
+
+```
+true   =  λx.λy.x        take two things, return the first
+false  =  λx.λy.y        take two things, return the second
+```
+
+Then "if c then a else b" is simply `c a b`. And `and` is `λp.λq.p q p`: if `p` is true the answer is `q`, and otherwise the answer is `p`, which is false. The "true AND false" example in the widget reduces to `λx.λy.y`.
+
+**Numbers.** A number is used to repeat something, so the number n is a function that applies `f` to `x` n times. These are the **Church numerals**.
+
+```
+0  =  λf.λx.x
+1  =  λf.λx.f x
+2  =  λf.λx.f (f x)
+3  =  λf.λx.f (f (f x))
+```
+
+The successor function wraps one more `f` around its argument.
+
+```
+succ  =  λn.λf.λx.f (n f x)
+```
+
+"Successor of 2" in the widget takes three reductions to reach `λf.λx.f (f (f x))`, which is 3. Addition is `λm.λn.λf.λx.m f (n f x)`: apply `f` n times, then m more times. "2 + 1" also arrives at 3.
+
+Pairs, lists and trees can be encoded in the same style. None of this is how a real language stores a number. The point is that nothing more than functions is needed.
+
+## Recursion without names
+
+A function in the lambda calculus has no name, so it cannot call itself. Recursion has to be constructed.
+
+The starting point is a term that reproduces itself. Try "never finishes".
+
+```
+(λx.x x) (λx.x x)
+```
+
+The function `λx.x x` applies its argument to itself. Given itself as the argument, one reduction produces the same term again, for ever. This is the lambda calculus version of an infinite loop.
+
+A variation on it, the **Y combinator**, puts that self-reproduction to work.
+
+```
+Y  =  λf.(λx.f (x x)) (λx.f (x x))
+```
+
+For any function `g`, the term `Y g` works out to the same thing as `g (Y g)`. So `g` receives, as its argument, something that behaves as a copy of the whole computation. Write `g` to treat that argument as "myself" and the result is a recursive function, with no names involved.
+
+## Order of evaluation
+
+A term often has several places where a reduction could happen. Consider a function that ignores its argument, applied to the infinite loop.
+
+```
+(λx.a) ((λx.x x) (λx.x x))
+```
+
+| Strategy | Reduce first | Result here |
+| --- | --- | --- |
+| Normal order | the outermost function call | `a`, in one step |
+| Applicative order | the arguments | never finishes |
+
+Normal order passes the argument in unevaluated, and it is thrown away without ever being run. Applicative order tries to finish evaluating the argument first and never does.
+
+Two facts make this tidy. The **Church-Rosser theorem** says that if two reduction orders both finish, they finish with the same normal form, so a term has at most one answer. And normal order finds that answer whenever any order does.
+
+Programming languages inherit the choice.
+
+| | Evaluates arguments | Used by |
+| --- | --- | --- |
+| Strict, or eager | before the call | most languages |
+| Lazy | only when their value is needed | Haskell |
+
+A lazy language can define its own `if` as an ordinary function and work with endless lists. A strict one is easier to predict in time and memory.
+
+## The same power as a Turing machine
+
+Church and Turing each used their model to show that some problems have no algorithm. Turing then proved that the two models are equivalent: every lambda term can be evaluated by a Turing machine, and every Turing machine can be encoded as a lambda term.
+
+So the lambda calculus is [Turing complete](/theory/turing-machines/#turing-completeness), and it has its own undecidable question, the counterpart of the [halting problem](/theory/the-halting-problem/): no algorithm can tell whether an arbitrary term has a normal form.
+
+That two such different definitions agree is the main evidence for the Church-Turing thesis, the claim that they capture computation itself.
+
+## Where it shows up
+
+**Functional languages.** Lisp, designed in 1958, took its `lambda` directly from Church. ML, Haskell, OCaml and Clojure are the lambda calculus with data types and syntax added.
+
+**Every other language.** Anonymous functions, written `lambda` in Python, `=>` in JavaScript and `|x|` in Rust, are abstractions. Passing functions to `map` and `filter`, and returning functions from functions, is the lambda calculus at work in languages that are otherwise imperative.
+
+**Compilers.** Many compilers translate programs into a small [intermediate form](/languages/intermediate-representations/) that is a lambda calculus with extras, because a language with three constructs is easy to analyse and transform.
+
+**Type systems.** Adding types to lambda terms gives the **typed lambda calculus**, the basis of the [type systems](/languages/type-systems/) of modern languages. In the simplest typed version every term reaches a normal form, so every program finishes. The price is that it is no longer Turing complete.
+
+## Key takeaways
+
+- The lambda calculus has three constructs: variables, single-argument functions and application.
+- Its one computation rule, beta reduction, substitutes an argument for a parameter.
+- Parameters must sometimes be renamed during substitution so that free variables are not captured.
+- Booleans, numbers and data structures can all be encoded as functions, and recursion can be built with the Y combinator.
+- Different reduction orders cannot give different answers, but some orders finish where others do not.
+- It computes exactly what Turing machines compute, and it is the basis of functional programming.
