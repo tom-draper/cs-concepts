@@ -1,0 +1,128 @@
+---
+description: TCP turns the internet's unreliable packet delivery into a reliable, ordered stream of bytes between two programs. It numbers every byte, resends what goes missing, and slows down when the network is congested.
+difficulty: intermediate
+---
+
+The [network layer](/networking/the-network-layer-model/) makes one promise: it will try to deliver each packet. Packets may be lost when a router's queue overflows. They may arrive out of order, having taken different paths. They may be duplicated or damaged.
+
+Almost no application can work with that. A web page with a missing middle is useless. **TCP**, the Transmission Control Protocol, hides the mess. It gives two programs a **connection** that behaves like a pipe: bytes written at one end come out of the other end, complete and in order.
+
+## What TCP provides
+
+| Guarantee | How |
+| --- | --- |
+| Nothing is lost | every byte is acknowledged, and unacknowledged bytes are sent again |
+| Nothing is reordered | every byte is numbered, and the receiver sorts by number |
+| Nothing is duplicated | the receiver discards numbers it has already seen |
+| Nothing is corrupted | a checksum on every segment |
+| The receiver is not overwhelmed | flow control |
+| The network is not overwhelmed | congestion control |
+
+It is a **byte stream**. TCP does not preserve message boundaries. Two `send` calls may arrive as one read, or one may be split across several, a point covered under [sockets](/networking/sockets/).
+
+## Ports and connections
+
+An IP address finds a machine. A **port**, a 16-bit number, finds a program on it. A server listens on a well-known port, such as 443 for HTTPS. A client is given a temporary one.
+
+A connection is identified by four values: source address, source port, destination address and destination port. Two browser tabs on the same laptop talking to the same server are different connections, because their source ports differ.
+
+## Opening a connection
+
+Before any data moves, the two ends exchange three packets. This is the **three-way handshake**.
+
+<SequenceDemo scenario="tcp-handshake" />
+
+Each side chooses a starting **sequence number** and the other acknowledges it. `SYN` is short for synchronise, and `ACK` for acknowledge.
+
+Three messages are the minimum for both sides to know that both directions work. After two, the server knows it can hear the client, but not that the client can hear it.
+
+The starting numbers are chosen randomly. That stops packets left over from an earlier connection being mistaken for part of this one, and stops an attacker who cannot see the traffic from guessing where to inject data.
+
+The handshake costs one round trip before the first byte of data. On a link to another continent that is a tenth of a second or more.
+
+## Numbering bytes
+
+Every byte in the stream has a sequence number. A segment's header carries the number of its first byte. An acknowledgement carries the number of the **next byte the receiver expects**, which means "I have everything before this".
+
+Acknowledgements are **cumulative**. `ACK 151` covers every byte up to 150, so a lost acknowledgement does no harm if a later one arrives.
+
+## Recovering from loss
+
+Here the second of three segments is dropped.
+
+<SequenceDemo scenario="tcp-loss" />
+
+The receiver cannot acknowledge the third segment, because that would claim it has the second. It keeps the third in a buffer and repeats its previous acknowledgement.
+
+The sender detects the loss in one of two ways.
+
+| Signal | Meaning | Response |
+| --- | --- | --- |
+| Three duplicate acknowledgements | one segment is missing but later ones are arriving | resend it at once: **fast retransmit** |
+| Timeout | nothing has been acknowledged for too long | resend, and assume serious trouble |
+
+The timeout is not a fixed number. TCP measures how long acknowledgements take and sets the timer a little above the recent average, so it adapts from a local network measured in microseconds to a satellite link measured in seconds.
+
+## Flow control
+
+A fast sender can swamp a slow receiver. Every acknowledgement therefore carries a **window**: the amount of buffer space the receiver has left. The sender never has more unacknowledged data in flight than that.
+
+If the receiving program stops reading, the buffer fills, the advertised window drops to zero and the sender stops. This is back-pressure, the same idea as a full [channel](/concurrency/channels/) blocking its sender.
+
+The window also allows many segments to be in flight at once. Waiting for each acknowledgement before sending the next would limit a connection to one segment per round trip.
+
+## Congestion control
+
+The receiver's window protects the receiver. Nothing so far protects the network in between. If every sender transmitted as fast as its receiver allowed, routers would overflow, packets would be dropped, senders would retransmit and the overload would get worse. The early internet suffered exactly this **congestion collapse** in 1986.
+
+TCP's response is a second limit, the **congestion window**, which the sender maintains by itself. Nobody tells it how much capacity the path has. It finds out by probing: speed up until something is lost, then back off.
+
+<CongestionDemo />
+
+| Phase | Rule | Shape |
+| --- | --- | --- |
+| Slow start | double the window every round trip | exponential, despite the name |
+| Congestion avoidance | past the threshold, add one segment per round trip | a gentle slope |
+| A loss, with data still flowing | halve the window | a sharp drop |
+| A timeout | drop to one segment and start again | a collapse |
+
+Add slowly, cut by half. This rule is called **additive increase, multiplicative decrease**, and it produces the sawtooth in the chart. It has a useful property: several connections sharing a bottleneck converge towards equal shares, without communicating with each other.
+
+Loss is being used as a signal of congestion. That is a reasonable assumption on wired networks and a poor one on wireless links, where packets are lost to interference. Newer algorithms such as CUBIC, the default on Linux, and BBR, which estimates the bottleneck rate from timing, improve on the basic scheme.
+
+The amount a sender may have in flight is the smaller of the two windows.
+
+## Closing
+
+Each direction is closed separately, so closing takes four messages.
+
+<SequenceDemo scenario="tcp-close" />
+
+One side can finish sending and still receive, which is called a half-close. A connection can also be torn down abruptly with a `RST`, or reset, which is what you get when connecting to a port with nothing listening: "connection refused".
+
+## The costs
+
+<Ops items={[
+  ['Open a connection', '1 round trip', 'before any data'],
+  ['Header', '20 bytes', 'per segment, more with options'],
+  ['State', 'per connection', 'buffers and timers at both ends'],
+]} />
+
+**Head-of-line blocking.** Because bytes must be delivered in order, one lost segment holds up everything behind it, even data that has already arrived. When several independent requests share one connection, as in HTTP/2, a single lost packet stalls all of them. This is the main motivation for [QUIC](/networking/quic/).
+
+**Latency over throughput.** Reliability means waiting for retransmissions. For a live call, a late packet is as useless as a lost one, and such applications use [UDP](/networking/udp/).
+
+**Start-up cost.** The handshake and slow start penalise short connections. This is why HTTP keeps connections open and reuses them.
+
+## Where it is used
+
+TCP carries a large share of the internet's traffic: the web over [HTTP](/networking/http/) versions 1 and 2, email, SSH, file transfer and nearly every database protocol. It has been in use since 1983, and a great many improvements have been added without breaking compatibility.
+
+## Key takeaways
+
+- TCP provides a reliable, ordered stream of bytes over a network that loses, reorders and duplicates packets.
+- A three-way handshake opens the connection and agrees starting sequence numbers.
+- Every byte is numbered. Cumulative acknowledgements tell the sender what has arrived, and missing data is retransmitted after duplicate acknowledgements or a timeout.
+- Flow control, through the receiver's advertised window, stops the sender overrunning the receiver.
+- Congestion control probes for the capacity of the path, growing the window steadily and halving it on loss.
+- The price of ordering is head-of-line blocking, and the price of reliability is delay.
