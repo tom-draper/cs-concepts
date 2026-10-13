@@ -1,0 +1,156 @@
+---
+description: A query planner turns a SQL statement, which says what is wanted, into a step-by-step plan for fetching it. It considers many equivalent plans, estimates the cost of each from statistics about the data, and runs the cheapest.
+difficulty: advanced
+---
+
+A [SQL](/databases/sql/) query names tables and conditions. It does not say whether to use an [index](/databases/indexes/), which table to read first or which algorithm to [join](/databases/joins/) with. For any query there are many ways to get the right answer, and they can differ in speed by a factor of a million.
+
+Choosing among them is the job of the **query planner**, also called the optimiser. It is what makes a declarative language practical.
+
+## From text to result
+
+| Stage | Produces |
+| --- | --- |
+| [Parse](/languages/parsing/) | a syntax tree, after checking the grammar |
+| Analyse | a tree with every table and column resolved and type-checked |
+| Rewrite | a simpler, equivalent query |
+| Plan | a tree of physical operations, chosen for low estimated cost |
+| Execute | the rows |
+
+The pipeline is that of a [compiler](/languages/compilers-and-interpreters/), and the planner is its optimiser. The difference is that this optimiser knows about the data.
+
+## One decision
+
+Start with the simplest choice a planner makes: how to find the rows that match a condition.
+
+A **sequential scan** reads every page of the table in order and checks each row. An **index scan** searches an index for the matching entries and fetches each matching row from the table.
+
+Which is cheaper depends on how many rows match. Move the slider.
+
+<PlanDemo />
+
+When few rows match, the index wins by a huge margin. As more match, the index scan's cost climbs, because each row it finds is a separate random read somewhere in the table. Past a few percent of the table, reading everything in order is cheaper, and the planner stops using the index.
+
+So "why is the database ignoring my index?" often has the answer "because using it would be slower". The fraction of rows a condition keeps is its **selectivity**, and estimating it is the heart of planning.
+
+## Estimating
+
+The planner cannot run the query to see how many rows match. It guesses, using **statistics** the database collects about each table.
+
+| Statistic | Used to estimate |
+| --- | --- |
+| Row and page counts | the cost of a full scan |
+| Number of distinct values in a column | how many rows `column = value` will match |
+| The most common values and how frequent each is | conditions on popular values |
+| A histogram of the distribution | range conditions such as `amount > 100` |
+| How well the physical row order follows the column | how random an index scan's reads will be |
+
+For a column with 50 distinct values spread evenly, `column = 'x'` is estimated to match one row in 50. For `amount > 100`, the histogram says what share of values lie above 100.
+
+Conditions are combined by multiplying, on the assumption that columns are independent. That assumption is the commonest source of bad estimates. For `city = 'Paris' AND country = 'France'`, the planner multiplies two small fractions and expects almost no rows, when in fact nearly every Paris row is also a France row.
+
+Statistics are gathered by sampling, and go out of date as data changes. Databases refresh them automatically, and after loading a lot of data it is worth running `ANALYZE` by hand.
+
+## Costing
+
+With estimated row counts, each possible operation gets an estimated cost, in arbitrary units based on the work involved.
+
+| Operation | Relative cost |
+| --- | --- |
+| Reading a page in sequence | 1 |
+| Reading a page at random | about 4 on a disk, nearer 1 on an SSD |
+| Processing a row in memory | about 0.01 |
+
+The cost of a plan is the sum over its operations. The numbers are crude. They only have to be good enough to rank the plans correctly.
+
+## The search
+
+A plan is a tree. The leaves read tables, and the nodes above combine and transform rows.
+
+For a query that joins several tables, the planner has three kinds of choice.
+
+| Choice | Options |
+| --- | --- |
+| How to read each table | sequential scan, an index scan on any usable index, an index-only scan |
+| How to perform each join | nested loop, hash join, sort-merge join |
+| What order to join in | any order that gives the same result |
+
+Join order matters most. Joining the two tables that produce the fewest rows first keeps every later step small. Doing it the other way round can produce an intermediate result of billions of rows that are then mostly thrown away.
+
+The number of orders grows factorially with the number of tables.
+
+| Tables joined | Possible orders |
+| --- | --- |
+| 3 | 6 |
+| 5 | 120 |
+| 8 | 40,320 |
+| 12 | 479,001,600 |
+
+Planners handle this with [dynamic programming](/algorithms/dynamic-programming/): find the best way to join each pair, then use those to find the best way to join each group of three, and so on, never recomputing a subproblem. That is practical up to about ten tables. Beyond that, planners switch to heuristics or randomised search and accept a plan that is good without being provably the best.
+
+## Rewriting
+
+Before costing, the planner applies transformations that are safe and nearly always help. They are the relational counterpart of a compiler's [optimisations](/languages/intermediate-representations/#optimisations), and they are valid because the [relational algebra](/databases/relational-model/#operations-that-return-tables) has well-defined rules of equivalence.
+
+| Rewrite | Effect |
+| --- | --- |
+| Predicate pushdown | apply a filter before a join instead of after, so fewer rows are joined |
+| Projection pushdown | drop unneeded columns as early as possible |
+| Constant folding | `WHERE amount > 50 * 2` becomes `amount > 100` |
+| Subquery flattening | turn a nested query into a join, which has more plan options |
+| Join elimination | remove a join whose columns are never used |
+
+## Reading a plan
+
+`EXPLAIN` shows the plan chosen without running the query. This is the style PostgreSQL prints.
+
+```
+EXPLAIN SELECT c.name, o.amount
+FROM customers c JOIN orders o ON o.customer_id = c.id
+WHERE c.city = 'London';
+
+Hash Join  (cost=14.5..290.1 rows=200 width=40)
+  Hash Cond: (o.customer_id = c.id)
+  ->  Seq Scan on orders o  (cost=0.0..230.0 rows=10000 width=12)
+  ->  Hash  (cost=14.3..14.3 rows=20 width=36)
+        ->  Index Scan using customers_city on customers c  (cost=0.3..14.3 rows=20 width=36)
+              Index Cond: (city = 'London')
+```
+
+It is read from the innermost lines outwards. The London customers are found through an index, an estimated 20 of them. They are loaded into a hash table. Then every order is scanned, and each is looked up in the hash table.
+
+`EXPLAIN ANALYZE` runs the query as well and prints the real row counts beside the estimates. A large gap between the two is the signature of a planning problem.
+
+| Symptom in the plan | Likely cause |
+| --- | --- |
+| Estimated 10 rows, actually 500,000 | stale statistics, or correlated columns |
+| Sequential scan on a large table with a selective filter | missing index, or a function wrapped around the column |
+| Nested loop over a huge number of rows | an underestimate upstream made it look cheap |
+| A sort or hash that spills to disk | not enough working memory for the operation |
+
+## When it goes wrong
+
+The planner is usually right. Its mistakes can be dramatic, because a plan that is ideal for 10 rows may be catastrophic for 10 million.
+
+**Bad estimates compound.** An error of ten times in one estimate becomes a thousand times after three joins.
+
+**Plans flip.** As a table grows, the cheapest plan changes. Usually that is the planner adapting correctly. Occasionally a query that ran in milliseconds for months takes minutes one morning, with no change to the code.
+
+**Parameters hide values.** For a prepared statement, the planner may build one plan to reuse for every parameter value. A plan suited to a rare value is terrible for a common one.
+
+The first response is to fix the estimate: refresh statistics, add statistics covering correlated columns, add an index, or rewrite the condition so an index can be used. Some databases accept **hints** that force a particular plan. Hints stop the planner adapting as the data changes, so they are a last resort.
+
+## Execution
+
+The finished plan is run by an executor. In the classic design every node of the plan offers one operation, "give me your next row", and the root pulls rows up through the tree one at a time. It is simple, and it uses little memory, since rows stream through without the whole result being held.
+
+Engines built for analytics pass rows in batches of a thousand or so, or compile the plan into [machine code](/languages/just-in-time-compilation/) specific to the query, to cut the overhead for each row.
+
+## Key takeaways
+
+- A query planner chooses how to execute a declarative query from many equivalent plans.
+- It estimates how many rows each step will produce, using statistics about the data, and assigns each plan a cost.
+- An index is only worth using when a condition is selective. For conditions that match much of a table, a sequential scan is cheaper.
+- Join order has the largest effect on cost, and the number of orders grows factorially, so planners use dynamic programming and heuristics.
+- `EXPLAIN` shows the chosen plan. A large gap between estimated and actual row counts points to the problem.
+- Most bad plans come from bad estimates, caused by stale statistics or by columns that are not independent.
