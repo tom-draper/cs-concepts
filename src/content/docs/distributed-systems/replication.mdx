@@ -1,0 +1,144 @@
+---
+description: Replication keeps copies of the same data on several machines, so that the data survives a machine failing and can be read from more than one place. The difficulty is keeping the copies in agreement while the data changes.
+difficulty: intermediate
+---
+
+Data that lives on one machine is one hardware fault away from being unavailable, and one disk failure away from being lost. **Replication** keeps a copy on several machines.
+
+| Reason | Benefit |
+| --- | --- |
+| Fault tolerance | the system keeps working when a machine dies |
+| Read scaling | queries are spread over many copies |
+| Lower latency | each user reads from a copy nearby |
+
+If the data never changed, replication would be trivial: copy the files. All the difficulty comes from writes. A change has to reach every copy, the copies must end up identical, and machines and networks can fail at any point in between.
+
+## A leader and followers
+
+The commonest arrangement names one replica the **leader**. All writes go to it. It applies them and sends each to the other replicas, the **followers**, which apply the same changes in the same order. Reads can go to any replica.
+
+Write to the leader, read from the followers, and then crash the leader.
+
+<ReplicationDemo />
+
+What the leader sends is its log of changes, usually the [write-ahead log](/databases/write-ahead-logging/) it keeps anyway. A follower that replays the same log from the same starting point reaches the same state.
+
+Because one node decides the order of all writes, there are no conflicts. This is why single-leader replication is the default in PostgreSQL, MySQL, MongoDB and most other databases.
+
+## Synchronous or asynchronous
+
+The central decision is when the leader tells the client a write has succeeded.
+
+| | Asynchronous | Synchronous |
+| --- | --- | --- |
+| The leader confirms | as soon as it has applied the write itself | after followers confirm they have it |
+| Write latency | low | includes the slowest required follower |
+| If a follower is down | no effect | writes stall, unless the rule is relaxed |
+| If the leader dies | recent confirmed writes may be lost | nothing confirmed is lost |
+
+In the widget, write three times in asynchronous mode and crash the leader before the followers catch up. Those three writes were confirmed to clients and are gone.
+
+Fully synchronous replication to every follower is rarely used, because one slow or dead follower would stop all writes. The usual compromise is **semi-synchronous**: wait for one follower, or for a majority, and let the rest catch up later. Waiting for a majority, combined with a safe way of choosing a new leader, is what [consensus](/distributed-systems/consensus/) protocols provide.
+
+## Replication lag
+
+With asynchronous replication, followers are always a little behind. The delay is the **replication lag**. It is normally a fraction of a second, and it can stretch to minutes when a follower is overloaded or the network is slow.
+
+Lag makes the system [eventually consistent](/distributed-systems/consistency-models/), and applications feel it in particular ways.
+
+| Problem | What happens | Remedy |
+| --- | --- | --- |
+| Not reading your own write | a user saves, the next read hits a lagging follower, and the change seems lost | read from the leader for a short time after a write |
+| Going backwards | two reads hit followers with different lag, and the second shows older data | keep each user on the same follower |
+| Effect before cause | an answer is seen before its question | route related data to the same replica, or track dependencies |
+
+In the widget, write and then read from a follower without letting it catch up.
+
+## Failover
+
+When a follower fails, little is lost. It restarts, asks the leader for everything after the last change it has, and catches up.
+
+When the leader fails, a follower must take over. This is **failover**, and each of its steps can go wrong.
+
+1. **Detect the failure.** This is done with a timeout, so it is a guess. See [failure detection](/distributed-systems/failure-detection/).
+2. **Choose a new leader.** It should be the follower with the most data.
+3. **Redirect clients** to it, and make the other followers follow it.
+
+| Hazard | Consequence |
+| --- | --- |
+| The new leader was behind | writes it never received are lost, though clients were told they succeeded |
+| The old leader was only slow, and comes back | two leaders accept writes: split brain |
+| The timeout is too short | needless failovers, each risking the above |
+| The timeout is too long | a longer outage |
+
+Split brain is the most dangerous. Two nodes both believing they are leader will accept conflicting writes with nothing to reconcile them. Systems guard against it by requiring a majority to agree on any change of leader, and by fencing off the old one.
+
+Because of these risks, some teams trigger failover by hand. Automated failover that is actually safe is built on consensus.
+
+## More than one leader
+
+A single leader is a bottleneck for writes, and a single point through which they all must pass. If it is in Europe, a user in Australia waits for a round trip across the world on every write.
+
+**Multi-leader replication** has several nodes accepting writes, usually one in each region, each passing its changes to the others. Writes are fast everywhere, and a region can carry on if it is cut off.
+
+The price is **conflicts**. Two leaders can accept different changes to the same data at the same moment, and neither knows until later.
+
+| Strategy | How it resolves a conflict | Weakness |
+| --- | --- | --- |
+| Last write wins | keep the change with the later timestamp | silently discards the other, and clocks are [unreliable](/distributed-systems/logical-clocks/) |
+| Fixed priority | one leader always wins | discards the other |
+| Keep both | store every version and let the application merge | more work for the application |
+| Mergeable types | use data structures that combine automatically | only for data that fits a [CRDT](/distributed-systems/crdts/) |
+
+Offline-capable apps are multi-leader systems in disguise. A calendar on a phone accepts changes with no connection and syncs later, so the phone is a leader, with a very long replication delay.
+
+## No leader
+
+A third design has no leader at all. A client, or a coordinator acting for it, sends each write to several replicas at once and each read to several replicas at once. Dynamo, Cassandra and Riak work this way.
+
+Correctness comes from [quorums](/distributed-systems/consistency-models/#tuning-with-quorums). With N replicas, a write waits for W acknowledgements and a read asks R replicas. If R + W > N, at least one replica in every read has the latest write.
+
+A replica that was down misses writes. Two mechanisms repair it afterwards.
+
+- **Read repair.** A read that receives different versions from different replicas writes the newest back to the stale ones.
+- **Anti-entropy.** A background process compares replicas and copies what is missing, using [Merkle trees](/data-structures/merkle-trees/) to find the differences without comparing every item.
+
+There is no failover, because there is no leader to fail. Any node can serve any request.
+
+## Comparing the three
+
+| | Single leader | Multi-leader | Leaderless |
+| --- | --- | --- | --- |
+| Writes accepted by | one node | several | any |
+| Conflicts | none | yes | yes |
+| When a node fails | failover, if it was the leader | others carry on | others carry on |
+| Consistency | strong, if reads go to the leader | eventual | tunable by quorum |
+| Complexity | lowest | highest | moderate |
+| Good for | most applications | several regions, offline use | high availability, heavy write load |
+
+## What is replicated
+
+| Method | Sends | Trade-off |
+| --- | --- | --- |
+| Statement | the SQL text | compact, and breaks on anything non-deterministic such as the current time or a random number |
+| Physical log | the low-level changes to disk pages | exact, and tied to one version and storage format |
+| Logical log | each row inserted, updated or deleted | portable across versions, and usable by other systems |
+
+Logical replication also feeds search indexes, caches and data warehouses, which subscribe to the stream of changes.
+
+## Replication is not backup
+
+A replica copies every change faithfully, including the wrong ones. Drop a table by mistake, and it is dropped on every replica within a second.
+
+Protecting against mistakes needs **backups**: copies from points in the past, kept apart, that can be restored. A delayed replica, kept deliberately an hour behind, is a halfway measure.
+
+Nor does replication help when the data is too large for one machine, since every replica holds all of it. That calls for [partitioning](/distributed-systems/partitioning/), and large systems use both: the data is split into partitions, and each partition is replicated.
+
+## Key takeaways
+
+- Replication keeps copies of data on several machines for fault tolerance, read capacity and lower latency.
+- In single-leader replication all writes go through one node, which orders them, and followers replay its log.
+- Asynchronous replication is fast and can lose recently confirmed writes on failover. Synchronous replication loses nothing confirmed and waits for followers.
+- Followers lag behind the leader, so reads from them can be stale.
+- Failover is risky. A lagging new leader loses data, and an old leader that returns causes split brain.
+- Multi-leader and leaderless designs accept writes in more than one place, gaining availability and having to resolve conflicts.
