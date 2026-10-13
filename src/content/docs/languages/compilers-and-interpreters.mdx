@@ -1,0 +1,141 @@
+---
+description: A compiler translates a program into another language, usually machine code, before it runs. An interpreter runs the program directly. Most real language implementations are a mixture of the two.
+difficulty: beginner
+---
+
+A processor understands one thing: its own [machine code](/architecture/instruction-sets/), a stream of numbered instructions that add, compare, load and jump. Nobody wants to write that. Programs are written in languages designed for people, and something has to bridge the gap.
+
+There are two basic ways to do it. A **compiler** translates the whole program into machine code ahead of time, and the processor then runs the translation. An **interpreter** is itself a program that reads your program and carries out what it says, step by step.
+
+| | Compiler | Interpreter |
+| --- | --- | --- |
+| Produces | another program | the program's results |
+| When the work happens | before running | while running |
+| Needed to run the program | only the output | the interpreter and the source |
+
+A translator and a simultaneous interpreter make the same contrast. One hands you a finished document. The other has to be in the room.
+
+## The stages
+
+Both kinds begin the same way, because both must first understand the program. That understanding is built in stages, each turning the program into a more useful form.
+
+Type an expression and watch it pass through three of them.
+
+<CompilerDemo show="all" />
+
+| Stage | Turns | Into | Page |
+| --- | --- | --- | --- |
+| Lexing | characters | tokens | [Lexing](/languages/lexing/) |
+| Parsing | tokens | a syntax tree | [Parsing](/languages/parsing/) |
+| Analysis | a tree | a tree checked for names and types | [Type systems](/languages/type-systems/) |
+| Lowering | a tree | a simpler intermediate form | [Intermediate representations](/languages/intermediate-representations/) |
+| Optimisation | intermediate code | better intermediate code | |
+| Code generation | intermediate code | machine code or bytecode | |
+
+The first three stages are the **front end**. They depend on the source language and know nothing about the target machine. The last stages are the **back end**. They depend on the target and know nothing about the source language.
+
+That split is deliberate. With a shared intermediate form in the middle, a new language needs only a front end to run on every supported processor, and a new processor needs only a back end to run every supported language. The LLVM project is built this way, and it sits behind Rust, Swift and one of the major C and C++ compilers.
+
+## Running the result
+
+In the widget, the last panel is not machine code for a real processor. It is code for an imaginary **stack machine**, far simpler than real hardware. Step through it.
+
+<VmDemo />
+
+Each instruction either pushes a value or pops two values and pushes a result. The whole machine is a loop that reads the next instruction and acts on it.
+
+This is an interpreter, and it is how Python, Ruby, Lua and Java all begin. The code for the imaginary machine is called **bytecode**, and the program that runs it is a **virtual machine**. It is the [fetch-decode-execute cycle](/architecture/fetch-decode-execute-cycle/) written in software.
+
+## Most languages do both
+
+"Compiled language" and "interpreted language" are loose terms. Compiling and interpreting are things an implementation does, and nearly all of them do some of each.
+
+| Implementation | What happens to your source |
+| --- | --- |
+| C, C++, Rust, Go | compiled to machine code ahead of time |
+| Python (CPython) | compiled to bytecode, which a virtual machine interprets |
+| Java, C# | compiled to bytecode ahead of time, then compiled to machine code while running |
+| JavaScript (V8) | compiled to bytecode, interpreted, and the busy parts compiled to machine code |
+| Shell scripts | parsed and executed more or less line by line |
+| TypeScript | compiled to JavaScript, which then follows the row above |
+
+So Python has a compiler. It is the thing that writes `.pyc` files. What it lacks, in its standard implementation, is a compiler to machine code.
+
+Compiling to machine code while the program runs is [just-in-time compilation](/languages/just-in-time-compilation/). A compiler whose output is another high-level language, as with TypeScript, is sometimes called a **transpiler**.
+
+And nothing ties a language to one approach. C has interpreters. Python has compilers. The language is the specification, and the implementation is a choice.
+
+## The trade-offs
+
+**Speed of the program.** Machine code runs directly on the processor. An interpreter does extra work for every operation: fetch the instruction, work out what it is, find its operands, check their types. A simple bytecode interpreter is typically ten to a hundred times slower than compiled code on arithmetic-heavy work.
+
+**Speed of starting.** An interpreter can begin at once. A compiler has to finish first, and for a large program an optimising build takes minutes. This is why interpreted languages are pleasant for scripts and exploration, and why they usually offer an interactive prompt.
+
+**When errors appear.** A compiler examines the whole program before any of it runs, so it can reject a mistake on a line that would only execute once a year. An interpreter that checks as it goes finds that mistake once a year.
+
+**Portability.** Machine code runs on one kind of processor and one operating system. Source code or bytecode runs anywhere the interpreter or virtual machine has been installed. "Write once, run anywhere" was Java's selling point for this reason.
+
+**Flexibility.** With the interpreter present at run time, a program can build new code and execute it, inspect its own structure and replace functions while running. That is harder to offer when the compiler is long gone.
+
+| | Ahead-of-time compiled | Interpreted |
+| --- | --- | --- |
+| Running speed | fastest | slowest |
+| Time before the first line runs | long | none |
+| Errors found | before running, across the whole program | when the line is reached |
+| What you ship | one file per platform | source, and a requirement to have the interpreter |
+| Run-time flexibility | limited | high |
+
+## An interpreter in a few lines
+
+The simplest interpreter has no bytecode. It walks the syntax tree directly, with one case for each kind of node.
+
+```python
+def evaluate(node):
+    if isinstance(node, (int, float)):
+        return node                               # a number is its own value
+    operator, left, right = node
+    a = evaluate(left)
+    b = evaluate(right)
+    if operator == '+': return a + b
+    if operator == '-': return a - b
+    if operator == '*': return a * b
+    if operator == '/': return a / b
+
+evaluate(('+', 1, ('*', 2, 3)))                   # 7
+```
+
+A compiler has exactly the same shape. Where the interpreter performs an operation, the compiler writes out the instruction that would perform it.
+
+```python
+def compile_to_stack(node, code):
+    if isinstance(node, (int, float)):
+        code.append(('push', node))
+        return
+    operator, left, right = node
+    compile_to_stack(left, code)
+    compile_to_stack(right, code)
+    code.append({'+': 'add', '-': 'sub', '*': 'mul', '/': 'div'}[operator])
+
+code = []
+compile_to_stack(('+', 1, ('*', 2, 3)), code)
+# push 1, push 2, push 3, mul, add
+```
+
+Both are a [recursive](/algorithms/recursion/) walk over a tree. Tree-walking interpreters are easy to write and slow to run, because every operation involves chasing pointers through the tree. Compiling to bytecode first packs the program into a flat array, which is far kinder to the [processor's cache](/architecture/cache-locality/).
+
+## A compiler that compiles itself
+
+Most compilers are written in the language they compile. The Rust compiler is written in Rust, and the Go compiler in Go.
+
+The apparent circularity is resolved by **bootstrapping**. The first version of the compiler is written in some existing language. Once it works, the compiler is rewritten in its own language and compiled with the first version. From then on each release is built with the previous one.
+
+It is also a good test. A compiler is a large and demanding program, so compiling itself correctly is strong evidence that it works.
+
+## Key takeaways
+
+- A compiler translates a program into another form before it runs. An interpreter carries out the program directly.
+- Both start with the same front end: lexing, parsing and analysis.
+- A front end and a back end joined by an intermediate form let languages and target machines be combined freely.
+- Most implementations mix the two, commonly by compiling to bytecode and interpreting that.
+- Ahead-of-time compilation gives the fastest programs and the earliest errors. Interpretation gives the fastest start and the most flexibility.
+- Compiled or interpreted is a property of an implementation, not of a language.
