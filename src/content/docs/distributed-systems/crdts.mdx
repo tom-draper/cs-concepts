@@ -1,0 +1,133 @@
+---
+description: A CRDT is a data type designed so that copies on different machines can be changed independently and always merged into the same result, with no coordination and no conflicts. It is the basis of collaborative editing and offline-first applications.
+difficulty: advanced
+---
+
+Two people edit the same shopping list on their phones, both with no signal. One adds milk. The other adds bread and removes eggs. Later the phones reconnect. What should the list contain?
+
+A system that insists on [consensus](/distributed-systems/consensus/) would have refused the edits until the phones could talk. A system that accepts both must now merge them. The usual fallback, keeping whichever edit was made last, throws one person's work away.
+
+A **conflict-free replicated data type**, or CRDT, takes a third course. It is a data structure built so that concurrent changes can **always** be merged, automatically, with every replica arriving at the same answer whatever order the changes arrive in.
+
+## A counter that loses nothing
+
+Start with the simplest case, a counter kept on two replicas. The widget keeps it two ways at once.
+
+<CrdtDemo />
+
+Press +1 twice on replica A and three times on B, and sync.
+
+The **plain number** went from 0 to 2 on one side and from 0 to 3 on the other. Syncing must choose, and keeps the later write. The total should be 5 and comes out as 2 or 3. This is "last write wins", and it silently discards updates.
+
+The **CRDT** does not store the total. Each replica keeps a tally with one slot for each replica, recording how much **that replica** has added. Replica A only ever raises its own slot, and B likewise.
+
+| | A's tally | B's tally |
+| --- | --- | --- |
+| After the changes, before syncing | `[2, 0]` | `[0, 3]` |
+| After merging, taking the larger of each slot | `[2, 3]` | `[2, 3]` |
+| Value, the sum of the slots | 5 | 5 |
+
+Taking the larger value in each slot is safe because a slot only ever goes up. The larger number is simply the more recent knowledge of that replica's count. Nothing is lost, and nothing is counted twice however often the replicas sync.
+
+This is a **grow-only counter**. To allow decrements, keep two of them, one for increments and one for decrements, and subtract. That is what the widget shows as its two tallies.
+
+## Why merging always works
+
+The counter's merge function, the larger of each slot, has three properties.
+
+| Property | Means | So that |
+| --- | --- | --- |
+| Commutative | merging A into B gives the same as B into A | the order of arrival does not matter |
+| Associative | grouping does not matter | any path through any number of replicas gives the same result |
+| Idempotent | merging the same thing twice changes nothing | duplicated and retried messages are harmless |
+
+Any data type whose merge has these three properties is a CRDT. Replicas can exchange state in any order, any number of times, over an unreliable network, and are guaranteed to converge.
+
+The guarantee has a name, **strong eventual consistency**: any two replicas that have received the same set of updates are in the same state. No coordination, no leader and no conflict resolution step are involved.
+
+## A toolbox
+
+Counters are the start. The technique is to find a representation for each kind of data in which every update moves in one direction and can be merged.
+
+**Registers.** A register holds one value. A **last-writer-wins register** attaches a timestamp to each write and keeps the highest. It is a CRDT and it does lose concurrent writes, by design. A **multi-value register** keeps all concurrent values and returns them together, for the application to settle.
+
+**Grow-only sets.** Elements can be added and never removed. Merge is set union, which has all three properties.
+
+**Sets with removal.** Removal is harder. If one replica removes an item while another adds it, which wins? And if removal just deletes the element, a merge with a replica that still has it would bring it back.
+
+The **observed-remove set** solves this by giving each addition a unique tag. Removing an item removes the specific tags that replica has seen. An addition made concurrently elsewhere carries a new tag that the removal never saw, so it survives. The rule that results, "add wins over a concurrent remove", matches what users expect.
+
+| Type | Operations | Concurrent conflict resolved by |
+| --- | --- | --- |
+| Grow-only counter | increment | no conflict is possible |
+| PN counter | increment, decrement | no conflict is possible |
+| Last-writer-wins register | set | highest timestamp |
+| Multi-value register | set | keeping every concurrent value |
+| Grow-only set | add | no conflict is possible |
+| Observed-remove set | add, remove | add wins |
+| Map | set a key, remove a key | applying a CRDT to each value |
+| Sequence | insert, delete at a position | unique position identifiers |
+
+The shopping list is an observed-remove set. Merging the two phones gives milk and bread, without eggs. Each edit took effect and none was lost.
+
+## Text
+
+The hardest and most valuable case is a sequence, a document that several people type into at once.
+
+Positions cannot be plain numbers. If one person inserts a character at the start, every position after it shifts, and another person's "insert at position 5" now means somewhere else.
+
+Sequence CRDTs give every character a **unique identifier that never changes**, and define its place relative to its neighbours' identifiers instead of by a count. An insertion says "put this new character, with this identifier, after the character with that identifier". Two people inserting at the same spot both succeed, and a tie-breaking rule on the identifiers makes every replica put them in the same order.
+
+Deleted characters are not removed outright. They are marked as deleted and kept as **tombstones**, so that an edit elsewhere that refers to them still makes sense.
+
+This is the machinery behind many collaborative editors. Libraries such as Yjs and Automerge package it.
+
+## Two ways to synchronise
+
+| | State-based | Operation-based |
+| --- | --- | --- |
+| Replicas send | their entire state | each individual operation |
+| Merging | a merge function with the three properties | applying operations, which must commute |
+| Needs from the network | nothing. Messages may be lost, duplicated or reordered | every operation delivered exactly once, in causal order |
+| Message size | large | small |
+
+The counter in the widget is state-based. A practical compromise, **delta state**, sends only the part of the state that has changed since the last sync and keeps the tolerance of unreliable networks.
+
+## What it costs
+
+**Metadata.** A CRDT stores more than the data. Counters keep a slot for each replica. Sets keep tags. Text keeps an identifier for every character and tombstones for every deletion. A document that has been edited heavily can carry far more history than content.
+
+**Garbage collection is hard.** A tombstone can be discarded only once every replica has seen the deletion. Knowing that requires hearing from every replica, which is the kind of coordination CRDTs were meant to avoid, and a device that has been offline for a year holds things up.
+
+**Convergence is not correctness.** A CRDT guarantees all replicas end with the same value. It does not guarantee the value is what anyone meant. Two people who each fix the same typo may end with the correction applied twice.
+
+**Some rules cannot be kept.** A constraint that spans replicas cannot be enforced without coordination. A counter that must never go below zero is the standard example. Two replicas can each see a stock of 1 and each sell it. Each decision was valid locally, and the merged result is minus one. Keeping such an invariant needs [consensus](/distributed-systems/consensus/), or splitting the allowance between replicas in advance.
+
+| | CRDTs | Consensus |
+| --- | --- | --- |
+| Writes accepted | always, on any replica, even offline | only with a majority reachable |
+| Latency of a write | local | a round trip to a majority |
+| Consistency | strong eventual | linearizable |
+| Global invariants | cannot be enforced | can be enforced |
+| In [CAP](/distributed-systems/the-cap-theorem/) terms | available under partition | consistent under partition |
+
+## The alternative for text
+
+Collaborative editors had an earlier technique, **operational transformation**, used by Google Docs. Each operation is adjusted against the concurrent operations that came before it, so that it still does what was intended. It generally depends on a central server to put operations in order. CRDTs need no central server, which suits peer-to-peer and offline use, at the price of more metadata.
+
+## Where they are used
+
+- **Collaborative applications.** Shared documents, whiteboards and design tools.
+- **Offline-first apps.** Notes and task lists that work with no connection and sync later. This approach is sometimes called local-first software.
+- **Distributed databases.** Riak and Redis offer CRDT types for [multi-leader](/distributed-systems/replication/#more-than-one-leader) deployments across regions.
+- **Infrastructure.** Membership lists and counters spread by [gossip](/distributed-systems/gossip-protocols/).
+- **Shopping baskets.** The example that motivated Amazon's Dynamo.
+
+## Key takeaways
+
+- A CRDT is a data type whose replicas can be updated independently and always merged to the same result.
+- A merge that is commutative, associative and idempotent makes the order, grouping and repetition of syncs irrelevant.
+- Counters track each replica's contribution separately. Sets tag each addition so that a concurrent add survives a remove.
+- Text CRDTs give every character a permanent identifier and keep tombstones for deletions.
+- CRDTs stay available with no coordination, and carry extra metadata that is hard to clean up.
+- They guarantee convergence, not intent, and cannot enforce rules that span replicas.
