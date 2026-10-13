@@ -1,0 +1,138 @@
+---
+description: A consistency model is the promise a distributed system makes about what a read can return after a write. Stronger models are easier to program against and cost more in latency and availability.
+difficulty: advanced
+---
+
+On one machine, reading a value returns whatever was last written. Nobody thinks about it. Spread the data over several machines and that stops being automatic. A write lands on one replica and takes time to reach the rest. A read that goes to a different replica may see the old value.
+
+How much of this a system allows is its **consistency model**: a contract between the system and its users, stating which results are possible. Stronger models hide the replicas. Weaker ones let the gaps show, in return for speed and [availability](/distributed-systems/the-cap-theorem/).
+
+## The spectrum
+
+| Model | Promise | Cost |
+| --- | --- | --- |
+| Linearizable | behaves like a single copy, in real-time order | highest latency, unavailable for a minority during a partition |
+| Sequential | behaves like a single copy, in some order all agree on | high |
+| Causal | an effect is never seen before its cause | moderate |
+| Read your writes, monotonic reads | guarantees for a single client's session | low |
+| Eventual | if writes stop, replicas converge | lowest |
+
+Each row allows everything the row above it allows, and more.
+
+## Linearizability
+
+The strongest model. The system behaves as though there were exactly one copy of the data and every operation took effect instantly, at some moment between when it was requested and when it returned.
+
+Two consequences follow. Once any client has seen a new value, no client anywhere will see the old one. And if one operation finishes before another starts, the second sees the effect of the first.
+
+That makes replicas invisible. It is the model people assume by default, and the one that locks, leader election and unique constraints need. If two clients each ask "is this username free?" and both are told yes, the system was not linearizable.
+
+It is expensive. Every operation must coordinate with a majority of replicas, usually through [consensus](/distributed-systems/consensus/), so latency includes the round trip to the nearest majority. During a partition, the minority side cannot answer at all.
+
+## Eventual consistency
+
+The weakest model in common use. It promises only that if no new writes arrive, all replicas will eventually hold the same value.
+
+It says nothing about how long that takes, or what a read returns meanwhile. In practice the delay is usually milliseconds. Under load, or during a failure, it can be seconds or far longer.
+
+Reads can go to any replica and writes can be accepted anywhere, so the system is fast and stays up through partitions. The price is paid by the application, which sees a range of oddities.
+
+| Anomaly | What the user sees |
+| --- | --- |
+| Stale read | old data, some time after a newer write |
+| Not reading your own write | you post a comment, reload, and it is missing |
+| Going backwards | a refresh shows newer data, and the next refresh shows older data |
+| Effect before cause | a reply appears before the message it answers |
+| Conflict | two replicas accepted different writes for the same item |
+
+[DNS](/networking/dns/) is a familiar eventually consistent system. A changed record spreads as caches expire, and for a while different users get different answers.
+
+## Tuning with quorums
+
+Many replicated databases let the degree of consistency be set by numbers. With N replicas:
+
+- a write is confirmed once **W** of them have stored it
+- a read asks **R** of them and takes the newest answer
+
+Set W and R and see when a read can miss the latest write.
+
+<QuorumDemo />
+
+The rule is short. If **R + W > N**, the set of replicas that took the write and the set that answers the read must overlap in at least one replica. That replica has the latest value, so the read returns it.
+
+| Setting, for N = 5 | Behaviour |
+| --- | --- |
+| W = 1, R = 1 | fastest, and reads are often stale |
+| W = 3, R = 3 | every read sees the latest write, and one or two replicas can be down |
+| W = 5, R = 1 | fast reads that are never stale, but a write fails if any replica is down |
+| W = 1, R = 5 | fast writes, slow reads, and a read fails if any replica is down |
+
+Requiring more replicas makes an operation slower, since it waits for the slowest of them, and less available, since it needs more of them to be up. A majority for both, such as 3 and 3, is the usual balanced choice.
+
+Overlapping quorums are not quite linearizability. Two writes at the same moment can still conflict, and a read during a write may or may not see it. Full linearizability needs more machinery.
+
+## Guarantees for one client
+
+Most of the oddities of eventual consistency are tolerable when they involve other people's data. They are jarring when they involve your own. A family of **session guarantees** fixes the worst cases cheaply, for each client separately.
+
+**Read your writes.** After you write something, your later reads see it. Without this, a user saves a profile and the page reloads with the old one. It is typically provided by sending a user's reads to the leader for a short time after they write, or by remembering the position of their last write and only reading from replicas that have reached it.
+
+**Monotonic reads.** Once you have seen some data, you never see an older state. Without this, successive refreshes can jump backwards and forwards in time as they land on different replicas. Pinning each user to one replica provides it.
+
+**Consistent prefix.** You see writes in the order they happened, with none missing from the middle.
+
+These are far cheaper than linearizability, and they remove most of what users would notice.
+
+## Causal consistency
+
+Operations that are causally related are seen by everyone in the same order. Operations that are unrelated, called concurrent, may be seen in different orders by different observers.
+
+A reply depends on the message it answers, so nobody may see the reply first. Two people posting unrelated messages at the same moment have no required order, and nobody could tell if it differed.
+
+Causal consistency is the strongest model that can stay available during a network partition, which is why it attracts so much attention. Tracking what depends on what is done with [logical clocks](/distributed-systems/logical-clocks/).
+
+## Consistency and isolation
+
+Two families of guarantee are easy to confuse.
+
+| | Consistency models | [Isolation levels](/databases/isolation-levels/) |
+| --- | --- | --- |
+| Concern | replicas of the same data agreeing | concurrent transactions not interfering |
+| Operations | single reads and writes | groups of operations |
+| Strongest form | linearizable | serializable |
+
+They are independent. A database can be serializable and not linearizable: transactions appear to run one at a time, but in an order that does not match real time. The combination of both is called **strict serializability**, and it is what a single-machine database gives for free.
+
+## What strong consistency costs
+
+Linearizability cannot be made as fast as weaker models, and this is a proven result, not an engineering shortfall. A linearizable read has to check that the replica answering has not been superseded, which means contacting other replicas. That takes at least a network round trip, and with replicas in different regions it takes tens of milliseconds.
+
+| Deployment | Linearizable write takes about |
+| --- | --- |
+| Replicas in one data centre | 1 ms |
+| Replicas across one continent | 10 to 50 ms |
+| Replicas across the world | 100 to 300 ms |
+
+A weakly consistent system answers from the local replica in a millisecond wherever the others are.
+
+## Choosing
+
+| Data | Needs |
+| --- | --- |
+| Locks, leader election, unique names, configuration | linearizable |
+| Money, stock, bookings | linearizable, or serializable transactions |
+| A user's own profile and settings | read your writes |
+| Feeds, comments, messages | causal, or session guarantees |
+| View counts, likes, analytics | eventual |
+| Caches | eventual, with a bound on staleness |
+
+A workable rule is to start with the strongest consistency you can afford and weaken it only where measurement shows it is needed. Bugs from weak consistency show up only under concurrency and failure, which makes them rare in testing and hard to reproduce.
+
+## Key takeaways
+
+- A consistency model states what reads may return in a replicated system.
+- Linearizability makes the system behave like a single copy. It needs coordination on every operation and loses availability for a minority during a partition.
+- Eventual consistency promises only that replicas converge once writes stop. It is fast and available, and exposes stale and conflicting data.
+- With N replicas, R + W > N makes every read overlap the latest write.
+- Session guarantees such as read your writes and monotonic reads cheaply remove the anomalies users notice most.
+- Causal consistency preserves the order of related operations and is the strongest model that stays available under partition.
