@@ -1,0 +1,131 @@
+---
+description: QUIC is a transport protocol built on UDP that combines the jobs of TCP and TLS. It sets up encrypted connections in fewer round trips, carries many independent streams without one blocking another, and survives a change of network.
+difficulty: advanced
+---
+
+[TCP](/networking/tcp/) dates from the 1970s and has served remarkably well. But the web's needs have moved on, and three of TCP's properties became real obstacles.
+
+- Setting up a secure connection takes a TCP handshake and then a [TLS](/networking/tls/) handshake, one after the other.
+- TCP delivers one ordered stream, so one lost packet holds up everything behind it.
+- A connection is tied to the IP addresses of its two ends, and breaks if either changes.
+
+None of these can be fixed in TCP itself. **QUIC**, designed at Google from 2012 and standardised in 2021, is a new transport that fixes all three. [HTTP/3](/networking/http/#versions) is HTTP carried over QUIC.
+
+## Why it is built on UDP
+
+A brand new transport protocol, sitting directly on IP beside TCP and UDP, would be the clean design. It would also be undeliverable. Home routers, firewalls and NAT devices across the internet only understand TCP and UDP, and many drop anything else.
+
+So QUIC runs inside [UDP](/networking/udp/) datagrams. UDP adds nothing but port numbers, and existing equipment passes it. QUIC then provides everything TCP does, reliability, ordering, flow control and congestion control, in its own layer on top.
+
+This has a second advantage. TCP lives in the operating system kernel, and a change takes years to reach users. QUIC is implemented in ordinary libraries shipped with browsers and servers, so it can be updated as fast as they are.
+
+## Fewer round trips
+
+With TCP, the two handshakes happen in sequence.
+
+<SequenceDemo scenario="tcp-tls" />
+
+QUIC is designed around TLS 1.3 and runs the transport and cryptographic handshakes together, in the same packets.
+
+<SequenceDemo scenario="quic" />
+
+That saves one round trip on every new connection. For a client that has spoken to the server before, QUIC can go further and send the request in the first packet.
+
+<SequenceDemo scenario="quic-0rtt" />
+
+| | Round trips before the response starts |
+| --- | --- |
+| TCP with TLS 1.2 | 4 |
+| TCP with TLS 1.3 | 3 |
+| QUIC, first visit | 2 |
+| QUIC, returning, with 0-RTT | 1 |
+
+On a mobile connection with a round trip of 100 ms or more, each one saved is directly visible to the user.
+
+The request sent with 0-RTT can be captured and replayed by an attacker, so servers accept it only for requests that are safe to repeat.
+
+## Streams without blocking
+
+A web page needs many resources at once. HTTP/2 sends them over a single TCP connection, interleaved. But TCP knows nothing of that. It sees one sequence of bytes and insists on delivering it in order.
+
+Suppose three responses are in flight and one packet, belonging to the first, is lost.
+
+| | What happens to the other two responses |
+| --- | --- |
+| HTTP/2 over TCP | their packets have arrived, but TCP will not release them until the missing one is retransmitted. Everything stalls |
+| HTTP/3 over QUIC | they are delivered at once. Only the first response waits |
+
+This is **head-of-line blocking**, and removing it is QUIC's central design decision. A QUIC connection carries many **streams**. Each stream is ordered within itself and independent of the rest. Loss is detected and repaired per packet, but only the streams with data in the lost packet have to wait.
+
+Streams are cheap. Opening one needs no handshake: a side simply starts sending with a new stream number. Flow control applies both to each stream and to the connection as a whole.
+
+On a clean network the difference is small. On a lossy one, typical of mobile and congested Wi-Fi, it is substantial.
+
+## Connections that move
+
+A TCP connection is identified by the addresses and ports of its two ends. When a phone leaves Wi-Fi range and switches to the mobile network, its IP address changes, and every TCP connection it had is dead. Downloads stall and calls drop until new connections are made.
+
+A QUIC connection is identified by a **connection ID**, a value chosen by the endpoints and carried in every packet. Packets arriving from a new address with a known connection ID belong to the same connection. After checking that the new path really works, the two sides carry on.
+
+This is **connection migration**. It also helps with NAT devices that quietly change a client's port after a period of silence, which is fatal to a TCP connection and invisible to QUIC.
+
+## Encrypted by default
+
+There is no unencrypted QUIC. TLS 1.3 is built in, and the encryption covers more than the payload. Most of the transport header is encrypted too: packet numbers, acknowledgements and the details of streams.
+
+That is partly for privacy. It is also a defence against **ossification**.
+
+Over decades, network equipment came to inspect and depend on the details of TCP headers. When engineers later tried to extend TCP, they found that devices on the path dropped or mangled packets using the new features, because they did not match what the devices expected. TCP's design was effectively frozen by equipment its designers did not control.
+
+QUIC hides almost everything from the path. Equipment that cannot see a field cannot come to depend on it, so the protocol stays free to change.
+
+## Loss recovery and congestion control
+
+QUIC keeps TCP's overall approach to congestion: probe for capacity, and back off on signs of trouble. It improves several details.
+
+**Packet numbers are never reused.** A retransmission in TCP carries the same sequence number as the original, so when an acknowledgement arrives the sender cannot tell which copy it refers to, which blurs its estimate of the round-trip time. In QUIC a retransmission is a new packet with a new number carrying the same stream data, so there is no ambiguity.
+
+**Acknowledgements are richer.** They can report many separate ranges of received packets, and they state how long the receiver waited before acknowledging.
+
+**The algorithm is replaceable.** Because the implementation is in the application, a service can deploy a new congestion controller without waiting for operating systems.
+
+## The costs
+
+| Cost | Detail |
+| --- | --- |
+| Processor time | encrypting every packet in user space, without the hardware offloads TCP has had for decades, uses more CPU per byte |
+| Blocked UDP | some corporate networks and firewalls block or throttle UDP. Clients fall back to TCP |
+| Harder to observe | operators can no longer diagnose problems by reading transport headers |
+| Complexity | a full transport, cryptographic handshake and stream layer in every implementation |
+
+The fallback is built into how HTTP/3 is discovered. A browser first connects with TCP as usual. The server's response includes a header advertising that HTTP/3 is available, and the browser tries QUIC on later visits. If QUIC fails, it stays on TCP, and the user sees nothing.
+
+On fast, reliable networks inside a data centre, TCP is often still the better choice, since the round trips are short, loss is rare and the CPU cost matters more.
+
+## Side by side
+
+| | TCP with TLS | QUIC |
+| --- | --- | --- |
+| Runs over | IP | UDP |
+| Implemented in | the kernel | the application |
+| Handshake | two, in sequence | one, combined |
+| Encryption | optional, payload only | mandatory, including most of the header |
+| Streams | one | many, independent |
+| Effect of a lost packet | everything waits | only the affected streams wait |
+| Identified by | addresses and ports | a connection ID |
+| Survives a change of network | no | yes |
+
+## Adoption
+
+Every major browser supports HTTP/3, and so do the large [CDNs](/networking/cdns/) and most big sites. Roughly a third of web sites offer it, and because those include the most heavily used services, it carries a large share of traffic.
+
+QUIC is a general transport and is used for more than HTTP, including DNS and some media streaming protocols.
+
+## Key takeaways
+
+- QUIC is a reliable, encrypted transport protocol that runs over UDP so that existing networks will carry it.
+- It combines the transport and TLS 1.3 handshakes, saving a round trip, and can send data immediately to a server it has met before.
+- A connection carries many independent streams, so a lost packet delays only the streams it affects.
+- Connections are identified by a connection ID and continue across a change of IP address.
+- Encrypting transport headers protects privacy and stops network equipment from freezing the protocol's design.
+- It costs more processor time than TCP and falls back to TCP where UDP is blocked.
