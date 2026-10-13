@@ -1,0 +1,172 @@
+---
+description: HTTP is the protocol of the web. A client sends a request naming a method and a resource, and a server sends back a response with a status code, headers and usually a body. It is text-based, stateless and the foundation of most APIs.
+difficulty: beginner
+---
+
+When a browser shows a page, it has had a conversation with a server. The conversation follows the **Hypertext Transfer Protocol**, HTTP. So do mobile apps talking to their back ends, services talking to each other inside a data centre, and most public APIs.
+
+The protocol is simple at heart. The client sends a **request**. The server sends a **response**. That is one exchange, and every exchange stands alone.
+
+## A request and a response
+
+Pick a method and a path, and read the text that would travel in each direction.
+
+<HttpDemo />
+
+A request has three parts.
+
+```
+GET /orders/42 HTTP/1.1          the request line: method, path, version
+Host: shop.example               headers, one per line
+Accept: application/json
+                                 a blank line ends the headers
+                                 an optional body follows
+```
+
+A response has the same shape.
+
+```
+HTTP/1.1 200 OK                  the status line: version, code, reason
+Content-Type: application/json   headers
+Content-Length: 25
+
+{"id": 42, "item": "tea"}        the body
+```
+
+In HTTP/1.1 this really is plain text sent over a [TCP](/networking/tcp/) connection. You can type a request by hand into a raw connection and get a page back.
+
+## URLs
+
+The thing being requested is named by a URL.
+
+```
+https://shop.example:443/orders/42?expand=items#notes
+  │         │         │     │          │         │
+scheme     host     port   path      query    fragment
+```
+
+The scheme chooses the protocol and default port: 80 for `http`, 443 for `https`. The host is looked up with [DNS](/networking/dns/). The path and query are sent to the server in the request line. The fragment never leaves the browser.
+
+## Methods
+
+The method says what the client wants done to the resource.
+
+| Method | Meaning | Safe | Idempotent | Has a body |
+| --- | --- | --- | --- | --- |
+| `GET` | fetch it | yes | yes | no |
+| `HEAD` | fetch only its headers | yes | yes | no |
+| `POST` | submit data, often creating something new | no | no | yes |
+| `PUT` | replace it with what is sent | no | yes | yes |
+| `PATCH` | change part of it | no | no | yes |
+| `DELETE` | remove it | no | yes | no |
+
+Two properties in the table matter a great deal in practice.
+
+A **safe** method only reads. Browsers, crawlers and caches may issue safe requests freely, which is why a link that deletes something when merely visited is a bug.
+
+An **idempotent** method has the same effect whether it is sent once or several times. Networks fail, and a client that gets no response does not know whether the request arrived. If the method is idempotent, it can simply try again. `POST` is not: retrying a payment might charge twice. APIs that need safe retries for `POST` accept a unique key with each request and ignore repeats.
+
+## Status codes
+
+The first digit of the three-digit code gives the class.
+
+| Class | Meaning | Common examples |
+| --- | --- | --- |
+| 1xx | informational | `101 Switching Protocols` |
+| 2xx | success | `200 OK`, `201 Created`, `204 No Content` |
+| 3xx | look elsewhere | `301 Moved Permanently`, `302 Found`, `304 Not Modified` |
+| 4xx | the client made a mistake | `400 Bad Request`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `429 Too Many Requests` |
+| 5xx | the server failed | `500 Internal Server Error`, `502 Bad Gateway`, `503 Service Unavailable` |
+
+The split between 4xx and 5xx is about blame, and it guides what to do next. A 4xx will fail again if repeated unchanged. A 5xx may succeed on a retry.
+
+Try the paths in the widget to see `301`, `401` and `404`. Try `POST` on `/orders` for `201`, and `POST` on `/logo.png` for `405`.
+
+## Headers
+
+Headers carry everything about a message other than its content. They are pairs of a name and a value.
+
+| Header | Sent by | Purpose |
+| --- | --- | --- |
+| `Host` | client | which site is wanted, since one server may host many |
+| `User-Agent` | client | what software is asking |
+| `Accept` | client | which formats the client can handle |
+| `Authorization` | client | credentials |
+| `Cookie` | client | data the server asked the client to remember |
+| `Content-Type` | either | the format of the body, such as `text/html` or `application/json` |
+| `Content-Length` | either | the size of the body in bytes |
+| `Set-Cookie` | server | asks the client to remember something |
+| `Cache-Control` | either | how the response may be cached |
+| `Location` | server | where to go, for redirects and newly created resources |
+
+`Content-Length` is how the receiver knows where the body ends, which matters because the connection is a [stream with no message boundaries](/networking/sockets/#a-stream-has-no-messages).
+
+## Stateless
+
+Each request is independent. The server is not required to remember anything about earlier ones, and the protocol has no notion of a session.
+
+That is a deliberate strength. Any server in a pool can answer any request, which makes [load balancing](/networking/load-balancing/) easy, and a server can crash and restart without clients noticing.
+
+It is also a difficulty, since a shop must remember who is logged in. The answer is for the client to carry the state. The server sends `Set-Cookie: session=abc123`, and the browser returns `Cookie: session=abc123` with every later request to that site. The server looks the identifier up, or verifies a signed token, and knows who is asking. See [authentication](/security/authentication/).
+
+## Caching
+
+Fetching the same logo on every page view would waste time and bandwidth. HTTP lets a response say how long it may be reused.
+
+| Header in the response | Meaning |
+| --- | --- |
+| `Cache-Control: max-age=3600` | reuse without asking for an hour |
+| `Cache-Control: no-cache` | keep a copy, but check with the server before each reuse |
+| `Cache-Control: no-store` | do not keep a copy at all |
+| `Cache-Control: private` | only the user's browser may cache this, not shared caches |
+| `ETag: "v7"` | a version label for this exact content |
+
+Checking is cheap. The browser sends `If-None-Match: "v7"`, and if nothing has changed the server answers `304 Not Modified` with no body. Press "I already have a copy" in the widget and request `/`.
+
+Caches exist in the browser and in shared intermediaries such as [CDNs](/networking/cdns/). A common pattern is to give files with a version in their name, such as `app.3f9a.js`, a lifetime of a year, and to give the HTML page that refers to them `no-cache`.
+
+## Versions
+
+The meaning of requests and responses has barely changed since 1997. What has changed is how they are carried.
+
+| Version | Year | Carried over | Main change |
+| --- | --- | --- | --- |
+| HTTP/1.0 | 1996 | TCP | a new connection for every request |
+| HTTP/1.1 | 1997 | TCP | connections are kept open and reused |
+| HTTP/2 | 2015 | TCP | many requests at once on one connection, binary framing, compressed headers |
+| HTTP/3 | 2022 | [QUIC](/networking/quic/), over UDP | no stalling of all requests when one packet is lost |
+
+In HTTP/1.1 a connection handles one request at a time. A page with a hundred resources either waits in line or opens several connections, and browsers limit themselves to about six per site.
+
+HTTP/2 splits each message into binary frames tagged with a stream number, so many requests and responses can be interleaved on one connection. This is **multiplexing**. Its weakness is that they all share one TCP stream, so a single lost packet holds up every one of them until it is retransmitted. HTTP/3 fixes that by moving to QUIC.
+
+Because the meaning is unchanged, a server can speak all three versions and applications need not care which is in use.
+
+## HTTPS
+
+Plain HTTP is readable and alterable by every network it crosses. **HTTPS** is HTTP carried inside [TLS](/networking/tls/), which encrypts the conversation and proves the server's identity. Nothing about requests and responses changes.
+
+Nearly all web traffic is now HTTPS. Browsers mark plain HTTP pages as not secure, and newer features, including HTTP/2 in practice and HTTP/3 always, require it.
+
+## APIs
+
+HTTP's small vocabulary turned out to suit programs as well as browsers. In the style known as **REST**, the things a service manages are given URLs, the methods are the operations on them, and bodies are usually JSON.
+
+| Request | Meaning |
+| --- | --- |
+| `GET /orders` | list orders |
+| `POST /orders` | create an order |
+| `GET /orders/42` | read one |
+| `PUT /orders/42` | replace it |
+| `DELETE /orders/42` | remove it |
+
+Using the standard methods and status codes properly means that caches, proxies, monitoring tools and client libraries all behave correctly without knowing anything about the particular service.
+
+## Key takeaways
+
+- HTTP is a request and response protocol. A request has a method, a path, headers and an optional body. A response has a status code, headers and an optional body.
+- Methods have agreed meanings. Safe methods only read, and idempotent methods can be retried without harm.
+- Status codes are grouped by first digit: success, redirection, client error and server error.
+- The protocol is stateless. Cookies and tokens carry identity from one request to the next.
+- Caching headers and conditional requests avoid transferring content the client already has.
+- HTTP/2 and HTTP/3 change how messages are transported, not what they mean. HTTPS is HTTP inside TLS.
