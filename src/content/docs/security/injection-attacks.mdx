@@ -1,0 +1,166 @@
+---
+description: An injection attack happens when a program builds a command by pasting untrusted text into it, and the text is read as part of the command. SQL injection, cross-site scripting and command injection are all this one mistake, and all have the same fix.
+difficulty: intermediate
+---
+
+A login form asks for a name and a password. The server needs to ask the database whether a matching user exists, so it builds a query.
+
+```python
+query = "SELECT * FROM users WHERE name = '" + name + "' AND password = '" + password + "'"
+```
+
+For the name `alice` this produces sensible [SQL](/databases/sql/). The trouble is that the server has written a small program by gluing strings together, and one of the strings came from a stranger.
+
+## Try it
+
+The widget runs real queries against a three-row `users` table. Start with the honest login, then try the others.
+
+<InjectionDemo />
+
+**Comment out the check.** Enter the name `admin' --` with any password. The query becomes:
+
+```sql
+SELECT id, name, role FROM users WHERE name = 'admin' --' AND password = 'x'
+```
+
+The quote typed by the attacker closes the string. The two dashes start a SQL comment, so the rest of the line, including the password test, is ignored. The attacker is logged in as admin without knowing the password.
+
+**Always true.** Enter the password `' OR '1'='1`. The condition becomes:
+
+```sql
+WHERE name = 'alice' AND password = '' OR '1'='1'
+```
+
+`AND` binds tighter than `OR`, so this is "(right name and empty password) or true". It is true for every row, and the query returns the whole table.
+
+**A stray quote.** Enter the name `'` alone. The database reports a syntax error. That error is how attackers find the hole: a page that breaks on a single quote is pasting input into a query.
+
+Now switch to "passing parameters" and try them all again. Every one fails as an ordinary wrong password.
+
+## Code and data
+
+The root cause is that one string carries two kinds of thing. Part of it is code, written by the programmer. Part of it is data, supplied by the user. The database's [parser](/languages/parsing/) receives the finished string and cannot tell which characters came from where.
+
+The programmer intended this structure.
+
+<Tree
+  root={{ k: 'AND', c: [{ k: '=', c: ['name', "'alice'"] }, { k: '=', c: ['password', "'sunshine'"] }] }}
+  caption="The intended condition: two comparisons joined by AND, with the user's text as the two string values."
+/>
+
+The injected password produced this one.
+
+<Tree
+  root={{ k: 'OR', c: [{ k: 'AND', c: [{ k: '=', c: ['name', "'alice'"] }, { k: '=', c: ['password', "''"] }] }, { k: '=', c: ["'1'", "'1'"] }] }}
+  caption="The condition after injection. The user's text has added an operator and a comparison of its own."
+/>
+
+Data changed the shape of the [syntax tree](/languages/abstract-syntax-trees/). That is the definition of injection, in any language.
+
+## What an attacker can do
+
+Bypassing a login is the mildest outcome.
+
+| Technique | Effect |
+| --- | --- |
+| `UNION SELECT` | appends rows from any other table to the results, such as every user's password hash |
+| Stacked statements | runs a second statement after a `;`, such as `DROP TABLE` or an `UPDATE` |
+| Blind injection | asks yes or no questions through whether the page changes, or how long it takes, and reads the database one bit at a time |
+| Database features | reads files, makes network requests or runs shell commands, where the database account allows it |
+
+Blind injection means that hiding error messages does not make a vulnerable query safe. It only makes the attack slower.
+
+## The fix: parameters
+
+A **parameterised query**, also called a prepared statement, sends the code and the data separately.
+
+```python
+cursor.execute("SELECT * FROM users WHERE name = ? AND password = ?", (name, password))
+```
+
+The database parses the query text with the `?` placeholders still in it. The structure is now fixed: two comparisons joined by `AND`. The values are supplied afterwards and can only ever be values. A quote in a parameter is a quote character in a string, and `--` is two dashes.
+
+This is not escaping done well. No escaping happens, because the data never passes through the parser at all.
+
+Here is the whole thing, runnable with Python's built-in SQLite.
+
+```python
+import sqlite3
+
+db = sqlite3.connect(':memory:')
+db.execute("CREATE TABLE users (name TEXT, password TEXT)")
+db.execute("INSERT INTO users VALUES ('admin', 'x7!pQ'), ('alice', 'sunshine')")
+
+def login_pasted(name, password):
+    query = f"SELECT name FROM users WHERE name = '{name}' AND password = '{password}'"
+    return db.execute(query).fetchall()
+
+def login_parameters(name, password):
+    query = "SELECT name FROM users WHERE name = ? AND password = ?"
+    return db.execute(query, (name, password)).fetchall()
+
+login_pasted("admin' --", "anything")          # [('admin',)]
+login_parameters("admin' --", "anything")      # []
+```
+
+<Aside type="warning" title="What parameters cannot do">
+
+A placeholder can stand for a value, not for a table name, a column name or a keyword such as `ASC`. If the user chooses the sort column, compare their choice against a fixed list of allowed names and put the name from your list into the query. Never their text.
+
+</Aside>
+
+Query builders and object-relational mappers parameterise for you. The holes reappear wherever someone drops down to a raw string, so those are the places to review.
+
+## The same bug elsewhere
+
+Any time a program builds text for another interpreter, the same mistake is available.
+
+| Injection into | Example of pasted input | Fix |
+| --- | --- | --- |
+| A shell command | a filename of `x; rm -rf ~` | pass arguments as a list, with no shell |
+| An HTML page | a comment containing a `script` tag | escape on output, by context |
+| A file path | `../../etc/passwd` | resolve the path and check it is inside the allowed directory |
+| An HTTP header | a value containing a line break | reject control characters |
+| A template | `{{ 7 * 7 }}` in a field that is rendered as a template | never build templates from user input |
+| A format string | `%x %x %x %n` passed as the format to `printf` | use a constant format string |
+| A prompt to a language model | a document that says "ignore your instructions" | no complete fix. Limit what the model is allowed to do. |
+
+**Command injection** is the closest relative.
+
+```python
+os.system("convert " + filename + " out.png")               # the shell parses the filename
+subprocess.run(["convert", filename, "out.png"])            # no shell, one argument
+```
+
+The second form hands the program a list of arguments. No shell reads the filename, so `;` and spaces in it mean nothing.
+
+**Cross-site scripting**, or XSS, is injection into a web page. If a site displays a user's comment by pasting it into HTML, a comment containing a script runs in the browser of everyone who views it, with their login. From there it can read their data or act as them. The defence has the same shape: keep data as data. Template engines escape values by default, turning `<` into `&lt;`, and a Content Security Policy header tells the browser which scripts are allowed to run at all.
+
+The last row of the table is the newest member of the family. A language model reads its instructions and its input as one stream of text, with no equivalent of a placeholder to keep them apart.
+
+## Defence in depth
+
+Parameterisation fixes the bug. The rest limit the damage of the one that gets missed.
+
+- **Least privilege.** The web application's database account should not be able to drop tables or read files. Most need to read and write a handful of tables.
+- **Validate input.** If a field is a number, parse it as a number. An allow-list of what is valid is far more reliable than a block-list of what is dangerous.
+- **Hash passwords properly.** A dumped users table should contain [slow salted hashes](/security/password-hashing/). The toy table in the widget compares plaintext passwords, which is its own serious bug.
+- **Do not show database errors to users.** Log them instead.
+- **Test for it.** Static analysers can follow untrusted input to a query string, and fuzzers find the rest.
+
+## Costs
+
+<Ops items={[
+  ['Parameterised query', 'no extra cost', 'often faster, the plan is reused'],
+  ['Finding an injectable field', 'seconds', 'automated scanners'],
+  ['Dumping a database, blind', 'hours', 'one bit per request'],
+]} />
+
+## Key takeaways
+
+- Injection happens when untrusted data is pasted into a string that another program will parse as code.
+- The data can then change the structure of the command, not just its values.
+- SQL injection can bypass logins, read any table and sometimes run commands on the server.
+- Parameterised queries fix it by sending the query and the values separately.
+- Command injection, cross-site scripting, path traversal and prompt injection are the same mistake with a different interpreter.
+- Give each component the least privilege it needs, so that a missed bug does limited damage.
