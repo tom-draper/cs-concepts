@@ -166,6 +166,14 @@ The concurrency pages use `<InterleaveDemo scenario="race" />` (also `mutex`,
 `cas`, `deadlock` and `ordered`), `<SemaphoreDemo />`, `<ChannelDemo />` and
 `<EventLoopDemo />`, backed by `src/lib/concurrency.ts`.
 
+The theory of computation pages use `<AutomatonDemo machine="even-zeros" input="1001" />`
+(also `divisible-by-3`, `ends-01` and `ends-01-dfa`), `<RegexDemo />`, `<PdaDemo />`,
+`<TuringDemo machine="increment" />` (also `equal` and `bounce`), `<LambdaDemo />`,
+`<SubsetSumDemo />` and `<SatDemo />`, backed by `src/lib/theory.ts`. The static
+`<Automaton machine="ends-01" active={['q0']} />` draws a state diagram, and also
+takes a machine written out in full: `{ states: { s: [0, 0], f: [1, 0] }, start: 's',
+accept: ['f'], edges: [['s', 'f', 'a'], ['f', 'f', 'a,b']] }`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
