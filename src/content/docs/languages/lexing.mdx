@@ -1,0 +1,160 @@
+---
+description: Lexing is the first stage of a compiler. It groups the characters of source code into tokens such as numbers, names and operators, so that later stages never have to think about spaces or spelling.
+difficulty: beginner
+---
+
+To a computer, source code arrives as a long row of characters. The line `total = price * 12` is eighteen of them, including four spaces. Nothing marks where one word stops and the next begins.
+
+**Lexing** finds the words. It reads the characters from left to right and groups them into **tokens**, the smallest units that mean something: a name, a number, an operator. The part of a compiler that does this is called the lexer, scanner or tokeniser.
+
+## Tokens
+
+Type some code. The lexer splits it as you go.
+
+<CompilerDemo show="tokens" />
+
+A token has a **kind** and the **text** it was made from. A real lexer also records the line and column, so that later error messages can point at the right place.
+
+| Kind | Examples | Text matters? |
+| --- | --- | --- |
+| Number | `12`, `3.14` | yes, it is the value |
+| String | `"small"` | yes |
+| Name, or identifier | `total`, `n` | yes, it says which variable |
+| Keyword | `if`, `then`, `else` | no, each keyword is its own kind |
+| Operator | `+`, `==`, `<` | no |
+| Bracket and punctuation | `(`, `)`, `;` | no |
+
+Spaces and comments usually produce no token at all. The lexer consumes them and moves on, which is why the [parser](/languages/parsing/) after it never has to mention them.
+
+The original text of a token is called its **lexeme**. For the token "number 12", the lexeme is the two characters `12`.
+
+## Why it is a separate stage
+
+A parser could work on characters directly. Splitting the work in two makes both halves simpler.
+
+- The parser's rules are about structure: "an `if` is followed by a condition". Without a lexer, every rule would also have to say where spaces and comments are allowed.
+- Lexing is easy to make very fast, and it handles the largest volume of input. A file has far more characters than tokens.
+- The two problems need different tools. Tokens are described by [regular expressions](/theory/regular-expressions/). The structure built from tokens is nested, and needs a [grammar](/theory/context-free-grammars/).
+
+## Rules for tokens
+
+Each kind of token is defined by a pattern.
+
+| Token | Pattern | In words |
+| --- | --- | --- |
+| Number | `[0-9]+(\.[0-9]+)?` | digits, then optionally a point and more digits |
+| Name | `[A-Za-z_][A-Za-z0-9_]*` | a letter or underscore, then letters, digits or underscores |
+| String | `"[^"]*"` | a quote, anything except a quote, a quote |
+| Space | `[ \t\n]+` | skipped |
+| Operator | `==` or one of `+ - * / <` | |
+
+Every one of these is a regular language, so the whole lexer can be compiled into a single [finite automaton](/theory/finite-automata/). It runs in one pass with no backing up, looking at each character once.
+
+## Two rules that settle arguments
+
+Patterns alone leave some inputs with more than one reading. Lexers apply two tie-breaking rules.
+
+**Longest match.** Take the longest token that can be made at the current position. This is sometimes called maximal munch.
+
+| Input | Could be | Lexer chooses |
+| --- | --- | --- |
+| `==` | two `=` tokens, or one `==` | one `==` |
+| `3.14` | `3`, then `.`, then `14`, or one number | one number |
+| `ifx` | keyword `if` then name `x`, or one name | one name, `ifx` |
+| `count1` | name `count` then number `1`, or one name | one name |
+
+Try `ifx == 3.14` in the widget. Without this rule, no variable could have a name that starts with a keyword.
+
+**Keywords win ties.** The text `if` matches the pattern for a name and is also a keyword, and both readings are the same length. The keyword takes priority. In practice most lexers match a name first and then look it up in a table of reserved words.
+
+Longest match occasionally surprises people. In C, `a+++b` is read as `a ++ + b`, because `++` is longer than `+`. Older versions of C++ rejected `vector<vector<int>>` because the lexer read the final `>>` as the shift operator, and programmers had to put a space between the brackets.
+
+## A lexer by hand
+
+Many production compilers write the lexer by hand, because it is not much code and gives full control over errors. It is a loop that looks at the current character and decides what kind of token starts there.
+
+```python
+KEYWORDS = {'if', 'then', 'else', 'true', 'false'}
+
+def lex(source):
+    tokens = []
+    i = 0
+    while i < len(source):
+        start = i
+        char = source[i]
+        if char.isspace():
+            i += 1                                    # skip, emit nothing
+        elif char.isdigit():
+            while i < len(source) and (source[i].isdigit() or source[i] == '.'):
+                i += 1
+            tokens.append(('number', source[start:i]))
+        elif char.isalpha() or char == '_':
+            while i < len(source) and (source[i].isalnum() or source[i] == '_'):
+                i += 1
+            word = source[start:i]
+            tokens.append(('keyword' if word in KEYWORDS else 'name', word))
+        elif source[i:i + 2] == '==':                 # try the longer operator first
+            i += 2
+            tokens.append(('operator', '=='))
+        elif char in '+-*/<()':
+            i += 1
+            tokens.append(('operator', char))
+        else:
+            raise SyntaxError(f'unexpected {char!r} at position {i}')
+    return tokens
+
+lex('ifx == 3.14')
+# [('name', 'ifx'), ('operator', '=='), ('number', '3.14')]
+```
+
+Each inner `while` loop is longest match in action: keep going for as long as the token can be extended.
+
+The alternative is a **lexer generator** such as Lex or Flex. You give it the table of patterns and it produces the automaton as code.
+
+## Costs
+
+<Ops items={[
+  ['Lex a file', 'O(n)', 'each character examined once'],
+  ['Extra memory', 'O(1)', 'if tokens are handed over one at a time'],
+]} />
+
+A lexer does not need to produce the full list up front. Usually the parser asks for one token at a time, and the lexer reads just far enough to supply it.
+
+## Errors
+
+A lexer can detect very little. It has no idea whether the tokens are in a sensible order. `) ) + if 3` is five perfectly good tokens.
+
+What it does catch is text that cannot begin any token, such as a stray `$` in a language that does not use it, and tokens that start but never finish. Try `2 $ 3` in the widget.
+
+| Error | Example |
+| --- | --- |
+| Unknown character | `total $ 2` |
+| Unterminated string | `"hello` |
+| Unterminated comment | `/* note` with no closing `*/` |
+| Malformed number | `1.2.3` or `0x` with no digits |
+
+## Where the simple picture breaks
+
+Real languages have corners where the lexer needs to know more than the next few characters.
+
+**Significant indentation.** Python uses indentation for block structure. Its lexer tracks the indentation of each line on a [stack](/data-structures/stacks/) and emits invented `INDENT` and `DEDENT` tokens when it changes, so the parser sees something equivalent to braces.
+
+**Context.** In JavaScript, `/` may be division or the start of a regular expression such as `/ab+c/`. Which one depends on what came before, so the lexer has to keep track of the previous token.
+
+**String interpolation.** In `"total: ${price * 12}"` the string contains code, which contains expressions, which could contain further strings. The lexer has to switch modes and count brackets, which goes beyond a finite automaton.
+
+**Contextual keywords.** Words such as `async` in several languages are keywords in some positions and ordinary names in others, so that old programs using them as variable names still compile.
+
+## Other uses
+
+Syntax highlighting in an editor is a lexer that colours each token by its kind. Code formatters, linters and search tools that understand code all start by lexing. So do tools that have nothing to do with programming languages: a calculator, a search query parser, and anything that reads a configuration file.
+
+The tokenisers used by large language models share the name and the job of cutting text into pieces. They work differently, splitting words into frequent fragments learned from data, with no grammar of token kinds behind them.
+
+## Key takeaways
+
+- Lexing turns a stream of characters into a stream of tokens, each with a kind and usually its text and position.
+- Whitespace and comments are discarded here, so later stages never see them.
+- Token patterns are regular expressions, and a lexer is a finite automaton that runs in one linear pass.
+- When several tokens could match, the lexer takes the longest, and prefers a keyword to a name of the same length.
+- A lexer catches only malformed tokens. Checking that tokens are in a valid order is the parser's job.
