@@ -182,6 +182,13 @@ resulting stack code. The other widgets are `<GcDemo />`, `<ClosureDemo />`,
 `<JitDemo />` and `<OwnershipDemo script="move" />` (also `shared`, `mutable` and
 `dangling`).
 
+The networking pages use `<SequenceDemo scenario="tcp-handshake" />` for anything that
+is a conversation between machines (also `tcp-loss`, `tcp-close`, `udp`, `dns`,
+`dns-cached`, `sockets`, `tls`, `tcp-tls`, `quic` and `quic-0rtt`; add a scenario to
+`sequences` in `src/lib/networking.ts` for another). The rest are `<SubnetDemo />`,
+`<LayersDemo />`, `<CongestionDemo />`, `<HttpDemo />`, `<LoadBalancerDemo />` and
+`<CdnDemo />`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
