@@ -1,0 +1,107 @@
+---
+description: The CAP theorem says that when a network failure splits a distributed system, it must choose between answering every request and guaranteeing every answer is up to date. It cannot do both.
+difficulty: intermediate
+---
+
+Keeping data on several machines makes a system survive failures and serve more users. It also creates a problem that a single machine never has. The machines talk over a network, and networks fail. A cable is cut, a switch misbehaves, a data centre loses its link. For a while, some machines cannot reach others, though all of them are running.
+
+What should the system do then? In 2000 Eric Brewer conjectured, and in 2002 Seth Gilbert and Nancy Lynch proved, that there are only two options, and each gives something up. This is the **CAP theorem**.
+
+## Three properties
+
+| Letter | Property | Means |
+| --- | --- | --- |
+| C | Consistency | every read returns the most recent write, as if there were a single copy of the data |
+| A | Availability | every request to a working node gets an answer that is not an error |
+| P | Partition tolerance | the system keeps operating when the network drops messages between nodes |
+
+The theorem says a system cannot guarantee all three at once.
+
+"Consistency" here has a specific and strong meaning, known as [linearizability](/distributed-systems/consistency-models/). It is not the C in [ACID](/databases/acid/), which is about data obeying its rules.
+
+## Try it
+
+Three nodes hold copies of one value. Cut node A off from the other two, and then write and read on each side.
+
+<CapDemo />
+
+With the network cut, a client asks node A to write a new value. Node A cannot reach B or C. It has two choices.
+
+**Refuse.** Node A returns an error. No client can ever see conflicting data, because the minority side answers nothing. The system stayed consistent and gave up availability.
+
+**Accept.** Node A takes the write. Now A has one value and B and C have another, and a client gets different answers depending on which node it reaches. The system stayed available and gave up consistency.
+
+There is no third choice. Node A cannot both answer and be sure its answer agrees with what is happening on the other side, since it has no means of finding out. That is the entire proof, in miniature.
+
+## The choice is only forced during a partition
+
+The popular summary, "pick two of three", is misleading. It suggests three interchangeable options, one of which is to give up partition tolerance.
+
+That option does not exist. A partition is not a feature a designer chooses to support. It is something the network does to you. A system that "does not tolerate partitions" is simply one that behaves in an undefined way when a partition happens.
+
+So the honest statement is narrower: **when a partition occurs, choose between consistency and availability.**
+
+| Kind | During a partition | Typical systems |
+| --- | --- | --- |
+| CP | the side without a majority stops answering | ZooKeeper, etcd, Consul, most relational databases with synchronous replication |
+| AP | every node keeps answering, and copies may diverge | Cassandra, Riak, DynamoDB in its default mode, DNS |
+
+When the network is healthy, which is nearly always, a system can be both consistent and available.
+
+## What each choice costs
+
+**Choosing consistency.** The minority side is unusable until the network heals. If the partition isolates a single data centre, every user routed there gets errors, even though its machines are fine.
+
+This is the right choice when a wrong answer is worse than no answer: account balances, stock levels, who holds a lock, which node is the leader. Systems of this kind are usually built on [consensus](/distributed-systems/consensus/), where a majority must agree before anything is accepted.
+
+**Choosing availability.** Every node keeps working, and the copies drift apart. When the network heals, the system has to reconcile them.
+
+In the widget, choose "stay available", cut the network, write on both sides and heal. One of the writes is thrown away, though the client that made it was told it had succeeded. Resolving such conflicts well is hard. The options include keeping the latest write, keeping both and asking the application to merge, or using data types designed to merge automatically, called [CRDTs](/distributed-systems/crdts/).
+
+This is the right choice when being reachable matters more than being perfectly current: a shopping basket, a social feed, a count of likes, a sensor reading.
+
+## It is not all or nothing
+
+Real systems rarely make one choice for everything.
+
+**Different data, different choices.** A shop can keep product descriptions available at all times and insist on consistency for payments.
+
+**Tunable on each request.** Many databases let each read or write state how many replicas must take part. Requiring a majority behaves like CP. Requiring one behaves like AP. See [quorums](/distributed-systems/consistency-models/#tuning-with-quorums).
+
+**Degrading gracefully.** A system may refuse writes during a partition and still serve reads, labelled as possibly stale.
+
+**Consistency comes in degrees.** Between "always the latest" and "anything goes" lies a range of [consistency models](/distributed-systems/consistency-models/), several of which remain available during partitions.
+
+## The other trade-off
+
+CAP says nothing about normal operation, and that is where a system spends nearly all its time. A related observation, known as **PACELC**, fills the gap.
+
+> If there is a Partition, choose between Availability and Consistency. Else, choose between Latency and Consistency.
+
+Even with a perfect network, being consistent means a write must reach several replicas, and wait for them, before it is confirmed. Replicas on other continents are tens or hundreds of milliseconds away. A system that confirms a write after storing one local copy answers faster, and risks returning stale data.
+
+| System behaviour | In a partition | Otherwise |
+| --- | --- | --- |
+| Waits for a majority on every write | consistent | consistent, and slower |
+| Confirms locally, replicates in the background | available | fast, and sometimes stale |
+
+For most designs this everyday tension between speed and freshness matters more than the rare partition.
+
+## Common misreadings
+
+**"CAP means you cannot have consistency at scale."** It does not. It means a consistent system must make some nodes unavailable during a partition. Several large databases are strongly consistent across continents, and accept that cost.
+
+**"We chose AP, so we are highly available."** CAP's availability is about network partitions only. Most real downtime comes from bugs, bad deployments and overload, which the theorem does not address.
+
+**"Partitions are too rare to matter."** They are uncommon, and at scale they happen regularly. Slow networks, overloaded nodes and long pauses in a program look exactly like partitions to the nodes waiting for a reply, which is the subject of [failure detection](/distributed-systems/failure-detection/).
+
+**"A system is either CP or AP."** Many are neither in the strict sense. A system can fail to be consistent and also fail to be available.
+
+## Key takeaways
+
+- A network partition leaves some nodes unable to reach others while all of them are still running.
+- During a partition, a system must either refuse some requests, staying consistent, or answer with possibly stale or conflicting data, staying available.
+- Partition tolerance is not optional, so the real choice is between consistency and availability, and only while a partition lasts.
+- CP suits data where a wrong answer is unacceptable. AP suits data where an answer is always wanted and conflicts can be repaired later.
+- Systems commonly make the choice separately for each kind of data or each request.
+- In normal operation the equivalent trade-off is between consistency and latency.
