@@ -1,0 +1,155 @@
+---
+description: Symmetric encryption scrambles data with a secret key, and the same key unscrambles it. It is fast enough to protect every byte on a disk or a connection, and its safety depends as much on how the cipher is used as on the cipher itself.
+difficulty: intermediate
+---
+
+Two people want to exchange messages over a wire that anyone can listen to. If they share a secret that the listener does not have, they can use it to turn each message into something that looks like noise, and to turn the noise back.
+
+That is **symmetric encryption**. The readable message is the **plaintext**, the scrambled form is the **ciphertext**, and the shared secret is the **key**. The same key encrypts and decrypts.
+
+The algorithm is public. A cipher that is only safe while its design is secret is not trusted by anyone, because designs leak and cannot be replaced. Keys can.
+
+## XOR and the one-time pad
+
+The simplest cipher uses [XOR](/foundations/bitwise-operations/). XOR a bit with a key bit to encrypt, and XOR with the same key bit again to get it back.
+
+| Plaintext bit | Key bit | Ciphertext bit |
+| --- | --- | --- |
+| 0 | 0 | 0 |
+| 0 | 1 | 1 |
+| 1 | 0 | 1 |
+| 1 | 1 | 0 |
+
+If the key is truly random, as long as the message and never used again, this is the **one-time pad**, and it cannot be broken. Every possible plaintext of that length is consistent with the ciphertext, each under a different key, so the ciphertext says nothing.
+
+It is also impractical. A key as long as everything you will ever send has to be delivered in secret first.
+
+Real ciphers stretch a short key, 16 or 32 bytes, into as much scrambling as needed. They give up the proof of perfect secrecy for a weaker promise: nobody can tell the output from random noise without doing an infeasible amount of work.
+
+## Stream ciphers
+
+A **stream cipher** uses the key to generate a long pseudorandom **keystream** and XORs it with the plaintext. ChaCha20 is the common one.
+
+The rule from the one-time pad still holds: a keystream must never be used twice. If two messages are encrypted with the same keystream, XORing the two ciphertexts cancels it out.
+
+```python
+def xor(a, b):
+    return bytes(x ^ y for x, y in zip(a, b))
+
+keystream = bytes.fromhex('9f3c5a17e2b84d6601')
+first  = xor(b'attack at', keystream)
+second = xor(b'retreat!!', keystream)
+
+xor(first, second) == xor(b'attack at', b'retreat!!')     # True, and no key in sight
+```
+
+The attacker now has the XOR of two plaintexts, and guessing a word in one reveals the matching part of the other. To prevent this, every message is encrypted with the key and a **nonce**, a number used once, and each nonce gives a different keystream.
+
+## Block ciphers
+
+A **block cipher** encrypts a fixed-size block. **AES**, the standard since 2001, takes a 16-byte block and a key of 16, 24 or 32 bytes, and returns a 16-byte block. For a given key it is a fixed, reversible shuffling of all 2¹²⁸ possible blocks.
+
+AES works on the block as a 4 × 4 grid of bytes and repeats four steps for 10, 12 or 14 rounds, depending on the key size.
+
+| Step | What it does |
+| --- | --- |
+| SubBytes | replaces each byte using a fixed lookup table |
+| ShiftRows | rotates each row of the grid by a different amount |
+| MixColumns | combines the four bytes of each column |
+| AddRoundKey | XORs the grid with a round key derived from the key |
+
+Substitution makes the relation between key and output complicated. The shifting and mixing spread each input byte across the whole block within two rounds. Modern processors have instructions for an AES round, so it encrypts several gigabytes a second on one core.
+
+## Modes of operation
+
+Messages are longer than 16 bytes. A **mode of operation** says how to use the block cipher on many blocks, and the obvious mode is a mistake.
+
+The widget uses a toy cipher with four-character blocks so the blocks are easy to see. The idea is the same at any size.
+
+<BlockModeDemo />
+
+**ECB**, electronic codebook, encrypts each block on its own. Equal plaintext blocks give equal ciphertext blocks, so the structure of the message shows through. In the widget an eavesdropper who learns that `7427c6f3` means YES can read every answer. Encrypt a bitmap in ECB mode and the outline of the picture is still visible.
+
+**CBC**, cipher block chaining, XORs each plaintext block with the previous ciphertext block before encrypting it. The first block is XORed with a random **initialisation vector**, or IV, which is sent along with the ciphertext. Switch the widget to CBC and no two blocks match. Press "New random IV" and the same message under the same key encrypts to something else entirely.
+
+**CTR**, counter mode, turns the block cipher into a stream cipher. It encrypts the numbers nonce + 0, nonce + 1, nonce + 2 and so on, and uses the results as a keystream.
+
+| Mode | Hides repeats | Parallel | Needs | Detects tampering |
+| --- | --- | --- | --- | --- |
+| ECB | no | yes | nothing | no |
+| CBC | yes | decrypt only | a random IV, padding | no |
+| CTR | yes | yes | a nonce that never repeats | no |
+| GCM | yes | yes | a nonce that never repeats | yes |
+
+## Secrecy is not integrity
+
+The last column matters as much as the others. Encryption alone hides a message. It does not stop someone changing it.
+
+In CTR mode, flipping a bit of ciphertext flips the same bit of plaintext. An attacker who knows a message says `PAY 100` can turn it into `PAY 900` without the key, by XORing the right byte with the difference between `1` and `9`. In CBC mode, a server that reports whether padding was valid after decryption can be made to decrypt whole messages one byte at a time. That is a **padding oracle**, and it broke several versions of [TLS](/networking/tls/).
+
+**Authenticated encryption** solves both problems at once. It produces the ciphertext and a short **tag**, a [keyed digest](/security/cryptographic-hash-functions/#hashing-with-a-key) over the ciphertext. Decryption checks the tag first and refuses to return anything if it is wrong.
+
+The two standard choices are **AES-GCM** and **ChaCha20-Poly1305**. Both also authenticate extra data that is sent in the clear, such as a packet header. Use one of them and nothing else.
+
+<Aside type="warning" title="Nonce reuse">
+
+Both of those modes fail badly if a nonce repeats under the same key. The keystream repeats, and in GCM the authentication key leaks as well. Use a counter, or random nonces of at least 12 bytes with a limit on messages per key, or a nonce-misuse-resistant variant such as AES-GCM-SIV.
+
+</Aside>
+
+## How long a key
+
+The only generic attack on a good cipher is trying every key.
+
+| Key size | Keys to try | At a billion billion keys a second |
+| --- | --- | --- |
+| 56 bits (DES) | 7 × 10¹⁶ | a fraction of a second |
+| 128 bits | 3 × 10³⁸ | ten trillion years |
+| 256 bits | 10⁷⁷ | not a meaningful number |
+
+DES, the standard of the 1970s, was broken in 1998 by a machine that searched its 56-bit key space in days. AES with 128 bits is beyond any computer that could be built. The 256-bit version is used as a margin against future attacks, including quantum search, which would halve the effective key length.
+
+In practice, ciphers are not broken by search. They are broken by reused nonces, by unauthenticated modes, by keys left in source code, and by weak random numbers.
+
+## Costs
+
+<Ops items={[
+  ['Encrypt n bytes', 'O(n)', 'gigabytes a second per core'],
+  ['Overhead per message', '28 bytes', '12-byte nonce, 16-byte tag'],
+  ['Brute force, 128-bit key', '2¹²⁸', 'infeasible'],
+]} />
+
+## Implementation
+
+A library call, with a fresh nonce for every message.
+
+```python
+import os
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+key = AESGCM.generate_key(bit_length=256)
+box = AESGCM(key)
+
+nonce = os.urandom(12)
+sealed = box.encrypt(nonce, b'meet at noon', b'header')    # ciphertext plus tag
+
+box.decrypt(nonce, sealed, b'header')                      # b'meet at noon'
+box.decrypt(nonce, sealed[:-1] + b'\x00', b'header')       # raises InvalidTag
+```
+
+The nonce is not secret and is usually stored in front of the ciphertext.
+
+## The key problem
+
+Symmetric encryption protects data at rest on disks and in databases, and data in motion on every HTTPS connection, VPN and messaging app.
+
+It leaves one question open. Both sides need the same key, and they cannot send it over the channel they are trying to protect. Before the 1970s the answer was a courier. Now it is [key exchange](/security/key-exchange/) and [public-key cryptography](/security/public-key-cryptography/), which let two strangers agree on a key in public. They are slow, so they are used only for that step, and a symmetric cipher does the rest.
+
+## Key takeaways
+
+- Symmetric encryption uses one shared key for both directions. The algorithm is public and only the key is secret.
+- Stream ciphers XOR the message with a keystream. Block ciphers such as AES scramble fixed-size blocks and need a mode to handle longer messages.
+- ECB mode leaks which blocks are equal. Every safe mode mixes in an IV or nonce so that equal plaintexts encrypt differently.
+- A nonce must never repeat under the same key.
+- Encryption without authentication lets an attacker change messages. Use AES-GCM or ChaCha20-Poly1305.
+- A 128-bit key cannot be found by search. Real failures come from misuse.
