@@ -1,0 +1,135 @@
+---
+description: A just-in-time compiler turns a program into machine code while it is running, concentrating on the parts that run most. It lets dynamic languages approach the speed of compiled ones by optimising for what the program is actually doing.
+difficulty: advanced
+---
+
+An [interpreter](/languages/compilers-and-interpreters/) starts at once and runs slowly. An ahead-of-time compiler runs fast and makes you wait first. It also has to produce code that is correct for every possible input, with no knowledge of which inputs will actually turn up.
+
+A **just-in-time compiler**, or JIT, compiles during execution. The program starts in an interpreter. The runtime watches it, finds the small part of the code where most of the time goes, and compiles that part to machine code in the background. From then on, calls go to the compiled version.
+
+## Warming up
+
+This function begins life in the interpreter. Call it a few times, then a thousand times, and watch the engine change its mind about how to run it.
+
+<JitDemo />
+
+Three things happen in order.
+
+1. The first calls are interpreted. Each is slow, but no time was spent preparing.
+2. After a handful of calls the engine compiles the function quickly, with no optimisation. Calls get cheaper.
+3. After many calls it compiles again, this time carefully and using what it has observed. Calls get much cheaper.
+
+Compare "total time" with "if always interpreted". After a few calls the JIT is behind, having paid for a compilation that has not yet earned its keep. After a few thousand it is far ahead.
+
+This period of slow early execution is called **warm-up**. It is why a benchmark of a JIT-compiled language has to be run for a while before measuring, and why a freshly started server is slower than one that has been running for a minute.
+
+## Hot spots
+
+Compilation costs time, and the program is waiting. So a JIT is selective.
+
+Programs spend most of their time in a small fraction of their code, typically a few loops and the functions called from them. The runtime finds these **hot spots** by counting: how many times each function has been called, and how many times each loop has gone round. Code that crosses a threshold is worth compiling. Code that runs once, such as start-up logic, is never compiled at all.
+
+That gives several tiers, each trading compile time against the speed of the result.
+
+| Tier | Compile cost | Code quality | Used for |
+| --- | --- | --- | --- |
+| Interpreter | none | slowest | everything, at first |
+| Baseline compiler | low | moderate | code that has run a few times |
+| Optimising compiler | high | fast | code that is hot |
+
+Loops raise a special problem. A function might be called once and loop a billion times, so waiting for the next call would be useless. **On-stack replacement** swaps a running function for its compiled version in the middle of a loop, converting its local variables from one layout to the other on the spot.
+
+## Knowing things a static compiler cannot
+
+A JIT's advantage is that it compiles late, when the program has already shown how it behaves.
+
+Consider one line of JavaScript.
+
+```js
+function add(a, b) { return a + b; }
+```
+
+The language says `+` might add integers, add floating-point numbers, join strings, convert an object by calling a method on it, or some mixture. An interpreter must check which, on every call. A compiler working ahead of time, with no type information, must generate code for every case.
+
+The JIT has watched a thousand calls, and every one passed two small integers. So it **speculates**. It compiles a version that assumes integers, in which `a + b` is a single machine instruction, preceded by a quick check called a **guard**.
+
+```
+check that a is an integer, else bail out
+check that b is an integer, else bail out
+result = a + b            one add instruction
+if it overflowed, bail out
+```
+
+If the assumption keeps holding, this is nearly as fast as the equivalent C.
+
+## Deoptimisation
+
+If the assumption fails, the fast code is not valid, and the program must not go wrong. In the widget, warm the function up and then press `add("a", "b")`.
+
+A failed guard triggers **deoptimisation**. The runtime abandons the optimised code in the middle of the function, reconstructs the state the interpreter would have had at that point, and continues there. The specialised code is discarded. The function will be compiled again later, with more cautious assumptions.
+
+Deoptimisation is what makes aggressive speculation safe. The compiler can bet on the common case, because losing the bet costs time and never correctness.
+
+It also explains a familiar performance trap. A function that is given integers for a while and then strings may be compiled, thrown away and compiled again. Code that always passes the same kinds of values to the same function runs fastest.
+
+## The other tricks
+
+**Inline caching.** In a dynamic language, `point.x` means "look up the property named x", which is a [hash table](/data-structures/hash-tables/) search. The first time a given line runs, the JIT records the shape of the object it saw and where `x` was stored in it. Next time, if the object has the same shape, it reads straight from that position. One comparison replaces a lookup.
+
+**Speculative inlining.** A call through an interface or a virtual method could go to any implementation, which stops an ahead-of-time compiler from inlining it. If the JIT has only ever seen one implementation arrive at that call, it inlines that one behind a guard. Inlining then opens up the usual chain of [optimisations](/languages/intermediate-representations/#optimisations).
+
+**Escape analysis.** If an object is created in a function and never leaves it, the JIT can avoid allocating it on the heap at all and keep its fields in registers. That removes work for the [garbage collector](/languages/garbage-collection/).
+
+**Using the actual processor.** The JIT is running on the machine the code is for. It can use whatever [vector instructions](/architecture/simd/) that particular processor has, where a program compiled ahead of time has to target the oldest machine it might be installed on.
+
+## Costs
+
+Nothing here is free.
+
+| Cost | Detail |
+| --- | --- |
+| Warm-up | slow at first, which hurts short-lived programs and command-line tools |
+| Memory | the runtime holds the compiler, the bytecode, profiling data and the generated machine code |
+| Unpredictability | compilation and deoptimisation cause pauses at times the program does not choose |
+| Complexity | a JIT is among the most intricate software in common use, and its bugs can be security holes |
+| Restricted platforms | some systems forbid creating executable code at run time |
+
+The last row is a security rule. Memory that can be both written to and executed is exactly what an attacker wants, so operating systems restrict it. Some platforms, notably iOS for third-party apps, do not allow it at all, and languages must be interpreted or compiled ahead of time there.
+
+## JIT against ahead-of-time
+
+| | Ahead-of-time | Just-in-time |
+| --- | --- | --- |
+| Start-up | immediate, at full speed | slow, speeding up over time |
+| Peak speed | very good | very good, sometimes better on dynamic code |
+| Knows about the program | only what is in the source | which types, branches and call targets actually occur |
+| Knows about the machine | a guess | exactly |
+| Memory at run time | the program | the program and a compiler |
+| Suits | system tools, games, embedded devices | long-running servers, browsers |
+
+For a statically typed language such as C or Rust, an ahead-of-time compiler already knows the types, and a JIT has less to add. For a dynamically typed language, the JIT's ability to discover the types by watching is the difference between usable and unusable speed.
+
+The two can be combined. **Profile-guided optimisation** runs a compiled program on sample data, records which paths are hot, and feeds that back into a second ahead-of-time compilation. Some runtimes compile ahead of time for fast start-up and keep a JIT available for the long run.
+
+## Where JITs run
+
+| Runtime | Language |
+| --- | --- |
+| V8, SpiderMonkey, JavaScriptCore | JavaScript and WebAssembly, in browsers and Node |
+| HotSpot | Java and other JVM languages |
+| .NET runtime | C#, F# |
+| PyPy | Python |
+| LuaJIT | Lua |
+
+Standard Python, CPython, was for most of its history a plain bytecode interpreter, which accounts for much of its reputation for slowness. Recent versions have begun adding a JIT.
+
+JIT compilation also turns up away from programming languages. Database engines compile queries to machine code. The Linux kernel compiles packet-filter programs. Regular expression libraries compile patterns. Emulators translate the machine code of one processor into that of another as it runs.
+
+## Key takeaways
+
+- A JIT compiler generates machine code while the program runs, starting from an interpreter and compiling only the code that proves to be hot.
+- Tiered compilation spends little on code that runs rarely and a lot on code that runs constantly.
+- Because it compiles late, a JIT can specialise for the types and call targets it has observed, protected by guards.
+- When a guard fails, deoptimisation returns execution to the interpreter, so speculation never produces wrong results.
+- The price is warm-up time, memory and unpredictable pauses.
+- JITs matter most for dynamic languages, where types are not known until the program runs.
