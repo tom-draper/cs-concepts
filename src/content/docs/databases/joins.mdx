@@ -1,0 +1,144 @@
+---
+description: A join combines rows from two tables by matching values in their columns. The kinds of join differ in what happens to rows that have no partner, and the database chooses among several algorithms to carry one out.
+difficulty: intermediate
+---
+
+A well-designed database keeps each fact in one place, so the data for any real question is spread across tables. Customers are in one table and their orders in another. To list each order with its customer's name, the rows have to be brought back together.
+
+That is a **join**. It pairs rows from two tables according to a condition, most often that a foreign key in one equals the primary key in the other.
+
+## Matched and unmatched rows
+
+Here are five customers and six orders. Two customers have no orders, and one order has no customer. The kinds of join differ only in how they treat those three rows.
+
+<JoinDemo />
+
+| Join | Keeps | Rows here |
+| --- | --- | --- |
+| `INNER JOIN` | only pairs that match | 5 |
+| `LEFT JOIN` | all rows of the left table, padded with NULL where there is no match | 7 |
+| `RIGHT JOIN` | all rows of the right table, padded likewise | 6 |
+| `FULL JOIN` | all rows of both | 8 |
+| `CROSS JOIN` | every row of one with every row of the other, with no condition | 30 |
+
+"Left" and "right" mean the order the tables are written in. In `customers LEFT JOIN orders`, customers is on the left. A right join is a left join with the tables swapped, and most people only ever write left joins.
+
+The word `OUTER` is optional. `LEFT JOIN` and `LEFT OUTER JOIN` are the same thing.
+
+## Writing one
+
+```sql
+SELECT customers.name, orders.item
+FROM customers
+JOIN orders ON customers.id = orders.customer_id;
+```
+
+The `ON` clause is the matching condition. `JOIN` alone means an inner join.
+
+<SqlDemo showTables query="SELECT name, item FROM customers JOIN orders ON customers.id = orders.customer_id" tries={[['inner', 'SELECT name, item FROM customers JOIN orders ON customers.id = orders.customer_id'], ['left', 'SELECT name, item FROM customers LEFT JOIN orders ON customers.id = orders.customer_id'], ['never ordered', 'SELECT name FROM customers LEFT JOIN orders ON customers.id = orders.customer_id WHERE orders.id IS NULL'], ['orders each', 'SELECT name, COUNT(orders.id) AS orders FROM customers LEFT JOIN orders ON customers.id = orders.customer_id GROUP BY name']]} />
+
+Two uses of the left join are worth learning as patterns.
+
+**Finding what is missing.** "Never ordered" joins every customer to their orders and then keeps the rows where the order side came back NULL. Those are the customers with no match.
+
+**Counting including zero.** "Orders each" counts orders for every customer. With an inner join, Alan and Edsger would vanish from the result. With a left join they appear with a count of 0. Note that it counts `orders.id` and not `*`, since `COUNT(*)` would count the padded row and report 1.
+
+## Rows multiply
+
+A join does not return one row for each row of either table. It returns one row for each **matching pair**. Ada has two orders, so Ada appears twice.
+
+This causes a common and quiet bug. Join customers to orders and also to support tickets, and a customer with 3 orders and 4 tickets produces 12 rows. A `SUM` of order amounts over that result is four times too large. When a total looks inflated, an unintended multiplication in a join is the first thing to check.
+
+A join condition that is wrong or missing produces the extreme case. Every row matches every row, as in the cross join, and two tables of a million rows yield a trillion.
+
+## Other join conditions
+
+Equality on a key is the usual case, called an **equi-join**. The condition can be anything.
+
+| Kind | Condition | Use |
+| --- | --- | --- |
+| Equi-join | `a.id = b.a_id` | following a foreign key |
+| Range join | `event.time BETWEEN shift.start AND shift.end` | which shift was each event in |
+| Self join | `employee.manager_id = manager.id`, both the same table | hierarchies stored in one table |
+| Composite | `a.x = b.x AND a.y = b.y` | keys of several columns |
+
+A self join gives the same table two aliases and treats it as two.
+
+```sql
+SELECT employee.name, manager.name AS reports_to
+FROM staff AS employee
+LEFT JOIN staff AS manager ON employee.manager_id = manager.id;
+```
+
+Joins chain. A query can join five or ten tables, each `JOIN` adding one more to the rows assembled so far.
+
+## How a database performs a join
+
+The query says which rows should pair up. It does not say how to find the pairs. The database picks an algorithm, and for large tables the choice can be the difference between milliseconds and hours.
+
+### Nested loop
+
+For each row of the first table, look through the second for matches.
+
+```python
+for customer in customers:
+    for order in orders:
+        if customer.id == order.customer_id:
+            emit(customer, order)
+```
+
+With n and m rows this compares n × m pairs. But if the second table has an [index](/databases/indexes/) on the join column, the inner loop becomes an index lookup, and the cost drops to about n × log m. That makes it the best method when the first table is small.
+
+### Hash join
+
+Build a [hash table](/data-structures/hash-tables/) from the smaller table, keyed on the join column. Then pass through the larger table once, looking each row up.
+
+```python
+by_id = {}
+for customer in customers:                  # build
+    by_id[customer.id] = customer
+
+for order in orders:                        # probe
+    if order.customer_id in by_id:
+        emit(by_id[order.customer_id], order)
+```
+
+Each table is read once. It is the usual choice for joining two large tables with no helpful index. It works only for equality, and the hash table has to fit in memory, or be split into pieces that do.
+
+### Sort-merge join
+
+Sort both tables on the join column, then walk down the two in step, as in the merge step of [merge sort](/algorithms/merge-sort/). If the inputs are already sorted, for example because they come from an index, the sort is free and this is the cheapest method of all.
+
+<Ops items={[
+  ['Nested loop', 'O(n · m)', 'no index'],
+  ['Nested loop with an index', 'O(n log m)', 'best when n is small'],
+  ['Hash join', 'O(n + m)', 'equality only, needs memory'],
+  ['Sort-merge join', 'O(n log n + m log m)', 'or O(n + m) if already sorted'],
+]} />
+
+The [query planner](/databases/query-planning/) estimates the size of each input and picks. It also picks the **order** in which to join when there are several tables. Joining the two that produce the fewest rows first keeps every later step small. With ten tables there are millions of possible orders, and choosing well among them is one of the hardest things a database does.
+
+## Making joins fast
+
+**Index the join columns.** Primary keys are indexed automatically. Foreign keys often are not, and an unindexed foreign key is the commonest cause of a slow join.
+
+**Filter early.** A condition that removes most rows before the join leaves less to join. Planners usually arrange this themselves.
+
+**Select only the columns needed.** `SELECT *` across a five-table join carries every column of every table through every step.
+
+**Avoid one query per row.** A program that fetches 100 customers and then runs a separate query for each one's orders makes 101 round trips to the database. This is the **N+1 query problem**, and it is the usual way that object-relational mapping libraries make an application slow. One join, or one query with `IN`, fetches the same data in a single trip.
+
+## Joins and the alternative
+
+Some databases, particularly document stores, discourage or omit joins. Related data is stored together, so an order contains a copy of its customer's details. Reads need no join, and the cost is the redundancy that [normalisation](/databases/normalisation/) exists to remove. When the customer's details change, every copy has to be found.
+
+For joins across separate machines, the rows that match may be on different servers and have to be moved over the network before they can be compared. This is a main reason that [partitioned](/distributed-systems/partitioning/) databases try to keep rows that are joined together on the same machine.
+
+## Key takeaways
+
+- A join pairs rows from two tables that satisfy a condition, usually a foreign key equal to a primary key.
+- An inner join keeps only matched pairs. Left, right and full joins also keep unmatched rows from one or both sides, padded with NULL.
+- A left join filtered for NULL finds rows with no partner. A left join with a count includes groups of zero.
+- A join returns one row for each matching pair, so rows can multiply and inflate totals.
+- Databases carry out joins with nested loops, hash tables or sorted merges, chosen by the planner from estimates of the table sizes.
+- Indexes on join columns, and avoiding one query per row, account for most join performance.
