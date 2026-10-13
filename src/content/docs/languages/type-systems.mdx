@@ -1,0 +1,146 @@
+---
+description: A type system is a set of rules that assigns a type to every value and expression and rejects operations that make no sense for those types. Languages differ mainly in when the rules are checked and how strict they are.
+difficulty: intermediate
+---
+
+Inside a computer, everything is [bits](/foundations/bits-and-bytes/). The same 32 of them could be a whole number, a fraction, four characters or a memory address, and the processor will happily add two addresses or multiply a character by a fraction if told to.
+
+A **type** says what a value is, and so what may be done with it. A **type system** is the set of rules that decides the type of every expression and refuses programs that break them. Its purpose is to catch a class of mistakes mechanically: calling something that is not a function, reading a field that does not exist, adding a number to a piece of text.
+
+## Types flow up the tree
+
+A type checker works on the [syntax tree](/languages/abstract-syntax-trees/). It starts at the leaves, whose types are known, and works upwards. Each operator has a rule saying what it accepts and what it produces.
+
+In this widget `n` is a number, `s` is a string and `ok` is a boolean.
+
+<CompilerDemo show="types" />
+
+| Expression | Rule | Result |
+| --- | --- | --- |
+| `a + b` | both numbers, or both strings | the same type |
+| `a - b`, `a * b`, `a / b` | both numbers | number |
+| `a < b` | both numbers | boolean |
+| `a == b` | both the same type | boolean |
+| `if c then a else b` | `c` is a boolean, and `a` and `b` have the same type | that type |
+
+When a rule is not met, the checker reports an error at that node and the program is rejected. Nothing was run. The checker reasoned about what the program would do, using only its text.
+
+## Static and dynamic
+
+The first way languages differ is in **when** types are checked.
+
+In a **statically typed** language, the check happens before the program runs, as above. Types belong to variables and expressions. In a **dynamically typed** language, the check happens during execution, each time an operation is about to be performed. Types belong to values, and a variable can hold anything.
+
+Try `if true then 1 else 1 + "a"` in the widget. The static checker rejects it, because `1 + "a"` is wrong. Now run the same expression on a machine that checks types only when an instruction executes.
+
+<VmDemo source='if true then 1 else 1 + "a"' tries={['if true then 1 else 1 + "a"', 'if false then 1 else 1 + "a"', '1 + "2"']} />
+
+It finishes with the answer 1. The faulty branch was never reached, so the fault was never found. Change `true` to `false` and the error appears, at run time.
+
+That is the trade in a single example. The static checker is **conservative**: it rejected a program that would have worked. The dynamic one is **permissive**: it accepted a program containing a bug that will surface whenever that branch is finally taken, possibly in production.
+
+| | Static | Dynamic |
+| --- | --- | --- |
+| Checked | before running | while running |
+| Errors found | everywhere in the code, at once | only on lines that execute |
+| A variable | has one type for its lifetime | can hold any value |
+| Cost | some valid programs are rejected, and types may need writing out | type errors can reach users, and every operation checks types as it runs |
+| Examples | C, Java, Rust, Go, Haskell, TypeScript | Python, JavaScript, Ruby, Lisp |
+
+The static checker cannot be made perfect, accepting every program that would run safely and no others. Whether a line is ever reached is a question about program behaviour, and such questions are [undecidable](/theory/the-halting-problem/).
+
+Static types pay for themselves in other ways. They are documentation that cannot go out of date. They let an editor complete names and find every use of a function. And they let a [compiler](/languages/intermediate-representations/) generate fast code, since it knows in advance that `a + b` is an integer addition.
+
+## Strong and weak
+
+The second difference is **how strictly** types are kept apart. A weakly typed language converts values between types on its own initiative. A strongly typed one refuses and makes you ask.
+
+| Expression | Python | JavaScript | C |
+| --- | --- | --- | --- |
+| `1 + "2"` | error | `"12"` | compiles, and computes an address |
+| `"3" * "4"` | error | `12` | error |
+| `1 == "1"` | `False` | `true` | compiles with a warning, and compares a number with an address |
+
+Silent conversion is called **coercion**. It saves typing and hides mistakes. Most of JavaScript's notorious surprises are coercions.
+
+"Strong" and "weak" are informal words for a spectrum, and the two axes are independent. Python is dynamic and strong. C is static and fairly weak. JavaScript is dynamic and weak. Rust is static and strong.
+
+## Inference
+
+Static typing does not have to mean writing types everywhere. With **type inference**, the compiler works out the types you left unsaid, by the same bottom-up reasoning as the widget.
+
+```rust
+let count = 0;                      // an integer, because 0 is
+let names = vec!["Ada", "Alan"];    // a list of strings
+let longest = names.iter().map(|name| name.len()).max();
+```
+
+Nothing is annotated, and everything is checked. Languages in the ML family, such as Haskell and OCaml, can infer the types of entire programs. Most mainstream languages infer local variables and ask for types on function signatures, which is also where they are most useful to a human reader.
+
+## Generics
+
+A function that returns the first element of a list should work for a list of anything. Without help from the type system there are two bad options: write it once for each element type, or give up and declare that it takes "a list of something unknown".
+
+**Generics**, also called parametric polymorphism, let a type take a parameter.
+
+```typescript
+function first<T>(items: T[]): T {
+  return items[0];
+}
+
+first([1, 2, 3]);       // T is number, so the result is a number
+first(['a', 'b']);      // T is string, so the result is a string
+```
+
+The function is written once and checked once. Each call fills in `T`, and the checker tracks the connection between the argument and the result.
+
+## Naming and shape
+
+When is one type acceptable where another is expected?
+
+**Nominal typing** goes by declared names. A `Dog` is an `Animal` only if its definition says so. Java, C# and Rust work this way.
+
+**Structural typing** goes by shape. Anything with the right fields and methods will do, whatever it is called. TypeScript and Go's interfaces work this way.
+
+```typescript
+type Named = { name: string };
+
+function greet(thing: Named) { return 'Hello, ' + thing.name; }
+
+greet({ name: 'Ada', born: 1815 });     // fine: it has a name
+```
+
+Dynamic languages have an unchecked version of the same idea called **duck typing**: if it walks like a duck and quacks like a duck, treat it as a duck, and find out at run time if it does not.
+
+## Types that prevent whole kinds of bug
+
+The more a type system can express, the more mistakes it rules out.
+
+**Null safety.** In many languages any reference may secretly be `null`, and using it crashes. Tony Hoare, who introduced the null reference in 1965, later called it his billion-dollar mistake. Newer languages make absence a separate type. A `String` always holds a string, an `Option<String>` or `string | null` might not, and the compiler will not let you use the second without checking first.
+
+**Sum types.** A value that is one of several alternatives, each with its own data, such as "a circle with a radius, or a rectangle with a width and height". Code that handles one must handle every case, and the compiler says which are missing. Adding a new alternative turns every place that needs updating into a compile error.
+
+**Ownership.** Rust's types track which part of a program is responsible for each piece of memory, and so rule out a class of memory errors. That is covered under [ownership and borrowing](/languages/ownership-and-borrowing/).
+
+A slogan summarises the approach: make illegal states unrepresentable. If the types do not allow an invalid value to be built, no code needs to defend against it.
+
+## Gradual typing
+
+Large programs in dynamic languages eventually miss static checking. **Gradual typing** adds optional annotations to a dynamic language, checked by a separate tool, with unannotated code left alone.
+
+TypeScript does this for JavaScript, and type hints with checkers such as mypy do it for Python. In both, the types are checked and then erased. They have no effect when the program runs.
+
+## Soundness
+
+A type system is **sound** if a program that passes the checker can never have a type error at run time. Soundness is a guarantee, and languages give it up in places for convenience.
+
+Java and C# allow casts that may fail at run time. TypeScript is unsound by design in several corners, so that ordinary JavaScript patterns can be typed at all. C lets a programmer reinterpret any memory as any type. Each such escape hatch is a place where the checker takes the programmer's word for it.
+
+## Key takeaways
+
+- A type classifies values and determines which operations are valid on them. A type system rejects programs that misuse types.
+- Static typing checks before the program runs and covers all the code. Dynamic typing checks during execution and covers only what runs.
+- A static checker must be conservative, so it rejects some programs that would have worked.
+- Strong typing refuses to convert between types silently. Weak typing coerces.
+- Inference and generics remove most of the verbosity that static types once required.
+- Richer types, such as optional types and sum types, turn whole categories of run-time failure into compile-time errors.
