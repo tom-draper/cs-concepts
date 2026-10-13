@@ -1,0 +1,145 @@
+---
+description: Consistent hashing assigns keys to machines in a way that barely changes when a machine is added or removed. Only the keys next to the change have to move, where a simple hash would reshuffle nearly everything.
+difficulty: intermediate
+---
+
+A cluster of cache servers needs a rule for which server holds each key. The obvious rule is to [hash](/data-structures/hash-functions/) the key and take the remainder on dividing by the number of servers.
+
+```python
+server = hash(key) % number_of_servers
+```
+
+It spreads keys evenly, and it has one serious flaw. When the number of servers changes, the remainder changes for almost every key.
+
+| Key's hash | mod 4 | mod 5 |
+| --- | --- | --- |
+| 17 | 1 | 2 |
+| 22 | 2 | 2 |
+| 31 | 3 | 1 |
+| 40 | 0 | 0 |
+| 53 | 1 | 3 |
+
+Going from 4 servers to 5 moves about four keys in five. For a cache, that means nearly every lookup suddenly misses, and the full load lands on the database behind it. For a database, it means copying most of the data across the network. Adding a machine to relieve an overloaded cluster would make things worse before it made them better.
+
+**Consistent hashing**, introduced in 1997 by David Karger and colleagues, is a different rule with the property that changing the set of servers moves only a small share of the keys.
+
+## The ring
+
+Imagine the output range of the hash function bent into a circle, so that the largest value is next to zero. Hash each **server's name** to get its position on the circle. Hash each **key** the same way.
+
+A key belongs to the first server found by going clockwise from the key's position.
+
+<HashRingDemo />
+
+Each server owns the arc of the ring that ends at its position, back to the previous server.
+
+Now add node D. It lands somewhere on the ring and takes over the keys in the arc just before it, which previously belonged to the next node clockwise. No other key is affected. The readout compares this with what `hash mod N` would have done to the same keys.
+
+Remove a node, and its keys pass to the next one clockwise. Everything else stays put.
+
+With N servers, each owns about 1/N of the ring, so a server joining or leaving moves about 1/N of the keys. That is the minimum possible. If a new machine is going to carry a fair share, that share has to come from somewhere.
+
+| | `hash mod N` | Consistent hashing |
+| --- | --- | --- |
+| Keys moved when a server is added | nearly all | about 1/N |
+| Servers that give up keys | all of them | one neighbour |
+| Finding a key's server | one calculation | a search of the ring |
+
+## Uneven arcs
+
+Look at the key counts with one point for each node. They are far from equal. Three random points cut a circle into three arcs of very unequal length, so one node may own half the ring and another a tenth.
+
+There is a second problem. When a node fails, its whole load falls on a single neighbour. That neighbour may then be overloaded and fail, passing a still larger load to the next. A failure can run round the ring.
+
+## Virtual nodes
+
+The fix is to place each server on the ring many times. A server named `A` is hashed as `A#0`, `A#1`, `A#2` and so on, giving it many scattered positions, called **virtual nodes**.
+
+Switch the widget to 24 points for each node.
+
+Each server's share is now the sum of many small arcs. Some are longer than average and some shorter, and they even out, in the way an average of many dice is steadier than one throw. The more points, the closer the shares come to equal. Real systems use a hundred or more.
+
+The cascade is cured as well. When a server leaves, its many small arcs pass to many different successors, so its load is shared out among all the remaining servers instead of falling on one.
+
+Virtual nodes also handle machines of different sizes. A server with twice the capacity is given twice as many points and receives twice the keys.
+
+## Implementation
+
+The ring is a sorted list of positions. Finding a key's server is a [binary search](/algorithms/binary-search/) for the first position at or after the key's hash, wrapping to the start if there is none.
+
+```python
+import bisect
+import hashlib
+
+def position(text):
+    return int(hashlib.md5(text.encode()).hexdigest(), 16)
+
+class Ring:
+    def __init__(self, servers, points=100):
+        self.ring = sorted((position(f'{server}#{i}'), server)
+                           for server in servers
+                           for i in range(points))
+        self.positions = [where for where, _ in self.ring]
+
+    def server_for(self, key):
+        index = bisect.bisect_left(self.positions, position(key))
+        return self.ring[index % len(self.ring)][1]
+
+ring = Ring(['A', 'B', 'C'])
+ring.server_for('user:42')        # always the same server for this key
+```
+
+<Ops items={[
+  ['Find the server for a key', 'O(log v)', 'v points on the ring'],
+  ['Add or remove a server', 'O(p log v)', 'p points for that server'],
+  ['Keys moved by a change', 'about k / n', 'k keys, n servers'],
+]} />
+
+The hash function needs to scatter values evenly. It does not need to be secure, and fast non-cryptographic hashes are the usual choice.
+
+## Replication on the ring
+
+To keep several copies of each key, a system stores it on the key's owner and also on the next few **distinct** servers clockwise. With three copies, that is the owner and the two servers after it.
+
+The same rule tells a client which servers to try if the first does not answer. Dynamo and Cassandra are built this way, combined with the [quorum](/distributed-systems/consistency-models/#tuning-with-quorums) approach to reads and writes.
+
+## Variations
+
+| Technique | Idea | Notable for |
+| --- | --- | --- |
+| Ring with virtual nodes | as above | the original and most widespread |
+| Rendezvous hashing | for each key, score every server with `hash(key, server)` and take the highest | no ring to store, very simple, costs O(n) for each lookup |
+| Jump hash | a short calculation that maps a key to one of n numbered buckets | no memory at all, but buckets can only be added or removed at the end |
+| Bounded loads | consistent hashing with a cap on any server's load. A full server passes keys on | avoiding overload from popular keys |
+| Maglev | a precomputed lookup table | very fast lookups in network load balancers |
+
+Rendezvous hashing has the same minimal-movement property. When a server leaves, only the keys for which it scored highest need a new home, and each goes to its second choice.
+
+## Where it is used
+
+**Distributed caches.** Clients of a cache cluster use it so that adding a cache server does not empty all the others.
+
+**Distributed databases.** Dynamo, Cassandra and Riak place data on a ring. This is one of the answers to the rebalancing problem in [partitioning](/distributed-systems/partitioning/#adding-machines).
+
+**Load balancers.** A [load balancer](/networking/load-balancing/#sessions) that sends each client to the same backend, to keep sessions or caches warm, uses consistent hashing so that a change in the pool disturbs few clients.
+
+**CDNs.** The technique was invented for this purpose: deciding which [cache server](/networking/cdns/) holds which content, across a fleet that changes constantly.
+
+## Limits
+
+**It balances keys, not load.** If one key receives a large part of the traffic, whichever server holds it is overloaded, however evenly the keys are spread.
+
+**Range queries are lost.** As with any hashing scheme, neighbouring keys are scattered.
+
+**Membership must be agreed.** All clients need the same view of which servers are on the ring. Two clients with different views send the same key to different servers. The list of members is usually kept in a coordination service, or spread by [gossip](/distributed-systems/gossip-protocols/).
+
+**Moving data still takes work.** The scheme says which keys should move. Copying them, while continuing to serve requests, is a separate job.
+
+## Key takeaways
+
+- `hash mod N` reassigns nearly every key when the number of servers changes.
+- Consistent hashing places servers and keys on a ring, and gives each key to the next server clockwise.
+- Adding or removing a server affects only the keys in one arc, about 1/N of the total.
+- With one position each, servers get unequal shares, and a failure dumps its load on one neighbour.
+- Virtual nodes, many positions for each server, even out the shares and spread a failed server's load over all the others.
+- It is used in caches, partitioned databases, load balancers and CDNs, wherever the set of servers changes and data should stay put.
