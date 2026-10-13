@@ -203,6 +203,11 @@ The distributed systems pages use `<CapDemo />`, `<QuorumDemo />`, `<ClockDemo /
 That file also adds the `2pc-commit`, `2pc-abort`, `2pc-stuck` and `paxos` scenarios
 to `<SequenceDemo>`.
 
+The security pages use `<HashDemo />`, `<BlockModeDemo />`, `<RsaDemo />` (and
+`<RsaDemo mode="sign" />`), `<DiffieHellmanDemo />`, `<PasswordDemo />`,
+`<OverflowDemo />`, `<InjectionDemo />` and `<TokenDemo />`, backed by
+`src/lib/security.ts`. The ciphers there are toys sized for reading, not for use.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
