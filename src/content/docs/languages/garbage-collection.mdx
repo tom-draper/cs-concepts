@@ -1,0 +1,156 @@
+---
+description: Garbage collection is automatic memory management. The runtime works out which objects a program can no longer reach and frees them, removing a whole class of bugs at the cost of some processor time and occasional pauses.
+difficulty: intermediate
+---
+
+A program asks for memory as it runs: for every string, list, object and closure. Memory is finite, so what is no longer needed has to be given back. The question is who decides when.
+
+In C, the programmer does, with a call to `free`. That is fast and easy to get wrong in three ways.
+
+| Mistake | What happens |
+| --- | --- |
+| Never freeing | a **memory leak**: usage grows until the program is killed |
+| Freeing and then using | a **use after free**: the memory may now hold something else, giving corrupt data or a security hole |
+| Freeing twice | a **double free**: the [allocator's](/operating-systems/memory-allocators/) own records are corrupted |
+
+**Garbage collection** takes the decision away from the programmer. The language runtime finds memory that the program can no longer use and reclaims it. The last two mistakes become impossible, and the first becomes much rarer.
+
+## What counts as garbage
+
+A collector cannot know whether a program will use an object again. That is a question about future behaviour, and it is [undecidable](/theory/the-halting-problem/). So it uses a property it can check.
+
+An object is **reachable** if the program could get to it by following references, starting from the **roots**: the local variables on the [stack](/foundations/stack-and-heap/), global variables and processor registers. Anything unreachable can never be used again, because the program has no way to name it. That is garbage.
+
+Reachability is a safe approximation. Every object the program will use is reachable. Some reachable objects will never be used, and they are kept anyway.
+
+There are two families of collector, and this widget has both. The squares are variables, the circles are objects, and the arrows are references.
+
+<GcDemo />
+
+## Reference counting
+
+The simplest scheme gives every object a counter of how many references point at it. Creating a reference adds one. Removing a reference subtracts one. When the count reaches zero, nothing can reach the object, and it is freed immediately.
+
+In the widget, with "Reference counting" selected, press `x = null`. The count of `A` drops to zero and it is freed. That removes its references to `B` and `C`, whose counts drop to zero in turn. `D` survives, because `F` still points at it.
+
+Now press `y = null`. Nothing is freed. `E` and `F` point at each other, so each has a count of 1, even though no variable can reach either of them. This is the weakness of reference counting: it cannot reclaim a **cycle**.
+
+| | Reference counting |
+| --- | --- |
+| Frees memory | at once, at a predictable point |
+| Work is spread | evenly, with no long pauses |
+| Cost | every assignment of a reference updates a counter |
+| Weakness | cycles are never freed |
+
+Cycles are common: a parent that lists its children, each of which points back at the parent; a doubly [linked list](/data-structures/linked-lists/); two objects that observe each other.
+
+Languages that count references deal with cycles in one of two ways. Python adds a separate cycle detector that runs occasionally. Swift and Objective-C leave it to the programmer, who marks one direction of each cycle as a **weak reference**, which does not add to the count. C++ `shared_ptr` and Rust's `Rc` work the same way.
+
+## Tracing
+
+The other family ignores counts and works from the definition. Start at the roots, follow every reference, and whatever was not visited is garbage.
+
+Press "Tracing" in the widget, set `y` to null, and press Collect. It runs the classic algorithm, **mark and sweep**.
+
+1. **Mark.** Starting from each root, traverse the object graph and mark every object reached. This is a [depth-first](/algorithms/depth-first-search/) or [breadth-first search](/algorithms/breadth-first-search/).
+2. **Sweep.** Walk through all of memory. Free every object that is not marked, and clear the marks on the rest.
+
+The cycle of `E` and `F` gives it no trouble. They point at each other, but the traversal starts from the variables and never arrives at either.
+
+```python
+def collect(roots, heap):
+    marked = set()
+    pending = list(roots)
+    while pending:                          # mark
+        obj = pending.pop()
+        if obj not in marked:
+            marked.add(obj)
+            pending.extend(obj.references)
+    for obj in list(heap):                  # sweep
+        if obj not in marked:
+            heap.remove(obj)
+```
+
+| | Tracing |
+| --- | --- |
+| Frees memory | some time after it becomes garbage, when the collector next runs |
+| Handles cycles | yes |
+| Cost | none when references change, but periodic collections proportional to the live data |
+| Weakness | pauses, and needs spare memory to work well |
+
+## The pause
+
+A simple collector must stop the program while it works. If the program kept changing references during marking, the collector could miss an object that had been moved somewhere already visited, and free something still in use. Such a halt is called a **stop-the-world pause**.
+
+On a small heap it is unnoticeable. On a heap of many gigabytes, a full mark and sweep can take seconds. That is fatal for a game aiming at sixty frames a second, a trading system, or a server with a response-time target. Most of the engineering in modern collectors goes into shortening pauses.
+
+## Generations
+
+Collectors lean on an observation about real programs called the **generational hypothesis**: most objects die young. A temporary string, an iterator or a request object is created, used and abandoned within moments. An object that has survived a while will probably survive much longer.
+
+A **generational collector** therefore divides the heap by age.
+
+| Generation | Holds | Collected | Cost of a collection |
+| --- | --- | --- | --- |
+| Young | newly created objects | very often | small, since few survive |
+| Old | objects that survived several young collections | rarely | large |
+
+New objects go in a small young area. When it fills, only that area is collected. Since nearly everything in it is dead, there is little to mark. The survivors are promoted to the old generation. Most collections are therefore quick, and expensive full collections are rare.
+
+## Moving objects
+
+A sweep leaves holes where the garbage was. Over time the free memory is scattered in pieces too small to use, which is **fragmentation**.
+
+A **copying** or **compacting** collector moves the surviving objects next to each other and updates every reference to them. That has three benefits.
+
+- Free memory is one continuous block.
+- Allocation becomes almost free: move a pointer forward by the size of the object. This is called bump allocation, and it is faster than `malloc`.
+- Objects created together stay together, which helps the processor's [cache](/architecture/cache-locality/).
+
+A copying collector visits only the live objects and never looks at the dead ones, so the cost depends on how much survives. For a young generation where almost nothing survives, that is ideal.
+
+The price is that the runtime must be able to find and rewrite every pointer to an object. That is why garbage-collected languages do not let programs treat pointers as numbers.
+
+## Concurrent collection
+
+To shorten pauses further, a **concurrent** collector does most of its marking while the program carries on running, on other processor cores.
+
+The hazard is the one described above: the program changes references behind the collector's back. Concurrent collectors solve it with a **write barrier**, a few extra instructions that run each time the program stores a reference and tell the collector what changed. The program is slowed slightly all the time in exchange for not being stopped.
+
+Go's collector and the newer Java collectors, ZGC and Shenandoah, work this way and keep pauses under a millisecond even on very large heaps.
+
+## The costs
+
+| Cost | Detail |
+| --- | --- |
+| Processor time | usually a few percent, more when allocating heavily |
+| Memory | tracing collectors want headroom, often twice the live data or more, to run efficiently |
+| Pauses | from microseconds to seconds, depending on the collector and the heap |
+| Predictability | the program does not control when collection happens |
+
+The headroom is a real trade. Given more spare memory a collector runs less often and costs less time. Squeezed for memory, it runs constantly.
+
+Garbage collection does not prevent every leak. An object that is still reachable is never collected, whether or not it will be used. A cache that only grows, a list of event listeners that are never removed and a [closure](/languages/closures/) holding a large object are all leaks a collector cannot see.
+
+And a collector manages only memory. Files, sockets and locks must still be closed explicitly, since nobody can say when, or whether, the collector will get round to an object. Languages provide `with`, `using`, `defer` or `try` with resources for that.
+
+## How languages manage memory
+
+| Approach | Languages | Character |
+| --- | --- | --- |
+| Manual | C, Zig | fastest and most dangerous |
+| Scope-based, with optional reference counting | C++ | freed when the owner goes out of scope |
+| [Ownership](/languages/ownership-and-borrowing/), checked by the compiler | Rust | no collector and no manual freeing |
+| Reference counting | Swift, Objective-C | predictable, with cycles left to the programmer |
+| Reference counting and a cycle collector | Python | immediate freeing, plus periodic cycle detection |
+| Tracing, generational | Java, C#, JavaScript, Ruby | high throughput, tunable |
+| Tracing, concurrent | Go | very short pauses |
+
+## Key takeaways
+
+- Garbage collection frees memory automatically by finding objects the program can no longer reach.
+- Reference counting frees an object the moment its last reference goes, but cannot reclaim cycles without help.
+- Tracing collectors start from the roots and keep whatever they can reach. Mark and sweep is the basic form, and cycles are no obstacle.
+- Generational collectors exploit the fact that most objects die young, and collect new objects often and cheaply.
+- Moving collectors remove fragmentation and make allocation very fast.
+- The costs are processor time, extra memory and pauses. Reachable objects that are no longer needed still leak.
