@@ -1,0 +1,128 @@
+---
+description: Networking is organised as a stack of layers, each solving one problem and relying on the layer below. Data is wrapped in a new header at each layer on the way down and unwrapped on the way up.
+difficulty: beginner
+---
+
+Loading a web page involves a browser, an operating system, a Wi-Fi chip, a home router, dozens of machines belonging to several companies, an undersea cable and a server in another country. No single piece of software understands all of it.
+
+It works because the problem is cut into **layers**. Each layer does one job, talks only to the layers directly above and below, and can be replaced without the others noticing. Your browser neither knows nor cares whether the first hop is Wi-Fi, a cable or a mobile network.
+
+## The layers
+
+The internet uses a model with five layers. It is usually called the **TCP/IP model**, after its two central protocols.
+
+| Layer | Job | Addressed by | Examples |
+| --- | --- | --- | --- |
+| Application | what the programs say to each other | names, URLs | [HTTP](/networking/http/), [DNS](/networking/dns/), email |
+| Transport | deliver data to the right program, reliably or not | port number | [TCP](/networking/tcp/), [UDP](/networking/udp/) |
+| Network | get a packet across many networks to the right machine | [IP address](/networking/ip-addressing/) | IP |
+| Link | get a frame to the next machine on the same network | hardware (MAC) address | Ethernet, Wi-Fi |
+| Physical | turn bits into signals | none | copper, fibre, radio |
+
+A **protocol** is an agreed set of rules for one layer: the format of its messages and what each side does on receiving them. The collection in use is called the **protocol stack**.
+
+## Wrapping and unwrapping
+
+Each layer treats whatever it is handed from above as opaque cargo. It adds its own **header** in front, containing the information it needs to do its job, and passes the result down. This is **encapsulation**.
+
+Follow one HTTP request from a browser to a server.
+
+<LayersDemo />
+
+On the way down, the message gains a header at each layer. On the way up at the far end, each layer reads and removes its own header and passes the rest upward. The receiving application gets exactly what the sending application wrote.
+
+The data has a different name at each stage.
+
+| Layer | The unit is called | Typical header |
+| --- | --- | --- |
+| Application | message | whatever the protocol defines |
+| Transport | segment (TCP) or datagram (UDP) | 20 bytes for TCP, 8 for UDP |
+| Network | packet | 20 bytes for IPv4, 40 for IPv6 |
+| Link | frame | 14 bytes for Ethernet, plus a 4 byte checksum |
+
+A common limit on the size of an Ethernet frame's contents is 1500 bytes, known as the **MTU**, or maximum transmission unit. A large message is cut into many segments, each of which travels in its own packet.
+
+## What a router looks at
+
+The middle of the widget is the important part. A **router** joins networks together, and it only works up to the network layer. It removes the link header, reads the destination IP address, chooses where to send the packet next and puts on a new link header for that hop.
+
+It never looks at the TCP header or the data. That has two large consequences.
+
+**The network core is simple.** Routers forward packets, one at a time, with no memory of connections. Everything complicated, such as reliability, ordering and encryption, is done by the two machines at the ends. This is called the **end-to-end principle**, and it is why the internet has been able to carry applications nobody had thought of when it was built.
+
+**Addresses mean different things at different layers.**
+
+| Address | Scope | Changes along the path? |
+| --- | --- | --- |
+| MAC address | one local network | yes, at every hop |
+| IP address | the whole internet | no, in principle |
+| Port number | one machine | no |
+
+The IP addresses say where the packet is ultimately going. The MAC addresses say only where it is going next.
+
+| Device | Works up to | Decides using |
+| --- | --- | --- |
+| Hub or repeater | physical | nothing, it repeats signals |
+| Switch | link | MAC address |
+| Router | network | IP address |
+| Firewall, [load balancer](/networking/load-balancing/) | transport or application | ports, or the content of requests |
+
+## Why layering works
+
+**Each layer can change independently.** Wi-Fi replaced cables for most people without a single web site being rewritten. HTTP has had three major versions over the same IP. The interface between layers is narrow, so what happens behind it is private.
+
+**Each layer builds a better service from a worse one.** The network layer offers best-effort delivery: packets can be lost, duplicated or arrive out of order. TCP, one layer up, turns that into a reliable ordered stream. [TLS](/networking/tls/), above that, turns a readable stream into a private one.
+
+**Each problem is solved once.** A program that wants reliable delivery uses TCP. It does not invent its own.
+
+It is the same idea as an [operating system](/operating-systems/system-calls/) hiding hardware behind system calls, or a function hiding its implementation behind its signature.
+
+## The seven-layer model
+
+You will also meet the **OSI model**, which has seven layers. It was designed as an international standard in the late 1970s and early 1980s. The protocols built for it lost out to TCP/IP, but its vocabulary survived.
+
+| OSI number | OSI layer | In the TCP/IP model |
+| --- | --- | --- |
+| 7 | Application | Application |
+| 6 | Presentation | Application |
+| 5 | Session | Application |
+| 4 | Transport | Transport |
+| 3 | Network | Network |
+| 2 | Data link | Link |
+| 1 | Physical | Physical |
+
+The numbers are still in everyday use. A "layer 2 switch" forwards by MAC address. A "layer 3 switch" also routes by IP. A "layer 4 load balancer" looks at ports, and a "layer 7" one reads HTTP requests. People jokingly blame user error on "layer 8".
+
+## Where the model leaks
+
+The layers are a design principle, and real systems bend it.
+
+- **TLS** sits between transport and application and fits neither model neatly.
+- **[QUIC](/networking/quic/)** rebuilds the transport layer on top of UDP and merges encryption into it.
+- **NAT**, the address translation done by home routers, is a network-layer device that has to rewrite transport-layer port numbers to do its job.
+- **VPNs and tunnels** put a whole packet inside another packet, so the stack contains the network layer twice.
+- **Performance** sometimes needs cross-layer knowledge. TCP treats lost packets as a sign of congestion, which is the wrong guess on a noisy wireless link, where the link layer quietly retransmits to compensate.
+
+## Seeing it for yourself
+
+Packet capture tools such as Wireshark and `tcpdump` show real traffic split into exactly these layers, one expandable header for each.
+
+```
+Frame 42: 583 bytes on wire
+Ethernet II, Src: 3c:22:fb:10:9a:01, Dst: a4:91:b1:5e:02:7c
+Internet Protocol Version 4, Src: 192.168.1.20, Dst: 203.0.113.10
+Transmission Control Protocol, Src Port: 51234, Dst Port: 80, Seq: 1, Len: 517
+Hypertext Transfer Protocol
+    GET / HTTP/1.1
+```
+
+Other tools examine one layer each: `ping` tests the network layer, `traceroute` lists the routers on a path, and `curl` speaks the application layer.
+
+## Key takeaways
+
+- Networking is divided into layers: application, transport, network, link and physical. Each uses the service of the one below and offers a better service to the one above.
+- On the way down, each layer wraps the data in its own header. On the way up, each layer removes its own header.
+- Routers work only up to the network layer. They replace the link header at every hop and leave the rest alone.
+- IP addresses identify the final destination, MAC addresses the next hop, and port numbers the program on a machine.
+- Because the interfaces between layers are narrow, a layer can be replaced without changing the others.
+- The seven-layer OSI model is mainly used as vocabulary, especially its layer numbers.
