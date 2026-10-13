@@ -1,0 +1,130 @@
+---
+description: UDP sends individual packets with no connection, no acknowledgements and no guarantees. It adds almost nothing to IP, which makes it the right choice when speed matters more than completeness, or when an application wants to build its own transport.
+difficulty: beginner
+---
+
+[TCP](/networking/tcp/) does a great deal: handshakes, sequence numbers, retransmission, flow control, congestion control. Sometimes all that is in the way.
+
+A voice call cannot use a packet that arrives two seconds late. Waiting for it only delays everything after it. A one-question, one-answer lookup does not want to spend a round trip opening a connection first.
+
+**UDP**, the User Datagram Protocol, is the alternative. It is the thinnest possible transport layer: it takes the network's packet delivery, adds a port number so the packet reaches the right program, and stops.
+
+## What UDP does
+
+<SequenceDemo scenario="udp" />
+
+There is no handshake and no acknowledgement. The sender puts a **datagram** on the network and forgets it. If the datagram is lost, nobody is told. If two arrive in the wrong order, they are delivered in the wrong order.
+
+| | TCP | UDP |
+| --- | --- | --- |
+| Connection | set up with a handshake | none |
+| Delivery | guaranteed, or the connection fails | best effort |
+| Order | preserved | not preserved |
+| Unit | a stream of bytes | separate messages |
+| Flow and congestion control | built in | none |
+| Header | 20 bytes or more | 8 bytes |
+| Before the first data | one round trip | nothing |
+
+One thing UDP does better than TCP is preserve message boundaries. Each `send` produces one datagram, and each `receive` returns exactly one. There is no need to work out where one message ends and the next begins.
+
+## The header
+
+The whole header is four fields of 16 bits each.
+
+| Field | Purpose |
+| --- | --- |
+| Source port | where a reply should go |
+| Destination port | which program the datagram is for |
+| Length | header plus data, in bytes |
+| Checksum | detects corruption |
+
+Compare that with TCP's sequence number, acknowledgement number, window, flags and options. UDP is nearly a bare IP packet with ports.
+
+The checksum means that a datagram that does arrive is very unlikely to be damaged. UDP is unreliable about whether data arrives, not about what arrives.
+
+A datagram can carry up to about 65,507 bytes, but anything larger than the path's limit of roughly 1,500 bytes is split into fragments by IP, and losing any one fragment loses the whole datagram. Applications keep datagrams small, usually under about 1,200 bytes.
+
+## When to use it
+
+**When late is as bad as lost.** In a voice or video call, or a fast-paced game, the data describes the present moment. If a packet is lost, the next one, describing a newer moment, is already on its way. Retransmitting the old one would be wasted effort, and TCP would hold back the new data until the old arrived. These applications conceal a gap with a guess, such as repeating the last audio frame or predicting where a player moved, and carry on.
+
+**When the exchange is one small question and answer.** A [DNS](/networking/dns/) lookup is a single datagram each way. Opening a TCP connection would more than double the packets and add a round trip. If no answer comes, the client simply asks again.
+
+**When there are many receivers.** A TCP connection has exactly two ends. A UDP datagram can be sent to a broadcast or multicast address and reach every machine on a network. This is how a new machine finds a DHCP server before it has an address, and how devices discover printers and speakers.
+
+**When the application wants to do the transport's job itself.** UDP gives a program direct access to packets, with ports, and nothing imposed. A protocol built on it can choose exactly which guarantees to provide. [QUIC](/networking/quic/), which carries HTTP/3, is a complete reliable, encrypted transport built on UDP.
+
+| Protocol | Built on UDP because |
+| --- | --- |
+| DNS | one small request and reply |
+| DHCP | the client has no address yet and must broadcast |
+| NTP, for clock synchronisation | timing matters, and retransmission would spoil the measurement |
+| Voice and video calls (RTP, WebRTC) | late data is useless |
+| Online games | the newest state replaces the old |
+| QUIC and HTTP/3 | wants its own reliability and encryption, free of TCP's limits |
+| WireGuard and other VPNs | carrying TCP inside TCP performs badly |
+
+## What you take on
+
+Using UDP means giving up TCP's protections, and an application that needs any of them has to supply it.
+
+| Problem | What a UDP application must do |
+| --- | --- |
+| Loss | notice, with sequence numbers or timeouts, and decide whether to resend |
+| Reordering | number the messages and sort them, or discard old ones |
+| Duplication | make operations safe to repeat, or track what has been seen |
+| Large messages | split and reassemble them |
+| Congestion | limit its own sending rate |
+
+The last row matters to everybody. TCP backs off when the network is congested. A UDP sender that does not will keep transmitting at full rate, crowding out the TCP connections sharing its path. Well-behaved protocols on UDP implement congestion control of their own.
+
+A common mistake is to choose UDP "for speed" and then add acknowledgements, retransmission and ordering one feature at a time, ending up with a slower, less tested version of TCP. If the application needs every byte in order, TCP or QUIC is the right tool.
+
+## A minimal exchange
+
+There is no listening and no accepting. A server binds a port and waits for datagrams, and each arrives with the address of whoever sent it.
+
+```python
+# Server
+import socket
+
+server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server.bind(('0.0.0.0', 9999))
+while True:
+    data, sender = server.recvfrom(1500)        # one whole datagram
+    server.sendto(data.upper(), sender)
+```
+
+```python
+# Client
+import socket
+
+client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+client.settimeout(1.0)
+client.sendto(b'hello', ('127.0.0.1', 9999))
+try:
+    reply, _ = client.recvfrom(1500)
+except socket.timeout:
+    reply = None                                # lost: decide what to do
+```
+
+The timeout is the application dealing with loss. Without it, a lost reply would leave the client waiting for ever.
+
+## Security
+
+With no handshake, a server has no evidence that the source address on a datagram is genuine. An attacker can send a small request with a forged source address, and the server will send its reply to the victim.
+
+If the reply is much larger than the request, the attacker's traffic is multiplied. This is an **amplification attack**. Misconfigured DNS and time servers have been used to turn modest amounts of forged traffic into floods large enough to take major sites offline.
+
+Protocols designed with this in mind make the client prove it can receive at its claimed address before the server sends much. QUIC, for instance, will not send more than three times what it has received until the address is confirmed.
+
+Firewalls and NAT routers also have a harder time with UDP. With no connection to track, they guess that a flow has ended when it has been quiet for a while, often only thirty seconds, so long-lived UDP applications send periodic keep-alive packets.
+
+## Key takeaways
+
+- UDP adds port numbers and a checksum to IP and nothing else. Its header is eight bytes.
+- It is connectionless: no handshake, no acknowledgements, no retransmission and no ordering.
+- It preserves message boundaries, so one send is one receive.
+- It suits real-time media and games, single request and reply protocols such as DNS, broadcast and discovery, and protocols such as QUIC that implement their own transport.
+- Anything an application needs beyond best-effort delivery, including congestion control, it must build itself.
+- The lack of a handshake allows forged source addresses, which makes amplification attacks possible.
