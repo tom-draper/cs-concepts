@@ -208,6 +208,10 @@ The security pages use `<HashDemo />`, `<BlockModeDemo />`, `<RsaDemo />` (and
 `<OverflowDemo />`, `<InjectionDemo />` and `<TokenDemo />`, backed by
 `src/lib/security.ts`. The ciphers there are toys sized for reading, not for use.
 
+The information and coding pages use `<EntropyDemo />`, `<HuffmanDemo />`, `<LzDemo />`,
+`<ChecksumDemo />` and `<HammingDemo />`, backed by `src/lib/information.ts`. The first
+four take a `text` prop for their starting input.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
