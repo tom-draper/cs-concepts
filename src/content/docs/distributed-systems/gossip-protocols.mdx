@@ -1,0 +1,152 @@
+---
+description: In a gossip protocol, each node periodically shares what it knows with a few others chosen at random. Information spreads through the whole cluster in a number of rounds that grows only logarithmically with its size, with no central coordinator and great tolerance of failure.
+difficulty: intermediate
+---
+
+A cluster of a thousand machines needs to share certain facts. Which machines are alive? Who owns which part of the data? What is the current configuration?
+
+The direct approaches do not scale well. If each node tells every other node, a thousand nodes exchange a million messages. If one node is in charge of telling everyone, it is a bottleneck and a single point of failure.
+
+A **gossip protocol** works the way a rumour does. Every so often, each node picks a few others at random and tells them what it knows. Those nodes tell others. Nobody is in charge and nobody has the whole picture, and yet within a few rounds everybody knows. The technique is also called an **epidemic protocol**, since information spreads as an infection does.
+
+## Watching it spread
+
+One node out of 36 has a piece of news. Each round, every node that knows it tells a few others picked at random.
+
+<GossipDemo />
+
+The spread starts slowly, speeds up and then slows again.
+
+**Early**, few nodes know, so few messages are sent, but nearly every message reaches someone new. The number who know roughly doubles each round.
+
+**In the middle**, growth is fastest. Many nodes are telling, and plenty have yet to hear.
+
+**At the end**, most nodes know, so most messages go to nodes that have heard already. The last few hold-outs take several rounds to reach by chance.
+
+That is the S-shaped curve of an epidemic.
+
+## Why it is fast
+
+While the informed group doubles each round, n nodes are covered in about log₂ n rounds.
+
+| Nodes | Rounds, roughly |
+| --- | --- |
+| 36 | 5 to 8 |
+| 1,000 | 10 to 15 |
+| 1,000,000 | 20 to 30 |
+
+Going from a thousand nodes to a million adds about ten rounds. With a round every second, a rumour crosses a cluster of a million machines in under half a minute.
+
+The **fanout**, the number of peers each node contacts in a round, tunes the trade-off. Try 1 and 3 in the widget.
+
+| Fanout | Rounds | Messages | Tolerance of loss |
+| --- | --- | --- | --- |
+| Low | more | fewer | lower |
+| High | fewer | more | higher |
+
+Each node sends the same small number of messages each round whatever the size of the cluster, so the load on any one node stays constant as the cluster grows. That is the property that makes gossip scale.
+
+<Ops items={[
+  ['Rounds to reach everyone', 'O(log n)', 'with high probability'],
+  ['Messages from each node in a round', 'O(1)', 'the fanout'],
+  ['Total messages', 'O(n log n)', 'more than the minimum of n'],
+]} />
+
+## Why it is robust
+
+**There is no single point of failure.** Every node plays the same part. No coordinator exists to crash.
+
+**Lost messages do not matter much.** If a message is dropped, the recipient will very probably hear the news from someone else soon. The protocol's redundancy is its reliability.
+
+**Dead nodes are routed around.** A node picks a peer that turns out to be down, wastes one message, and next round picks another.
+
+**No knowledge of the network is needed.** Nodes need not know how the cluster is wired. They need a list of some other nodes.
+
+The price is redundancy, since many messages carry news the recipient already has, and a guarantee that is only probabilistic. A node is overwhelmingly likely to hear within a few dozen rounds. It is not certain.
+
+## Push, pull and both
+
+| Style | A node | Works best |
+| --- | --- | --- |
+| Push | sends its news to a random peer | early on, when few nodes know |
+| Pull | asks a random peer for anything new | late on, when most nodes know |
+| Push-pull | does both in one exchange | throughout |
+
+Push alone has the slow tail seen in the widget, because the informed nodes keep telling others who already know. With pull, the few uninformed nodes do the asking, and almost anyone they ask can help, so the last stragglers are covered quickly. Push-pull has both advantages and is what most systems use.
+
+## Two kinds of gossip
+
+**Rumour spreading** passes on individual events: "node 7 has joined". A node gossips a rumour for a while and then stops, usually after it has been passed on a set number of times or has mostly met peers who already knew. It is cheap, and a node that was unreachable during the active period can miss the rumour altogether.
+
+**Anti-entropy** compares complete state. Two nodes exchange summaries of everything they hold and reconcile the differences. It is more costly, and it guarantees that the two end up identical, repairing whatever the rumours missed. Comparing everything directly would be far too much data, so nodes compare compact summaries: version numbers, or [Merkle trees](/data-structures/merkle-trees/), which locate differences with a handful of hash comparisons.
+
+Systems commonly use both: rumours for speed, and periodic anti-entropy as a safety net.
+
+## Merging what you hear
+
+Gossip delivers the same information many times, in no particular order, sometimes after a long delay. A node must be able to combine what it hears with what it has and reach the right result regardless.
+
+That demands a merge that is insensitive to order and repetition, which is exactly the property of a [CRDT](/distributed-systems/crdts/). The simplest scheme gives each piece of information a version number and has nodes keep the highest they have seen.
+
+| Node | Status | Version |
+| --- | --- | --- |
+| A | alive | 41 |
+| B | suspected | 17 |
+| C | alive | 88 |
+
+When two nodes exchange such tables, each takes the entry with the higher version for every row. Hearing the same thing twice changes nothing, and stale news is ignored.
+
+## Failure detection
+
+Gossip's best-known job is tracking which nodes are alive.
+
+In the basic scheme, every node has a heartbeat counter it increments regularly, and gossips a table of the latest counter it has heard for each node. If a node's counter has not risen for some time, that node is suspected of having [failed](/distributed-systems/failure-detection/).
+
+No node has to ping every other. Each learns about distant nodes at second hand, through the gossip.
+
+The **SWIM** protocol refines this. A node pings one random peer each round. If no reply comes, it asks several other nodes to ping the same target, in case its own link is at fault. If none succeeds, the target is marked as **suspected** and that suspicion is gossiped. The suspected node has a period in which to refute it. If it stays silent, it is declared dead.
+
+The suspicion step guards against false alarms, since a node that was only slow gets a chance to say so. SWIM also carries membership news on the back of the ping messages it sends anyway, so spreading it costs almost nothing extra.
+
+## Where it is used
+
+| System | Gossips |
+| --- | --- |
+| Cassandra, ScyllaDB | cluster membership, node status, which node owns which [range of the ring](/distributed-systems/consistent-hashing/) |
+| Consul, Serf | membership and failure detection, with SWIM |
+| Redis Cluster | node state and the assignment of key slots |
+| Dynamo and its descendants | membership, and anti-entropy repair of [replicas](/distributed-systems/replication/#no-leader) |
+| Blockchain networks | new transactions and blocks, to peers |
+
+In each case the information is of the kind that suits gossip: it must reach everyone, it may arrive a little late, and it can be merged safely.
+
+## Limits
+
+**It is eventually consistent.** For some seconds after a change, nodes disagree about the state of the cluster. Anything that needs every node to agree at the same instant, such as who the leader is or whether a transaction committed, needs [consensus](/distributed-systems/consensus/).
+
+**It spends bandwidth on redundancy.** Many messages tell nodes what they already know. That is the cost of the fault tolerance.
+
+**State can grow large.** Gossiping a table with an entry for every node means messages that grow with the cluster. Large deployments send partial or compressed state.
+
+**Bad information spreads as well as good.** A node with a faulty view can pass it round, and a malicious node can spread lies. Version numbers and signatures limit the damage.
+
+**It is hard to debug.** Behaviour depends on random choices, so two runs are never the same, and it is difficult to say why a particular node heard something late.
+
+| | Gossip | Consensus |
+| --- | --- | --- |
+| Agreement | eventual, with high probability | exact, guaranteed |
+| Coordinator | none | a leader |
+| Scales to | thousands of nodes and more | a handful, usually 3 to 7 |
+| Under partition | each side carries on | the minority stops |
+| Used for | membership, health, metadata | decisions that must never conflict |
+
+The two are complementary. A large cluster often uses gossip for the constantly changing, loosely agreed picture of who is present, and a small consensus group for the few facts that have to be exact.
+
+## Key takeaways
+
+- In a gossip protocol each node regularly shares its information with a few randomly chosen peers.
+- Information reaches all n nodes in about log n rounds, and each node's load stays constant as the cluster grows.
+- There is no coordinator, and lost messages and failed nodes are absorbed by redundancy.
+- Push spreads news quickly at first, and pull finishes the job. Anti-entropy repairs whatever rumours missed.
+- Gossiped state must be mergeable in any order, typically by version number.
+- Gossip gives eventual agreement and suits membership and failure detection. Decisions that must be exact need consensus.
