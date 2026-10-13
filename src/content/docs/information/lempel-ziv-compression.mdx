@@ -1,0 +1,191 @@
+---
+description: Lempel-Ziv compression replaces repeated strings with short references back to an earlier copy. It needs no knowledge of the data in advance, decompresses very fast, and is the core of gzip, zip, PNG, Zstandard and nearly every other general-purpose format.
+difficulty: intermediate
+---
+
+[Huffman coding](/information/huffman-coding/) shortens common characters. It cannot see that a whole word, line or block has appeared before. A log file with ten thousand lines starting `2026-10-13 INFO request handled` wastes the same space on every one.
+
+In 1977 Abraham Lempel and Jacob Ziv published a method that handles this directly. When the text repeats something it has said before, do not write it again. Write "go back this far and copy this many characters".
+
+## Literals and references
+
+**LZ77** turns the input into a stream of two kinds of token.
+
+- A **literal** is one character, sent as it is.
+- A **reference** is a pair: a distance back into the text already seen, and a length to copy.
+
+The widget compresses a short text. References are in orange.
+
+<LzDemo />
+
+The tongue twister starts with nine literals, `she sells`, because nothing has been seen yet. Then comes `back 6, copy 3`: six characters back is ` se`, the space and two letters that start `sells`, and they are what `sea` needs next. Later, `back 24, copy 5` reproduces `he se` from the start of the text.
+
+| Token | Produces | Text so far |
+| --- | --- | --- |
+| nine literals | `she sells` | `she sells` |
+| back 6, copy 3 | ` se` | `she sells se` |
+| literals `a` and a space | `a ` | `she sells sea ` |
+| back 14, copy 3 | `she` | `she sells sea she` |
+| back 11, copy 4 | `lls ` | `she sells sea shells ` |
+
+In the widget's encoding a literal costs 9 bits and a reference costs 16, so the 37 characters shrink from 296 bits to 242. That is a modest saving, because the text is short and the matches are short. On real files with long repeats, the saving is large.
+
+## The copy that overlaps itself
+
+Press "one letter" in the widget. Twenty-four `a`s become one literal and two references, and the first reference is `back 1, copy 18`.
+
+That looks impossible. One character back there is only one `a` to copy. It works because the decoder copies one character at a time, and each character it writes becomes available to copy.
+
+```
+a          the literal
+aa         copy 1 from one back
+aaa        copy 1 from one back, which is the a just written
+aaaa       and so on, 18 times
+```
+
+A reference whose length is greater than its distance repeats a pattern. `back 3, copy 9` after `abc` produces `abcabcabc`. This gives LZ77 run-length encoding for free.
+
+## Decoding
+
+The decoder needs no dictionary, no table and no knowledge of the data. It keeps the output it has produced and follows the tokens.
+
+```python
+def lz_decode(tokens):
+    out = []
+    for token in tokens:
+        if isinstance(token, str):
+            out.append(token)                    # a literal
+        else:
+            distance, length = token
+            for _ in range(length):
+                out.append(out[-distance])       # may read what it just wrote
+    return ''.join(out)
+
+lz_decode(['a', 'b', 'c', (3, 9)])               # 'abcabcabcabc'
+```
+
+Decompression is a series of memory copies. That is why it runs at gigabytes a second, usually faster than reading the uncompressed data from a disk would be.
+
+## Finding matches
+
+All the difficulty is on the compressing side: at each position, find the longest earlier string that matches what comes next.
+
+The search is limited to a **sliding window** of recent text, 32 KB in DEFLATE and up to megabytes or more in newer formats. A larger window finds more distant repeats and needs more memory.
+
+Checking every earlier position is far too slow. Real compressors keep a [hash table](/data-structures/hash-tables/) keyed on the next three or four bytes, which lists earlier positions where those bytes occurred. The compressor follows that list, measuring how far each candidate matches.
+
+| Effort | What the compressor does |
+| --- | --- |
+| Fastest | takes the first match the hash table offers |
+| Default | follows a chain of candidates and keeps the longest |
+| Lazy matching | checks whether starting one byte later gives a longer match |
+| Optimal parsing | considers every way to split the input into tokens and picks the cheapest |
+
+This is what a compression level sets. Higher levels search harder and produce smaller output from the same format. The decompressor does not care which level was used, and runs at the same speed.
+
+## Then code the tokens
+
+LZ77 removes repeated strings. Its output still has statistical bias: some literals are more common than others, short distances are more common than long ones.
+
+So a second stage compresses the tokens with an entropy coder. **DEFLATE**, the format inside gzip, zip and PNG, is LZ77 followed by Huffman coding. It builds one Huffman code for literals and lengths together, another for distances, and sends both tables in front of each block.
+
+| Stage | Removes |
+| --- | --- |
+| LZ77 | repeated strings |
+| Huffman, arithmetic coding or ANS | uneven symbol frequencies |
+
+Nearly every general-purpose compressor has this two-stage shape.
+
+## The family
+
+| Format | Year | Design | Typical use |
+| --- | --- | --- | --- |
+| LZW | 1984 | builds a dictionary of phrases, sends dictionary indexes | GIF, old Unix `compress` |
+| DEFLATE | 1993 | LZ77 with a 32 KB window, then Huffman | gzip, zip, PNG, HTTP |
+| LZMA | 1998 | huge window, range coding | 7z, xz, software archives |
+| LZ4 | 2011 | LZ77 only, byte-aligned tokens, no entropy stage | databases, file systems, memory |
+| Brotli | 2015 | LZ77, context modelling, a built-in dictionary of web text | web assets |
+| Zstandard | 2016 | LZ77 with large window, ANS coding | the modern general default |
+
+The other branch of the family, **LZ78** and its refinement **LZW**, builds an explicit dictionary. Each new phrase is an earlier phrase plus one character, and the output is a list of phrase numbers. Patents on LZW in the 1990s pushed the world towards DEFLATE and prompted the creation of PNG as a replacement for GIF.
+
+The formats trade ratio against speed.
+
+| Compressor | Ratio on text | Compress | Decompress |
+| --- | --- | --- | --- |
+| LZ4 | about 2 | very fast | very fast |
+| Zstandard, default | about 3 | fast | fast |
+| gzip, default | about 3 | moderate | moderate |
+| xz | about 4 | slow | moderate |
+
+LZ4 gives up the entropy stage to gain speed. [Storage engines](/databases/storage-engines/) and [file systems](/operating-systems/file-systems/) use it because compressing a block costs less time than writing the bytes it saves.
+
+## What it cannot compress
+
+A text with no repeats gains nothing. Press "nothing repeats" in the widget: every character is a literal, each literal carries a flag bit, and the output is bigger than the input.
+
+Every compressor must make some inputs larger, as the [entropy](/information/entropy/) page explains. Real formats limit the damage with a "stored" mode that wraps incompressible data in a few bytes of header.
+
+Data that is already compressed, such as JPEG, video or a zip file, has no repeats left to find. Encrypted data looks random and does not compress at all, so compression has to happen before encryption.
+
+<Aside type="warning" title="Compression can leak secrets">
+
+The size of compressed output depends on its content. If an attacker can insert text into a message that also contains a secret, and can see the compressed size, they can test guesses: a guess that matches the secret compresses better, because it becomes a back-reference. The CRIME and BREACH attacks recovered session cookies from encrypted web traffic this way, and TLS dropped its compression feature as a result.
+
+</Aside>
+
+## Costs
+
+<Ops items={[
+  ['Compress', 'O(n)', 'with hashing, constant depends on level'],
+  ['Decompress', 'O(n)', 'memory copies'],
+  ['Memory', 'O(window)', '32 KB to gigabytes'],
+  ['Typical ratio, text', '3 to 4', 'near 1 for compressed or encrypted data'],
+]} />
+
+## Implementation
+
+A compressor that checks every earlier position. It is quadratic and only for reading.
+
+```python
+def lz_encode(text, minimum=3):
+    tokens, i = [], 0
+    while i < len(text):
+        best_length, best_distance = 0, 0
+        for start in range(i):
+            length = 0
+            while i + length < len(text) and text[start + length] == text[i + length]:
+                length += 1
+            if length >= best_length:
+                best_length, best_distance = length, i - start
+        if best_length >= minimum:
+            tokens.append((best_distance, best_length))
+            i += best_length
+        else:
+            tokens.append(text[i])
+            i += 1
+    return tokens
+
+lz_encode('abcabcabcabc')        # ['a', 'b', 'c', (3, 9)]
+```
+
+In practice, call a library.
+
+```python
+import zlib
+
+data = b'she sells sea shells on the sea shore\n' * 1000
+packed = zlib.compress(data)
+
+len(data), len(packed)           # (38000, 302)
+zlib.decompress(packed) == data  # True
+```
+
+## Key takeaways
+
+- LZ77 replaces a repeated string with a reference: how far back to look and how much to copy.
+- It learns the data as it goes and needs no dictionary in advance.
+- A reference may overlap the text it is producing, which encodes runs and repeating patterns.
+- Decompression is a sequence of copies and is very fast. The work is in finding matches, and compression levels trade time for a better search.
+- Real formats follow LZ77 with an entropy coder. DEFLATE is LZ77 plus Huffman coding.
+- Random, compressed and encrypted data do not compress. Compress first, then encrypt.
