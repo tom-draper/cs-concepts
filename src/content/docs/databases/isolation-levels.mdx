@@ -1,0 +1,154 @@
+---
+description: An isolation level sets how much concurrent transactions are allowed to interfere with each other. Stricter levels prevent more kinds of anomaly and cost more in waiting and retries. Most databases default to a level that permits some.
+difficulty: advanced
+---
+
+The ideal form of [isolation](/databases/acid/#isolation) is that transactions behave as if they ran one at a time. Achieving it means making transactions wait for each other, or aborting some and making them retry. Under heavy load that hurts.
+
+So the SQL standard defines four **isolation levels**, each a different point on the trade between correctness and concurrency. The lower levels are faster and allow specific kinds of bad outcome, called **anomalies**. To choose a level you need to know which anomalies each one lets through.
+
+## Dirty read
+
+One transaction reads a change that another has made and not yet committed.
+
+<IsolationDemo anomaly="dirty read" />
+
+At the lowest level, transaction 2 sees a balance of 50. Then transaction 1 rolls back. The value 50 was never part of the database's committed history, yet transaction 2 has it, and may have acted on it.
+
+Dirty reads are almost never acceptable, and every level above the lowest prevents them. Several databases, PostgreSQL among them, do not really implement the lowest level at all.
+
+## Non-repeatable read
+
+A transaction reads the same row twice and gets different answers, because another transaction committed a change in between.
+
+<IsolationDemo anomaly="non-repeatable read" />
+
+Every value read here was properly committed. The trouble is that transaction 2 has seen two different moments in time. A report that totals a column, does some other work, and totals it again would find the two figures disagree.
+
+## Phantom read
+
+A transaction runs the same query twice and gets a different **set of rows**, because another transaction inserted or deleted a row matching the condition.
+
+<IsolationDemo anomaly="phantom" />
+
+This differs from the previous case in a way that matters for how it is prevented. No row that transaction 2 had read was changed. A row appeared that it had no way to lock, because the row did not exist the first time.
+
+## Write skew
+
+Two transactions read the same data, each makes a decision based on what it read, and each writes to a different row. Each is fine alone. Together they break a rule.
+
+A hospital requires at least one doctor to be on call. Alice and Bob are both on call, and both ask to leave at the same moment.
+
+<IsolationDemo anomaly="write skew" />
+
+Each transaction checks that two doctors are on call, concludes it is safe for one to leave, and removes a different doctor. Neither wrote a row the other wrote, so nothing looks like a conflict. Afterwards nobody is on call.
+
+Write skew is the subtlest anomaly, and it gets past every level except the strictest. It appears whenever code follows the pattern "check a condition across several rows, then change one of them": booking the last seat, enforcing a spending limit across accounts, claiming a unique username without a constraint.
+
+## The four levels
+
+| Level | Dirty read | Non-repeatable read | Phantom | Write skew |
+| --- | --- | --- | --- | --- |
+| Read uncommitted | possible | possible | possible | possible |
+| Read committed | prevented | possible | possible | possible |
+| Repeatable read | prevented | prevented | possible in the standard | possible |
+| Serializable | prevented | prevented | prevented | prevented |
+
+**Read uncommitted** offers almost nothing. It is rarely used.
+
+**Read committed** guarantees that everything you read was committed. Each statement sees the data as it stood when that statement started, so two statements in one transaction can see different states. It is the default in PostgreSQL, Oracle and SQL Server.
+
+**Repeatable read** guarantees that a row, once read, will read the same for the rest of the transaction. In most modern databases it is implemented as **snapshot isolation**: the transaction sees the entire database as it stood at one moment. That prevents phantoms too, which goes beyond what the standard requires. It is the default in MySQL.
+
+**Serializable** guarantees that the outcome is the same as running the transactions one at a time in some order. If no serial order could have produced a result, that result cannot happen.
+
+<Aside type="warning" title="The names do not mean the same thing everywhere">
+
+The standard defines levels by the anomalies they forbid, and leaves a good deal open. "Repeatable read" in PostgreSQL is snapshot isolation and prevents phantoms. In MySQL it also prevents most phantoms, by a different mechanism, and allows some lost updates that PostgreSQL would catch. Oracle's "serializable" is really snapshot isolation and allows write skew. Always read the documentation of the database you are using.
+
+</Aside>
+
+## How levels are implemented
+
+There are two families of technique, and most databases mix them.
+
+**Locking.** A transaction takes a shared lock to read and an exclusive lock to write. Readers of a row block writers of it, and writers block readers. Holding all locks until the end of the transaction is **two-phase locking**, which gives serializability. Phantoms are prevented by locking ranges of an index, so a matching row cannot be inserted.
+
+Locking is simple to reason about. Its costs are waiting, since a long report can stall every writer, and [deadlock](/concurrency/deadlock/), when two transactions each hold a lock the other needs. The database detects the cycle and aborts one.
+
+**Multiple versions.** With [MVCC](/databases/mvcc/), a write creates a new version of a row and leaves the old one in place. Readers look at whichever version was current when their snapshot was taken. Readers never block writers and writers never block readers.
+
+| | Locking | Multi-version |
+| --- | --- | --- |
+| A reader and a writer on the same row | one waits | neither waits |
+| Two writers on the same row | one waits | one waits, or one is aborted |
+| Main cost | blocking and deadlocks | storing and cleaning up old versions |
+
+Snapshots do not prevent write skew, since each transaction works from its own internally consistent picture. To be serializable on top of MVCC, PostgreSQL uses **serializable snapshot isolation**. It lets transactions run without blocking, tracks which transactions read data that others then wrote, and aborts one when the pattern could produce a result no serial order allows.
+
+## The cost of strictness
+
+| Level | Typical cost |
+| --- | --- |
+| Read committed | least waiting, fewest aborts |
+| Repeatable read | old row versions kept for longer. Some transactions aborted on write conflicts |
+| Serializable | more waiting, or more aborts, and applications must retry |
+
+At serializable, the database may abort a transaction with a serialization failure at any time, including at `COMMIT`. The application must catch that and run the whole transaction again. Code written with no retry loop will fail in production under load.
+
+```python
+for attempt in range(5):
+    try:
+        with connection.transaction(isolation='serializable'):
+            on_call = count_doctors_on_call()
+            if on_call >= 2:
+                set_off_call('Alice')
+        break
+    except SerializationFailure:
+        continue                    # another transaction got in first: try again
+```
+
+## Working at a lower level
+
+Most applications run at read committed and stay correct by guarding the specific places where it matters.
+
+**Atomic updates.** Let the database do the arithmetic in one statement, instead of reading a value and writing back a result.
+
+```sql
+UPDATE accounts SET balance = balance + 20 WHERE id = 1;
+```
+
+That statement cannot lose an update, because the read and the write are one operation.
+
+**Explicit locks.** `SELECT ... FOR UPDATE` locks the rows it reads until the transaction ends, so nobody else can change them in between.
+
+```sql
+SELECT * FROM doctors WHERE on_call FOR UPDATE;
+```
+
+With that line, the second doctor's transaction waits for the first and then sees only one doctor on call.
+
+**Constraints.** A `UNIQUE` or `CHECK` constraint is enforced by the database whatever the isolation level. It is the most reliable defence, and the one to use wherever the rule can be expressed as a constraint.
+
+**Version columns.** Read a row along with a version number, and update it only if the version is unchanged, checking that a row was actually updated. This is [compare-and-swap](/concurrency/atomics-and-compare-and-swap/) applied to a table, often called **optimistic locking**.
+
+## Choosing
+
+| Situation | Reasonable choice |
+| --- | --- |
+| Most web applications | read committed, with atomic updates and constraints |
+| A report that must be consistent with itself | repeatable read |
+| Money, stock or bookings with rules spanning several rows | serializable, with retries, or explicit locks |
+| Unsure whether an anomaly matters | serializable, and measure |
+
+Starting at serializable and relaxing only where measurement shows a need is the safer direction. Anomalies from weak isolation appear only under concurrent load, are almost impossible to reproduce in testing, and silently corrupt data when they do occur.
+
+## Key takeaways
+
+- An isolation level defines which kinds of interference between concurrent transactions are allowed.
+- A dirty read sees uncommitted data. A non-repeatable read sees a row change. A phantom read sees rows appear. Write skew breaks a rule through two individually valid transactions.
+- Read committed, the commonest default, prevents only dirty reads.
+- Repeatable read is usually implemented as a snapshot and still allows write skew. Only serializable prevents everything.
+- Level names behave differently from one database to another.
+- Stricter levels cost waiting or aborted transactions, and serializable requires the application to retry.
+- At lower levels, atomic updates, `SELECT ... FOR UPDATE` and constraints protect the places that matter.
