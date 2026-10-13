@@ -1,0 +1,95 @@
+---
+// The same two tables joined five ways, with unmatched rows marked.
+import { joinKinds, joinPairs, tables } from '../lib/databases';
+
+const { customers, orders } = tables;
+const first = joinPairs('inner');
+---
+
+<join-demo class="playground join-demo">
+  <div class="columns">
+    <div>
+      <h4>customers</h4>
+      <table class="grid" data-side="left">
+        <thead><tr><th>id</th><th>name</th></tr></thead>
+        <tbody>{customers.rows.map((row) => <tr><td>{row.id}</td><td>{row.name}</td></tr>)}</tbody>
+      </table>
+    </div>
+    <div>
+      <h4>orders</h4>
+      <table class="grid" data-side="right">
+        <thead><tr><th>customer_id</th><th>item</th></tr></thead>
+        <tbody>{orders.rows.map((row) => <tr><td class={row.customer_id === null ? 'null' : ''}>{row.customer_id ?? 'NULL'}</td><td>{row.item}</td></tr>)}</tbody>
+      </table>
+    </div>
+  </div>
+  <p class="tries" role="group" aria-label="Kind of join">
+    {joinKinds.map((kind, i) => <button type="button" data-kind={kind} aria-pressed={i === 0 ? 'true' : 'false'}>{kind.toUpperCase()} JOIN</button>)}
+  </p>
+  <div class="viz-scroll">
+    <table class="grid" data-out="result">
+      <thead><tr><th>customers.id</th><th>name</th><th>customer_id</th><th>item</th></tr></thead>
+      <tbody>{first.map(([i, j]) => <tr><td>{customers.rows[i!].id}</td><td>{customers.rows[i!].name}</td><td>{orders.rows[j!].customer_id}</td><td>{orders.rows[j!].item}</td></tr>)}</tbody>
+    </table>
+  </div>
+  <p class="hint" data-out="status" aria-live="polite">{first.length} rows. An inner join keeps only the pairs that match.</p>
+</join-demo>
+
+<script>
+  import { joinPairs, tables, type JoinKind } from '../lib/databases';
+
+  class JoinDemo extends HTMLElement {
+    connectedCallback() {
+      const { customers, orders } = tables;
+      const about: Record<JoinKind, string> = {
+        inner: 'An inner join keeps only the pairs that match. Alan, Edsger and the desk are left out.',
+        left: 'A left join keeps every customer. Those with no order appear once, with NULL where the order would be.',
+        right: 'A right join keeps every order. The desk has no customer, so the customer columns are NULL.',
+        full: 'A full join keeps every row from both tables, padding with NULL on whichever side has no match.',
+        cross: 'A cross join has no condition. Every customer is paired with every order: 5 × 6 rows.',
+      };
+      const body = this.querySelector('[data-out="result"] tbody')!;
+      const render = (kind: JoinKind) => {
+        const pairs = joinPairs(kind);
+        body.replaceChildren(
+          ...pairs.map(([i, j]) => {
+            const row = document.createElement('tr');
+            const values = [
+              i === null ? null : customers.rows[i].id,
+              i === null ? null : customers.rows[i].name,
+              // A matched order can still hold a NULL of its own.
+              j === null ? null : orders.rows[j].customer_id,
+              j === null ? null : orders.rows[j].item,
+            ];
+            row.append(
+              ...values.map((value) => {
+                const cell = document.createElement('td');
+                cell.textContent = value === null ? 'NULL' : String(value);
+                if (value === null) cell.className = 'null';
+                return cell;
+              }),
+            );
+            return row;
+          }),
+        );
+        // Mark source rows that found no partner.
+        const mark = (side: string, used: Set<number | null>) =>
+          this.querySelectorAll(`[data-side="${side}"] tbody tr`).forEach((row, index) => row.classList.toggle('seen', kind !== 'cross' && !used.has(index)));
+        const matched = joinPairs('inner');
+        mark('left', new Set(matched.map(([i]) => i)));
+        mark('right', new Set(matched.map(([, j]) => j)));
+        for (const button of this.querySelectorAll<HTMLElement>('[data-kind]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.kind === kind));
+        }
+        this.querySelector('[data-out="status"]')!.textContent = `${pairs.length} rows. ${about[kind]}`;
+      };
+      this.addEventListener('click', (event) => {
+        const kind = (event.target as HTMLElement).closest<HTMLElement>('[data-kind]')?.dataset.kind;
+        if (kind) render(kind as JoinKind);
+      });
+      render('inner');
+    }
+  }
+
+  customElements.define('join-demo', JoinDemo);
+</script>

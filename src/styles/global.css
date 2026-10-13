@@ -3018,3 +3018,182 @@ main {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+/* ---------- Database widgets ---------- */
+
+.playground table.grid {
+  width: auto;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.grid th {
+  padding: 0.2rem 1rem 0.3rem 0.5rem;
+  border-bottom: 1.5px solid var(--viz-stroke);
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.playground .grid td {
+  padding: 0.2rem 1rem 0.2rem 0.5rem;
+  color: var(--text);
+  font: 0.84rem var(--mono);
+  white-space: nowrap;
+}
+
+.playground .grid td.null {
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.grid tr.seen td {
+  background: var(--alt-soft);
+}
+
+.grid tr.hit td {
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.grid.stale {
+  opacity: 0.4;
+}
+
+.playground section .viz-scroll,
+.sql-demo .viz-scroll,
+.join-demo .viz-scroll,
+.mvcc-demo .viz-scroll {
+  margin-top: 0.9rem;
+  text-align: left;
+}
+
+.playground textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 0.9rem/1.5 var(--mono);
+  resize: vertical;
+}
+
+.sql-demo .columns {
+  margin-bottom: 0.9rem;
+}
+
+.join-demo .tries,
+.index-demo .columns {
+  margin-top: 0.9rem;
+}
+
+.lsm-levels {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.lsm-levels > div {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+}
+
+.lsm-levels > div:first-child {
+  border-style: dashed;
+}
+
+.lsm-levels .searched {
+  border-color: var(--alt);
+}
+
+.slots i.hit {
+  border-width: 2px;
+  font-weight: 800;
+}
+
+.wal-demo .columns {
+  margin-top: 0.9rem;
+}
+
+.wal-demo .slots {
+  margin-bottom: 0.8rem !important;
+}
+
+.wal-demo .listing {
+  min-height: 6rem;
+}
+
+.listing li.pending {
+  border-left: 2px dashed var(--alt);
+  color: var(--text-2);
+}
+
+.listing li.durable {
+  border-left: 2px solid var(--accent);
+}
+
+.listing li.none {
+  color: var(--text-3);
+  list-style: none;
+}
+
+.schedule {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 1rem;
+  margin-top: 0.9rem;
+}
+
+.schedule p {
+  margin: 0 !important;
+  padding: 0.3rem 0.5rem;
+  border-left: 3px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.schedule [data-tx='1'] {
+  grid-column: 1;
+}
+
+.schedule [data-tx='2'] {
+  grid-column: 2;
+}
+
+.schedule code {
+  padding: 0;
+  border: 0;
+  background: none;
+  overflow-wrap: anywhere;
+}
+
+.schedule b {
+  display: block;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
+.schedule .later {
+  visibility: hidden;
+}
+
+.schedule .now {
+  border-left-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.isolation-demo .frame-caption {
+  min-height: 5.5em;
+}
+
+.plan-demo .readouts dt {
+  min-width: 9rem;
+}

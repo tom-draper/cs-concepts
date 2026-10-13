@@ -1,5 +1,13 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import IndexDemo from './IndexDemo.astro';
+import IsolationDemo from './IsolationDemo.astro';
+import JoinDemo from './JoinDemo.astro';
+import LsmDemo from './LsmDemo.astro';
+import MvccDemo from './MvccDemo.astro';
+import PlanDemo from './PlanDemo.astro';
+import SqlDemo from './SqlDemo.astro';
+import WalDemo from './WalDemo.astro';
 import CdnDemo from './CdnDemo.astro';
 import CongestionDemo from './CongestionDemo.astro';
 import HttpDemo from './HttpDemo.astro';
@@ -73,6 +81,14 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  IndexDemo,
+  IsolationDemo,
+  JoinDemo,
+  LsmDemo,
+  MvccDemo,
+  PlanDemo,
+  SqlDemo,
+  WalDemo,
   CdnDemo,
   CongestionDemo,
   HttpDemo,

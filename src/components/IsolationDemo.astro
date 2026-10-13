@@ -1,0 +1,70 @@
+---
+// Two transactions interleaved, replayed at each isolation level to show
+// which anomalies that level lets through.
+import Controls from './Controls.astro';
+import { anomalies, isolationLevels, type AnomalyName } from '../lib/databases';
+
+interface Props {
+  anomaly?: AnomalyName;
+}
+
+const { anomaly: name = 'dirty read' } = Astro.props;
+const anomaly = anomalies[name];
+---
+
+<isolation-demo class="playground isolation-demo" data-anomaly={name} tabindex="0" role="group" aria-label={`${anomaly.title} step-through`}>
+  <p class="tries" role="group" aria-label="Isolation level">
+    {isolationLevels.map((level, i) => <button type="button" data-level={i} aria-pressed={i === 0 ? 'true' : 'false'}>{level}</button>)}
+  </p>
+  <div class="schedule">
+    <h4>Transaction 1</h4>
+    <h4>Transaction 2</h4>
+    {
+      anomaly.steps.map((step) => (
+        <p data-step data-tx={step.tx}><code>{step.sql}</code><b data-out="result"></b></p>
+      ))
+    }
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">Time runs downwards. Step through, then change the isolation level.</p>
+  <Controls />
+</isolation-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { anomalies, atLevel, isolationLevels, type Anomaly, type AnomalyName } from '../lib/databases';
+
+  class IsolationDemo extends HTMLElement {
+    connectedCallback() {
+      const anomaly: Anomaly = anomalies[this.dataset.anomaly as AnomalyName];
+      const rows = [...this.querySelectorAll<HTMLElement>('[data-step]')];
+      const note = this.querySelector('[data-out="note"]')!;
+      let level = 0;
+      let at = 0;
+      const render = (index: number) => {
+        at = index;
+        rows.forEach((row, i) => {
+          row.classList.toggle('later', i > index);
+          row.classList.toggle('now', i === index);
+          const result = atLevel(anomaly.steps[i].result, level);
+          row.querySelector('[data-out="result"]')!.textContent = result ? `→ ${result}` : '';
+        });
+        const last = index === rows.length - 1;
+        const outcome = atLevel(anomaly.outcome, level)!;
+        note.textContent = last ? outcome.replace(/^!/, '') : `At ${isolationLevels[level]}. Keep stepping.`;
+        note.classList.toggle('bad', last && outcome.startsWith('!'));
+        note.classList.toggle('good', last && !outcome.startsWith('!'));
+      };
+      const stepper = attachStepper(this, { count: () => rows.length, interval: 1800, render });
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLElement>('[data-level]');
+        if (!button) return;
+        level = Number(button.dataset.level);
+        for (const each of this.querySelectorAll<HTMLElement>('[data-level]')) each.setAttribute('aria-pressed', String(each === button));
+        // Show the verdict for the new level straight away.
+        stepper.go(Math.max(at, rows.length - 1));
+      });
+    }
+  }
+
+  customElements.define('isolation-demo', IsolationDemo);
+</script>
