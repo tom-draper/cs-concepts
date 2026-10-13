@@ -1,0 +1,178 @@
+---
+description: A closure is a function bundled with the variables it uses from the place where it was defined. It keeps those variables alive after the surrounding code has finished, which is what makes callbacks, private state and functional programming work.
+difficulty: intermediate
+---
+
+A function defined inside another function can use the outer function's variables. That seems unremarkable until the inner function is returned, stored or passed elsewhere, and is called after the outer function has finished. Its local variables should be gone.
+
+They are not. The inner function carries them with it. A function together with the variables it has captured is a **closure**.
+
+## A function that remembers
+
+`makeCounter` creates a variable and returns a function that increments it. It is called twice here, giving two closures.
+
+<ClosureDemo />
+
+Two things are happening.
+
+**The variable outlives the call.** `makeCounter` returned long ago, yet `count` is still there, and each call to `a()` finds it one higher. Ordinarily a local variable lives in the function's [stack frame](/foundations/stack-and-heap/), which is discarded on return. A captured variable has to be kept somewhere that lasts.
+
+**Each call creates a fresh variable.** `a` and `b` share the same code and do not share a `count`. Every call to `makeCounter` made a new variable, and each closure holds the one that existed when it was created.
+
+So a closure has two parts: a pointer to the code, and an **environment** holding the captured variables.
+
+## Lexical scope
+
+Which variables can a function see? In almost every modern language the answer is given by **lexical scope**: a function can use the variables that are visible where it is written in the source, working outwards through the enclosing blocks.
+
+```js
+const greeting = 'Hello';
+
+function makeGreeter(name) {
+  return function () {
+    return greeting + ', ' + name;      // sees name and greeting
+  };
+}
+
+const greetAda = makeGreeter('Ada');
+greetAda();                              // 'Hello, Ada'
+```
+
+The inner function mentions `name`, which belongs to `makeGreeter`, and `greeting`, which belongs to the file. The term for a variable that is used in a function but defined outside it is a **free variable**. A closure is said to "close over" its free variables, which is where the name comes from.
+
+What matters is where the function was **defined**. Where it is eventually called from makes no difference. `greetAda` could be passed to another module and called from code that has its own, different `name`, and it would still say Ada.
+
+## How it is implemented
+
+When a compiler sees a function that uses variables from an enclosing function, it arranges for those variables to be stored on the heap, and gives the inner function a hidden pointer to them.
+
+The effect is as if the compiler had rewritten the closure as an object with one method.
+
+```python
+def make_counter():
+    count = 0
+    def increment():
+        nonlocal count
+        count += 1
+        return count
+    return increment
+```
+
+```python
+class Counter:
+    def __init__(self):
+        self.count = 0            # the environment
+    def __call__(self):           # the code
+        self.count += 1
+        return self.count
+```
+
+These behave identically. The saying is that a closure is a poor man's object, and an object is a poor man's closure. Both are code attached to data.
+
+Because environments are heap allocations whose lifetime cannot be read off the source, closures fit most easily in languages with [garbage collection](/languages/garbage-collection/). The environment is kept for as long as any closure refers to it and collected afterwards.
+
+## What closures are used for
+
+**Callbacks.** Code to run later needs data from now.
+
+```js
+function watch(button, label) {
+  let clicks = 0;
+  button.addEventListener('click', () => {
+    clicks += 1;
+    console.log(`${label} clicked ${clicks} times`);
+  });
+}
+```
+
+`watch` returns immediately. The handler runs seconds or hours later, and still has `label` and `clicks`. Every event handler, timer and [promise](/concurrency/async-await/) callback relies on this.
+
+**Private state.** The counter's `count` cannot be read or changed from outside. There is no syntax that reaches it. A closure gives data hiding without classes, and for years this was the standard way to make private variables in JavaScript.
+
+**Customising behaviour.** Functions such as `map`, `filter` and `sort` take a function as an argument, and that function usually needs something from its surroundings.
+
+```python
+def cheaper_than(limit):
+    return lambda item: item.price < limit
+
+bargains = filter(cheaper_than(10), items)
+```
+
+**Functions that build functions.** Partial application, decorators, middleware and memoisation all return a closure that wraps another function and remembers some settings.
+
+```python
+def memoise(function):
+    cache = {}
+    def wrapper(n):
+        if n not in cache:
+            cache[n] = function(n)
+        return cache[n]
+    return wrapper
+```
+
+The `cache` belongs to one wrapped function and persists between calls. This is the technique behind top-down [dynamic programming](/algorithms/dynamic-programming/).
+
+## Capturing variables, not values
+
+A closure in JavaScript or Python captures the **variable itself**. It does not take a copy of the value. If the variable changes later, the closure sees the change.
+
+That is what makes the counter work, and it is also the source of the best-known closure bug.
+
+```python
+functions = []
+for i in range(3):
+    functions.append(lambda: i)
+
+[f() for f in functions]        # [2, 2, 2], not [0, 1, 2]
+```
+
+There is one variable `i`, shared by all three closures. By the time any of them is called the loop has finished and `i` is 2.
+
+The fix is to give each closure its own variable. In Python the usual idiom is a default argument, which is evaluated at the moment the function is created.
+
+```python
+functions.append(lambda i=i: i)     # [0, 1, 2]
+```
+
+JavaScript had the same problem with `var`, and it is one of the reasons `let` was introduced: a loop variable declared with `let` is created afresh for each iteration.
+
+Languages differ on this point, and it is worth knowing which rule applies.
+
+| Language | A closure captures |
+| --- | --- |
+| JavaScript, Python, Ruby | the variable, by reference |
+| Java | a copy, and the variable must never be reassigned |
+| C++ | whichever the programmer writes: `[=]` copies, `[&]` refers |
+| Rust | by reference by default, or by taking ownership with `move` |
+| Go | the variable, by reference |
+
+## Lifetimes and leaks
+
+A closure keeps its whole environment alive, for as long as the closure itself is reachable.
+
+```js
+function setup() {
+  const hugeBuffer = new Uint8Array(100_000_000);
+  const summary = summarise(hugeBuffer);
+  window.addEventListener('resize', () => console.log(summary));
+}
+```
+
+The handler only uses `summary`. Whether `hugeBuffer` is also kept depends on how carefully the engine works out what the closure needs. And the handler itself is held by the window until it is removed. Forgotten event listeners and timers that hold closures are the commonest cause of memory leaks in garbage-collected programs.
+
+In languages without a garbage collector the danger runs the other way. A C++ lambda that captures a local variable by reference and is called after the function returns is using a variable that no longer exists. Rust's [borrow checker](/languages/ownership-and-borrowing/) rejects that program at compile time.
+
+## Where the idea comes from
+
+Closures are the [lambda calculus](/theory/lambda-calculus/) made practical. In that system a function of two arguments is a function that returns a function, and the inner one has to remember the first argument. Scheme, in 1975, was the first language to implement lexically scoped closures fully.
+
+For decades they were regarded as an academic feature. JavaScript made them ordinary, and Java, C++, C#, Swift and nearly every other mainstream language has since added them.
+
+## Key takeaways
+
+- A closure is a function plus an environment holding the variables it uses from its enclosing scope.
+- Captured variables live on after the function that created them has returned.
+- Each call to the outer function creates a new environment, so closures made by separate calls do not share state.
+- Under lexical scope, a function sees the variables in place where it was defined, wherever it is called from.
+- In many languages closures capture variables, not snapshots of their values, which causes the classic bug with closures created in a loop.
+- A closure keeps its captured variables alive, which is useful and is also a common cause of memory leaks.
