@@ -1,0 +1,130 @@
+---
+description: Write-ahead logging makes a database survive crashes. Every change is first appended to a log on disk, and only afterwards applied to the data files, so that after a failure the log can be replayed to restore everything that was committed.
+difficulty: advanced
+---
+
+A database keeps its working data in memory, because disk is slow. Changes are made to pages in memory and written back to the data files some time later. If the power fails in between, those changes are gone.
+
+Worse, a transaction usually changes several pages. A crash that catches one written and another not leaves the data in a state that never should have existed: money taken from one account and not added to the other.
+
+The obvious cure, writing every changed page to disk before confirming each transaction, is far too slow. **Write-ahead logging**, or WAL, gets the same safety with much less work.
+
+## The rule
+
+> Before a change is made to a data page on disk, a record describing that change must be on disk in the log.
+
+The log is a file that is only ever appended to. Each record says which transaction made a change, what was changed, and the old and new values. To commit a transaction, the database appends a commit record and forces the log to disk. Then, and only then, it tells the client "done".
+
+The data pages themselves can be written whenever is convenient. If the machine dies first, the log has everything needed to redo the work.
+
+## Try to lose data
+
+Run a transfer, commit it, and crash the machine at various points.
+
+<WalDemo />
+
+Some experiments worth trying:
+
+- **Transfer, then crash.** The transaction never committed. Its log records were still in memory, and it disappears without trace.
+- **Transfer, commit, then crash.** The data pages on disk were never updated. Recovery reads the log and redoes both changes. The committed transfer survives.
+- **Transfer, checkpoint, then crash.** Uncommitted changes reached the data files. Recovery finds no commit record for them and undoes both.
+
+In no case is a committed transfer lost, and in no case does half a transfer survive.
+
+## Why a log is faster
+
+It looks like more work: every change is written twice, once to the log and once to the data file. The gain is in what kind of writing it is.
+
+| | Writing data pages | Appending to the log |
+| --- | --- | --- |
+| Pattern | random: pages scattered across the file | sequential: always at the end |
+| Amount | a whole page, even for a small change | only a description of the change |
+| When | must be forced at commit without a log | forced at commit |
+
+A transaction that touches ten pages would otherwise need ten random writes of several kilobytes each before it could be confirmed. With a log it needs one sequential write of a few hundred bytes. [Storage devices](/architecture/storage-devices/) handle sequential appends far faster than scattered writes.
+
+The data pages still get written eventually. But that happens in the background, in batches, and a page changed a hundred times is written once.
+
+## Forcing data to disk
+
+"On disk" needs care. When a program writes to a file, the operating system normally keeps the data in its own memory cache and writes it out later. A crash loses it.
+
+To be sure, the database calls `fsync`, a [system call](/operating-systems/system-calls/) that does not return until the device reports the data is safely stored. This is the slow step in a commit, and the whole durability guarantee rests on it being honest. Storage hardware that reports success before the data is really safe has caused genuine data loss.
+
+Since `fsync` is expensive, databases share it. If twenty transactions are ready to commit at about the same moment, their commit records are written together and made durable with a single `fsync`. This is **group commit**, and it is why a busy database can commit far more transactions per second than its disk can do separate flushes.
+
+## Recovery
+
+After a crash, the database cannot trust its data files. Some hold changes from transactions that never committed. Others lack changes from transactions that did. Recovery reads the log and repairs both.
+
+The standard method, known as ARIES, works in three passes.
+
+| Pass | Direction | Does |
+| --- | --- | --- |
+| Analysis | forwards from the last checkpoint | works out which transactions were in progress and which pages might be out of date |
+| Redo | forwards | repeats every logged change that is not yet in the data files |
+| Undo | backwards | reverses the changes of every transaction that never committed |
+
+Redo repeats history for everything, committed or not, to bring the data files to exactly the state they were in at the crash. Undo then removes the uncommitted work. Each has its own kind of information in the log record.
+
+| Information | Used by | Provides |
+| --- | --- | --- |
+| The new value | redo | [durability](/databases/acid/): committed changes are restored |
+| The old value | undo | [atomicity](/databases/acid/): uncommitted changes are removed |
+
+How does recovery know whether a change is already in a page? Every log record has a number, the **log sequence number** or LSN, and every page records the LSN of the last change applied to it. A record is redone only if its number is higher than the page's. That makes redo **idempotent**: if the machine crashes again in the middle of recovery, running recovery a second time gives the same result.
+
+## Checkpoints
+
+Left alone, the log would grow for ever and recovery would have to replay it from the beginning.
+
+A **checkpoint** writes the dirty pages in memory to the data files and notes the position in the log. Everything before that point is now reflected in the data files, so recovery can start from there, and older log files can be deleted or archived.
+
+In the widget, commit a transfer and then checkpoint. The log empties, because nothing in it is needed any longer.
+
+Checkpoints are a trade-off.
+
+| Checkpoints | Recovery | Normal running |
+| --- | --- | --- |
+| Frequent | fast, with little log to replay | more page writes, which compete with queries |
+| Rare | slow | smoother, but more log kept |
+
+Real checkpoints are spread out over time to avoid a burst of writing.
+
+## Torn pages
+
+A page is several kilobytes and a disk writes in smaller units. If power fails while a page is being written, the page on disk may be half new and half old, which is called a **torn page**. A log record that describes only a small change cannot repair a page in that state.
+
+Databases defend against this in different ways. PostgreSQL writes the full contents of a page to the log the first time it is changed after each checkpoint. InnoDB writes pages first to a separate area and then to their real location, so one of the two copies is always intact. Checksums on every page detect the damage.
+
+## The log as the source of truth
+
+Once every change flows through an ordered log, the log becomes useful for much more than recovery. In a sense the log is the database, and the tables are a convenient view of it.
+
+**Replication.** Send the log to another machine and have it apply the same records. It becomes an exact copy. This is how most databases keep [replicas](/distributed-systems/replication/).
+
+**Point-in-time recovery.** Keep a backup and all the log since. Restore the backup and replay the log up to any chosen moment, such as one second before somebody dropped a table.
+
+**Change data capture.** Other systems read the log to learn what changed, to update a search index, a cache or a data warehouse.
+
+The pattern reaches well beyond relational databases. [LSM](/databases/storage-engines/#lsm-engines-never-update-in-place) engines log each write before putting it in the memtable. [File systems](/operating-systems/file-systems/) keep a journal for the same reason. [Consensus](/distributed-systems/raft/) protocols replicate a log between machines. Message systems such as Kafka are little more than a log.
+
+## The cost
+
+| Cost | Detail |
+| --- | --- |
+| Data written twice | once to the log and once to the data file |
+| Commit latency | every commit waits for an `fsync`, softened by group commit |
+| Log space | until checkpoints allow it to be recycled |
+| Recovery time | proportional to the log since the last checkpoint |
+
+Some systems let the wait at commit be relaxed, confirming the transaction before the log is flushed. Throughput rises, and the last few milliseconds of confirmed transactions can be lost in a crash. That is a deliberate trade of durability for speed, sometimes acceptable for data that can be regenerated.
+
+## Key takeaways
+
+- With write-ahead logging, a description of each change reaches the disk in a log before the change reaches the data files.
+- A transaction is committed when its commit record is durably in the log. The data pages can be written later.
+- It is faster than writing pages directly, because the log is small and sequential while page writes are large and random.
+- After a crash, recovery redoes logged changes that are missing from the data files and undoes the changes of transactions that never committed.
+- Checkpoints flush pages and bound how much log must be kept and replayed.
+- The same log drives replication, point-in-time recovery and change capture.
