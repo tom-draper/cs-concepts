@@ -1,0 +1,139 @@
+---
+description: A pushdown automaton is a finite automaton with a stack. That one addition lets it match nested structure, and it is exactly the machine needed to recognise the languages of context-free grammars.
+difficulty: intermediate
+---
+
+A [finite automaton](/theory/finite-automata/) cannot check that brackets balance, because it has nowhere to record how many are open. Give it one extra piece of equipment, a [stack](/data-structures/stacks/), and the problem becomes easy.
+
+A **pushdown automaton**, or PDA, is that machine: a finite set of states, plus a stack it can push symbols onto and pop them from. It can only ever see the top of the stack. The name comes from the spring-loaded stacks of plates in a canteen, where pushing a plate on makes the rest sink.
+
+## Matching brackets
+
+This machine accepts strings in which every bracket is closed by one of the same kind, in the right order. Step through it, then try the inputs that fail.
+
+<PdaDemo />
+
+The rule is short.
+
+- On an opening bracket, push it.
+- On a closing bracket, look at the top of the stack. If it is the matching opener, pop it. Otherwise reject.
+- At the end of the input, accept only if the stack is empty.
+
+The stack holds exactly the brackets that are open and not yet closed, with the most recent on top. A closing bracket must match the most recent opener, which is the one place the machine can look. Nested structure and a stack fit each other because both are last in, first out.
+
+The three failing inputs fail in three different ways. `(]` closes with the wrong kind. `())` closes with nothing open. `(()` reaches the end with something still on the stack.
+
+## How a move is chosen
+
+A finite automaton chooses its next state from two things: the current state and the input symbol. A pushdown automaton chooses from three, and does two things in response.
+
+| A move depends on | A move does |
+| --- | --- |
+| the current state | change state |
+| the next input symbol, or nothing | replace the top of the stack with zero or more symbols |
+| the symbol on top of the stack | |
+
+Replacing the top with nothing is a pop. Replacing it with itself plus one more symbol is a push. A move written `0, X → XX` reads a `0` with `X` on top and leaves two `X`s there.
+
+The states still matter. Here is a machine for "some 0s, then the same number of 1s", the language that defeats every finite automaton.
+
+| State | Reads | Top of stack | Does | Goes to |
+| --- | --- | --- | --- | --- |
+| counting | `0` | anything | push `X` | counting |
+| counting | `1` | `X` | pop | matching |
+| matching | `1` | `X` | pop | matching |
+| matching | end of input | empty | accept | |
+
+The stack does the counting, one `X` per `0`. The state records which half of the input the machine is in, so a `0` that arrives after a `1` finds no move and the string is rejected. On `0011` the stack grows to two `X`s, shrinks to none, and the machine accepts. On `001` one `X` is left over. On `011` the second `1` finds an empty stack.
+
+## The same power as grammars
+
+Pushdown automata recognise exactly the languages that [context-free grammars](/theory/context-free-grammars/) generate. Each can be converted into the other.
+
+Going from a grammar to a machine is the direction that matters in practice. The stack holds the parts of the string the machine still expects to see. It starts with the start symbol. When a nonterminal is on top, the machine replaces it with the right side of one of its rules. When a terminal is on top, the machine checks that it matches the next input symbol and pops it.
+
+Take the bracket grammar `S → ( S ) S | ε` and the input `()`.
+
+| Stack, top first | Input left | Move |
+| --- | --- | --- |
+| `S` | `()` | replace `S` with `( S ) S` |
+| `( S ) S` | `()` | match `(` |
+| `S ) S` | `)` | replace `S` with nothing |
+| `) S` | `)` | match `)` |
+| `S` | | replace `S` with nothing |
+| empty | | accept |
+
+This is a parser. The sequence of rules it applied is a derivation of the string, and so a description of its parse tree.
+
+## Guessing matters here
+
+For finite automata, nondeterminism was a convenience. Every nondeterministic machine had a deterministic equal. For pushdown automata that is no longer true.
+
+Consider palindromes of even length over `a` and `b`, such as `abba`. A machine can push the first half and then pop while matching the second half. But it has to switch from pushing to popping at the exact middle, and nothing in the input marks the middle.
+
+A nondeterministic PDA guesses. At every position it tries both "keep pushing" and "the middle is here", and accepts if any guess works out. A deterministic PDA must commit, and it can be shown that no deterministic machine accepts this language.
+
+| | Nondeterministic adds power? |
+| --- | --- |
+| Finite automata | no |
+| Pushdown automata | yes |
+| [Turing machines](/theory/turing-machines/) | no |
+
+Add a marker to the language, so the strings look like `ab#ba`, and a deterministic machine handles it easily: push until the `#`, then pop.
+
+That observation shapes real languages. Programming language syntax is designed to be **deterministic context-free**, so that a parser never has to guess and can run in a single pass. Keywords, brackets and semicolons are the markers that make it possible.
+
+## What one stack cannot do
+
+A stack can be used once. Popping to check a count destroys the count.
+
+The language "n 0s, then n 1s, then n 2s" needs the count twice, once against the 1s and again against the 2s. After matching the 1s the stack is empty and the number is gone. No pushdown automaton accepts it.
+
+For the same reason a PDA cannot check that a string is some text followed by the same text again, like `abcabc`. The stack would return the first half in reverse, and it is needed forwards.
+
+Give the machine a second stack and both problems disappear. In fact everything becomes possible: two stacks can act as the two halves of a tape, one on each side of a read head, and that is a [Turing machine](/theory/turing-machines/).
+
+| Machine | Memory | Recognises |
+| --- | --- | --- |
+| Finite automaton | a state | regular languages |
+| Pushdown automaton | a state and one stack | context-free languages |
+| Two-stack machine | a state and two stacks | everything a computer can |
+
+## Implementation
+
+In code, a deterministic pushdown automaton is a loop, a stack and a few rules. The bracket checker is the one from the widget.
+
+```python
+PAIRS = {')': '(', ']': '[', '}': '{'}
+
+def balanced(text):
+    stack = []
+    for symbol in text:
+        if symbol in PAIRS.values():
+            stack.append(symbol)                 # an opener: push
+        elif symbol in PAIRS:
+            if not stack or stack.pop() != PAIRS[symbol]:
+                return False                     # wrong partner, or none
+    return not stack                             # nothing left open
+```
+
+It runs in O(n) time. The stack can grow as deep as the nesting, which is O(n) space in the worst case and usually far less.
+
+## Where they are used
+
+**Parsers.** The parsers produced by tools such as Yacc and Bison are deterministic pushdown automata. They are driven by a table of moves, with an explicit stack of states. A hand-written recursive descent [parser](/languages/parsing/) is one too, with the program's own call stack in the role of the pushdown stack.
+
+**The call stack.** A running program that calls functions is behaving like a pushdown automaton. Each call pushes a frame, and each return pops one. That is covered on the [stack and heap](/foundations/stack-and-heap/) page.
+
+**Checking nested formats.** Validating that XML tags close in order, that JSON brackets match, or that every `begin` has an `end` is the bracket machine with a larger alphabet.
+
+**Expression evaluation.** Evaluating arithmetic with operator precedence uses a stack of pending operators, an idea from the shunting-yard algorithm.
+
+## Key takeaways
+
+- A pushdown automaton is a finite automaton plus a stack, of which it sees only the top.
+- The stack lets it match things in nested pairs, which a finite automaton cannot do.
+- Pushdown automata and context-free grammars describe the same languages.
+- Unlike finite automata, nondeterministic pushdown automata are strictly more powerful than deterministic ones. Programming languages are designed to need only the deterministic kind.
+- One stack cannot keep two counts in step or compare text in its original order.
+- A second stack makes the machine as powerful as a Turing machine.
