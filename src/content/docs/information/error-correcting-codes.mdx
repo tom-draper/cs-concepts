@@ -1,0 +1,186 @@
+---
+description: An error-correcting code adds structured redundancy to data so that the receiver can locate and repair damaged bits without asking for them again. Hamming codes fix single bit flips, and their descendants protect memory, disks, QR codes and every wireless link.
+difficulty: advanced
+---
+
+A [checksum](/information/checksums/) tells the receiver that data was damaged. The usual response is to ask for it again.
+
+Sometimes there is nobody to ask. A space probe's signal takes hours to arrive. A scratched disc has only the bits pressed into it. A memory cell that flipped has no other copy. A live video call cannot wait for a resend.
+
+An **error-correcting code** adds enough extra information that the receiver can work out what was sent, despite the damage. This is called **forward error correction**.
+
+## Say it three times
+
+The obvious code repeats every bit three times. To send `1`, send `111`. The receiver takes a majority vote.
+
+| Received | Decoded as | |
+| --- | --- | --- |
+| `111` | 1 | no error |
+| `101` | 1 | one flip, corrected |
+| `001` | 0 | two flips, decoded wrongly |
+
+It corrects any single flip in each group of three. It also triples the size of the data, and its **rate**, the share of transmitted bits that are data, is one third.
+
+The question that started the field was whether correction could be had for less.
+
+## Distance
+
+Every code is a set of allowed bit patterns, called **codewords**. The repetition code has two: `000` and `111`.
+
+The **Hamming distance** between two patterns is the number of positions where they differ. `000` and `111` are at distance 3.
+
+What a code can do depends on the smallest distance between any two of its codewords.
+
+| Minimum distance | Can detect | Can correct |
+| --- | --- | --- |
+| 1 | nothing | nothing |
+| 2 | 1 flipped bit | nothing |
+| 3 | 2 flipped bits | 1 flipped bit |
+| 4 | 3 flipped bits | 1, while still detecting 2 |
+| 5 | 4 flipped bits | 2 flipped bits |
+
+The reasoning is geometric. An error moves the received pattern away from the codeword that was sent, one step for each flipped bit. The receiver corrects by choosing the nearest codeword. If codewords are at least 3 apart, a pattern one step from the right codeword is at least two steps from every other, so the nearest is the right one.
+
+A parity bit gives distance 2: detection only. The design problem is to pack as many codewords as possible into n bits while keeping them far apart.
+
+## The Hamming code
+
+Richard Hamming worked at Bell Labs in the late 1940s on a machine that read its programs from punched tape and simply stopped when it detected an error. After losing weekend runs to this, he asked why a machine that could tell there was an error could not also find it. His answer protects four data bits with three check bits.
+
+<HammingDemo />
+
+The seven positions are numbered 1 to 7. Positions 1, 2 and 4, the powers of two, hold **parity bits**. Positions 3, 5, 6 and 7 hold the data.
+
+Each parity bit covers the positions whose number, written in [binary](/foundations/number-systems/), has that parity bit's digit set.
+
+| Position | Binary | Checked by |
+| --- | --- | --- |
+| 1 | 001 | p1 |
+| 2 | 010 | p2 |
+| 3 | 011 | p1 and p2 |
+| 4 | 100 | p4 |
+| 5 | 101 | p1 and p4 |
+| 6 | 110 | p2 and p4 |
+| 7 | 111 | p1, p2 and p4 |
+
+Each parity bit is set so that the positions it covers contain an even number of 1s.
+
+Every position is checked by a different combination of parity bits. That is the whole trick. When one bit flips, exactly the checks that cover it fail, and the pattern of failures spells the position in binary.
+
+Click position 5 in the widget. Checks p1 and p4 fail, and p2 passes. Add up the failed checks: 1 + 4 = 5. The receiver flips position 5 back. The total is called the **syndrome**. A syndrome of 0 means no error was found.
+
+It works for parity bits too. Flip position 2 and only p2 fails, so the syndrome is 2.
+
+## Its limits
+
+Now flip two bits. The checks still fail in some pattern, the pattern still names a position, and the receiver confidently flips a third bit. The result is a valid codeword and the wrong data.
+
+The code has minimum distance 3, so it corrects one error and is defeated by two.
+
+Adding one more parity bit over all seven positions raises the distance to 4. This is **SECDED**: single error correction, double error detection. If the syndrome is nonzero but the overall parity looks right, two bits must have flipped, and the receiver reports an uncorrectable error instead of making things worse.
+
+Hamming codes get more efficient as they get longer, because r check bits can name 2ʳ − 1 positions.
+
+| Check bits | Data bits | Total | Rate |
+| --- | --- | --- | --- |
+| 3 | 4 | 7 | 57% |
+| 4 | 11 | 15 | 73% |
+| 5 | 26 | 31 | 84% |
+| 6 | 57 | 63 | 90% |
+| 7, plus 1 overall | 64 | 72 | 89% |
+
+The last row is **ECC memory**, used in servers. Each 64-bit word is stored in 72 bits. A single flipped bit is corrected silently on every read, and a double flip raises a machine check instead of returning bad data.
+
+## Bursts and erasures
+
+Hamming codes handle isolated bit flips. Real damage often comes in runs: a scratch, a burst of radio interference, a whole failed disk.
+
+**Reed-Solomon codes** work on symbols of several bits, typically bytes, and treat the data as the coefficients of a polynomial. The sender evaluates the polynomial at extra points and sends those values too. Any k of the n values are enough to recover a polynomial with k coefficients, in the same way that two points fix a line.
+
+With 2t extra symbols, a Reed-Solomon code corrects t damaged symbols at unknown positions, or 2t at known positions. A missing symbol whose position is known is an **erasure**, and it is easier to fix than an error, since half the work is already done.
+
+A burst that wipes out 8 bits in a row damages at most two bytes, which makes these codes good against bursts.
+
+| Use | What the code survives |
+| --- | --- |
+| CDs and DVDs | scratches several millimetres long |
+| QR codes | 7% to 30% of the pattern missing, by level |
+| RAID 6 | any two failed disks |
+| Cloud object storage | several lost servers, at about 1.5 times storage instead of 3 |
+| Deep-space probes | very weak signals |
+
+Storage systems call this **erasure coding**. Splitting an object into 10 data pieces and 4 parity pieces survives any four losses with 40% overhead, where keeping three full [replicas](/distributed-systems/replication/) survives two losses with 200%.
+
+**Interleaving** helps any code with bursts. Shuffle the bits of many codewords together before sending. A burst then lands as one flipped bit in each of many codewords, which each can correct.
+
+## Approaching the limit
+
+Shannon proved in 1948 that every noisy channel has a **capacity**. At any rate below it, codes exist that make errors as rare as you like. He proved they exist without showing how to build one.
+
+It took fifty years. **Turbo codes** in 1993, and **LDPC codes**, invented in 1960 and rediscovered in the 1990s, get within a fraction of a decibel of the limit. They use very long blocks and decode by iteration: each bit's likely value is estimated from the checks it takes part in, and the estimates are passed back and forth until they settle.
+
+| Code | Used in |
+| --- | --- |
+| LDPC | Wi-Fi, 5G data, 10 Gb Ethernet, satellite TV, SSDs |
+| Polar | 5G control channels |
+| Turbo | 3G and 4G |
+| Reed-Solomon | storage, optical discs, QR codes |
+| Hamming and SECDED | memory |
+
+Flash memory depends on this. Cells in a modern [SSD](/architecture/storage-devices/) misread bits constantly, and the drive works only because a strong LDPC code repairs every page as it is read.
+
+## Correct or resend
+
+Forward error correction pays its overhead on every message, damaged or not. Detecting and resending pays only when something goes wrong, but needs a way back to the sender and time to wait.
+
+| | Detect and resend | Correct in place |
+| --- | --- | --- |
+| Overhead when the channel is clean | a few bytes of checksum | the full redundancy |
+| Delay on error | a round trip | none |
+| Needs a return path | yes | no |
+| Suits | reliable links, bulk data | noisy links, storage, broadcast, real time |
+
+Real systems layer both. A Wi-Fi link corrects most errors with LDPC, checks each frame with a CRC, and resends the frames that still fail. [TCP](/networking/tcp/) above it resends what the link gave up on.
+
+## Costs
+
+<Ops items={[
+  ['Hamming encode or decode', 'O(n)', 'a few XORs per word'],
+  ['Hamming(7,4) overhead', '75%', '3 check bits for 4 data bits'],
+  ['SECDED (72,64) overhead', '12.5%', 'ECC memory'],
+  ['Reed-Solomon decode', 'O(n²)', 'simple methods, in symbols'],
+]} />
+
+## Implementation
+
+Hamming(7,4), with positions numbered from 1 as above.
+
+```python
+def encode(d1, d2, d3, d4):
+    p1 = d1 ^ d2 ^ d4            # covers positions 1, 3, 5, 7
+    p2 = d1 ^ d3 ^ d4            # covers positions 2, 3, 6, 7
+    p4 = d2 ^ d3 ^ d4            # covers positions 4, 5, 6, 7
+    return [p1, p2, d1, p4, d2, d3, d4]
+
+def decode(word):
+    w = [0] + word               # so that w[1] is position 1
+    syndrome = ((w[1] ^ w[3] ^ w[5] ^ w[7]) * 1 +
+                (w[2] ^ w[3] ^ w[6] ^ w[7]) * 2 +
+                (w[4] ^ w[5] ^ w[6] ^ w[7]) * 4)
+    if syndrome:
+        w[syndrome] ^= 1         # the syndrome is the position to flip
+    return [w[3], w[5], w[6], w[7]]
+
+word = encode(1, 0, 1, 1)        # [0, 1, 1, 0, 0, 1, 1]
+word[4] ^= 1                     # damage position 5
+decode(word)                     # [1, 0, 1, 1]
+```
+
+## Key takeaways
+
+- An error-correcting code adds redundancy so the receiver can repair damage without a resend.
+- A code's power comes from the minimum distance between its codewords. Distance 3 corrects one flipped bit.
+- A Hamming code places parity bits so that the failed checks spell out the position of the error.
+- It corrects one error per codeword and miscorrects two. SECDED adds a bit to detect the second.
+- Reed-Solomon codes correct whole symbols and missing pieces, which suits bursts and failed disks.
+- Modern LDPC and polar codes operate close to the theoretical capacity of the channel.
