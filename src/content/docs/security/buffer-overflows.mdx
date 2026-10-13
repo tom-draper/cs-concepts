@@ -1,0 +1,138 @@
+---
+description: A buffer overflow happens when a program writes past the end of an array and overwrites whatever is stored next to it. On the stack that can include the address the function returns to, which hands control of the program to whoever supplied the input.
+difficulty: advanced
+---
+
+In C, an [array](/data-structures/arrays/) is a run of bytes and nothing else. It does not carry its length, and writing to index 12 of an 8-byte array is not an error the language catches. The write simply lands on whatever happens to be stored four bytes past the end.
+
+When the data being written comes from outside the program, that is a **buffer overflow**, and it has been one of the most damaging kinds of bug for forty years.
+
+## A vulnerable function
+
+```c
+int check(const char *input) {
+    int authorised = 0;
+    char name[8];
+
+    strcpy(name, input);              /* copies until it finds a zero byte */
+
+    if (strcmp(name, "admin") == 0)
+        authorised = 1;
+    return authorised;
+}
+```
+
+`strcpy` copies bytes from `input` to `name` until it reaches the zero byte that ends a C string. It has no idea that `name` holds only eight.
+
+## What sits next to the buffer
+
+A function's local variables live in its **stack frame**, described on the [stack and heap](/foundations/stack-and-heap/) page. The frame also holds the **return address**: where the processor should continue when the function finishes.
+
+The widget shows a simplified frame for `check`, with memory addresses rising from left to right. Type a name, or use the buttons.
+
+<OverflowDemo />
+
+Work through the four buttons with no protection.
+
+| Input | What gets written | Effect |
+| --- | --- | --- |
+| 5 characters | 5 bytes and a terminating zero, inside the buffer | none |
+| 8 characters | 8 bytes fill the buffer, and the zero lands on `authorised` | an off-by-one. Harmless here, because the flag was already zero. |
+| 9 characters | the ninth byte lands on `authorised` | the flag is now nonzero, so the check passes |
+| 16 characters | the flag and all four bytes of the return address | the function returns to `0x41414141` |
+
+The 9-character case is a complete attack with no code involved. The program believes the user is authorised because one stray byte made a variable nonzero.
+
+The 16-character case is worse. `0x41` is the letter `A`. The return address is now whatever the attacker typed, so when the function returns, the processor jumps wherever the attacker chooses.
+
+## From a crash to control
+
+Jumping to `0x41414141` crashes the program, since nothing is mapped there. An attacker does better by picking the address with care.
+
+**Shellcode.** The classic attack put machine code in the buffer itself and set the return address to point at the buffer. The function returned into the attacker's code. The **Morris worm** of 1988 spread this way, through a network service that read a line with `gets`, and the technique became widely known through a 1996 article titled "Smashing the Stack for Fun and Profit".
+
+**Return to existing code.** If the stack cannot be executed, the attacker returns to code that is already in the program, such as the C library's `system` function, with arguments arranged on the stack.
+
+**Return-oriented programming.** The general form chains together **gadgets**: short snippets of existing code that each end in a return instruction. The attacker writes a list of gadget addresses onto the stack. Each return pops the next address and runs the next snippet. With enough gadgets, any computation can be assembled from code that was already there.
+
+## Defences
+
+No single measure is enough, so systems stack several.
+
+**Stack canaries.** The compiler places a random value between the local variables and the return address, and checks it just before the function returns. A linear overflow has to cross the canary to reach the return address, and the program aborts if the canary has changed. Select "stack canary" in the widget and repeat the 16-character input.
+
+The widget puts its canary directly after the buffer, so it also catches the flag being overwritten. A real canary sits after all the locals, and compilers arrange for arrays to be placed above other variables so that an overflow reaches the canary first.
+
+**Non-executable memory.** The processor's page tables mark the stack and heap as data that may not be executed, a feature of [paging](/operating-systems/paging/) known as NX or DEP. Shellcode in a buffer no longer runs. Return-oriented programming was invented to get round this.
+
+**Address space layout randomisation.** ASLR loads the stack, heap, libraries and program at different random addresses on each run. The attacker no longer knows which address to write. It is defeated by any second bug that leaks an address.
+
+**Control-flow integrity.** A **shadow stack** keeps a second copy of each return address in memory the program cannot write. On return the two are compared. Recent processors implement this in hardware.
+
+| Defence | Stops | Bypassed by |
+| --- | --- | --- |
+| Canary | linear overwrites of the return address | leaking the canary, or writes that skip over it |
+| Non-executable stack | injected code | reusing existing code |
+| ASLR | hard-coded addresses | an information leak |
+| Shadow stack | changed return addresses | attacks on other things, such as function pointers and data |
+
+All of these make exploitation harder. None removes the bug. The 9-character attack above touches no address and injects no code, and a canary in its real position would not notice it.
+
+## Fixing the bug
+
+The actual fix is to check the length.
+
+```c
+if (strlen(input) >= sizeof name)
+    return 0;                         /* too long, refuse */
+strcpy(name, input);
+```
+
+Select "bounds check" in the widget and the input is cut off before it leaves the buffer.
+
+C makes this easy to get wrong. Functions such as `gets`, `strcpy` and `sprintf` take no length at all. `strncpy` takes one but may leave the string without a terminator. Lengths are computed with arithmetic that can itself overflow: if a size is calculated as `count * 16` in 32 bits, a large enough count wraps round to a small number, a small buffer is allocated, and the loop that fills it runs far past the end.
+
+## Memory safety
+
+Buffer overflows are one member of a family.
+
+| Bug | What happens |
+| --- | --- |
+| Stack overflow | writes past a local array, into the frame |
+| Heap overflow | writes past an allocated block, into a neighbour or the [allocator's](/operating-systems/memory-allocators/) bookkeeping |
+| Over-read | reads past the end and returns neighbouring data |
+| Use after free | uses a pointer to memory that has been freed and handed to something else |
+| Double free | frees the same block twice and corrupts the allocator |
+
+**Heartbleed**, found in OpenSSL in 2014, was an over-read. A client could claim its message was 64 KB long while sending one byte, and the server replied with 64 KB of its own memory, which could include passwords and private keys.
+
+Microsoft and Google have both reported that around 70% of the serious security bugs in their large C and C++ codebases are memory safety bugs.
+
+Most languages rule them out. Java, Python, Go and JavaScript check every array index and manage memory with a [garbage collector](/languages/garbage-collection/). Rust checks indexes too and proves at compile time that no reference outlives its data, through [ownership and borrowing](/languages/ownership-and-borrowing/), with no collector.
+
+```rust
+let name = [0u8; 8];
+let i = input.len();          // say 12
+name[i];                      // panics: index out of bounds
+```
+
+A panic is a crash, which is a denial of service at worst. It is not control of the program.
+
+The checks cost a few percent at most, since a [branch predictor](/architecture/branch-prediction/) learns quickly that they never fail. New code in operating systems, browsers and Android is increasingly written in memory-safe languages for this reason.
+
+## Costs
+
+<Ops items={[
+  ['Bounds check', '~1 ns', 'a compare and a predicted branch'],
+  ['Stack canary', 'a few instructions', 'per protected function'],
+  ['ASLR', 'none at run time', 'paid at load'],
+  ['Share of serious C/C++ bugs', '~70%', 'memory safety'],
+]} />
+
+## Key takeaways
+
+- A buffer overflow writes past the end of an array and corrupts whatever is next to it.
+- On the stack, the neighbours include other local variables and the function's return address.
+- Overwriting the return address lets an attacker redirect the program, to injected code or to chains of existing code.
+- Canaries, non-executable memory, ASLR and shadow stacks make attacks harder but do not remove the bug.
+- The fix is to check lengths, and the reliable way to do that is a language that checks every access.
