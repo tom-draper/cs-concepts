@@ -65,8 +65,9 @@ interface Query {
 const reserved = ['SELECT', 'FROM', 'WHERE', 'JOIN', 'INNER', 'LEFT', 'OUTER', 'ON', 'GROUP', 'ORDER', 'BY', 'LIMIT', 'AND', 'OR', 'AS', 'IS', 'NOT', 'NULL', 'ASC', 'DESC'];
 const aggregates = ['COUNT', 'SUM', 'AVG', 'MIN', 'MAX'];
 
-function parseSql(sql: string): Query {
-  const tokens = sql.match(/<=|>=|<>|!=|[(),.*=<>;]|'[^']*'|\d+(?:\.\d+)?|[A-Za-z_]\w*|\S/g) ?? [];
+function parseSql(sql: string, source: Record<string, Table>): Query {
+  // A comment runs from -- to the end of the line.
+  const tokens = (sql.match(/--[^\n]*|<=|>=|<>|!=|[(),.*=<>;]|'[^']*'|\d+(?:\.\d+)?|[A-Za-z_]\w*|\S/g) ?? []).filter((token) => !token.startsWith('--'));
   if (tokens[tokens.length - 1] === ';') tokens.pop();
   let at = 0;
   const upper = () => tokens[at]?.toUpperCase();
@@ -133,9 +134,9 @@ function parseSql(sql: string): Query {
     while (take('OR')) left = { kind: 'or', left, right: conjunction() };
     return left;
   };
-  const source = (): Source => {
+  const from = (): Source => {
     const table = identifier('a table name').toLowerCase();
-    if (!tables[table]) throw new Error(`There is no table called ${table}. The tables are customers and orders.`);
+    if (!source[table]) throw new Error(`There is no table called ${table}. The tables are ${Object.keys(source).join(' and ')}.`);
     take('AS');
     const next = tokens[at];
     const alias = next && /^[A-Za-z_]\w*$/.test(next) && !reserved.includes(next.toUpperCase()) ? tokens[at++] : table;
@@ -154,7 +155,7 @@ function parseSql(sql: string): Query {
     } while (tokens[at] === ',' && ++at);
   }
   expect('FROM');
-  const query: Query = { select, from: source(), joins: [], groupBy: [] };
+  const query: Query = { select, from: from(), joins: [], groupBy: [] };
   for (;;) {
     const outer = take('LEFT');
     if (outer) take('OUTER');
@@ -163,7 +164,7 @@ function parseSql(sql: string): Query {
       if (outer) throw new Error('Expected JOIN after LEFT.');
       break;
     }
-    const joined = source();
+    const joined = from();
     expect('ON');
     query.joins.push({ ...joined, outer, on: condition() });
   }
@@ -198,11 +199,11 @@ export interface QueryResult {
   scanned: number;
 }
 
-/** Runs a SELECT over the sample tables, in the order the clauses are logically applied. */
-export function runSql(sql: string): QueryResult {
-  const query = parseSql(sql);
+/** Runs a SELECT over the sample tables, or the ones given, in the order the clauses are logically applied. */
+export function runSql(sql: string, source: Record<string, Table> = tables): QueryResult {
+  const query = parseSql(sql, source);
   const sources = [query.from, ...query.joins];
-  const schema = new Map(sources.map((each) => [each.alias, tables[each.table].columns]));
+  const schema = new Map(sources.map((each) => [each.alias, source[each.table].columns]));
   if (schema.size !== sources.length) throw new Error('Two tables have the same name here. Give one an alias.');
 
   const column = (expr: Extract<Expr, { kind: 'column' }>, row: Bindings): Value => {
@@ -254,10 +255,10 @@ export function runSql(sql: string): QueryResult {
   };
 
   // FROM and JOIN
-  let rows: Bindings[] = tables[query.from.table].rows.map((row) => ({ [query.from.alias]: row }));
+  let rows: Bindings[] = source[query.from.table].rows.map((row) => ({ [query.from.alias]: row }));
   for (const join of query.joins) {
     rows = rows.flatMap((row) => {
-      const matches = tables[join.table].rows.map((other) => ({ ...row, [join.alias]: other })).filter((both) => holds(join.on, both));
+      const matches = source[join.table].rows.map((other) => ({ ...row, [join.alias]: other })).filter((both) => holds(join.on, both));
       return matches.length || !join.outer ? matches : [{ ...row, [join.alias]: null }];
     });
   }
@@ -268,7 +269,7 @@ export function runSql(sql: string): QueryResult {
   const select =
     query.select ??
     sources.flatMap((each) =>
-      tables[each.table].columns.map((name) => ({
+      source[each.table].columns.map((name) => ({
         expr: { kind: 'column' as const, table: each.alias, name },
         name: sources.length > 1 ? `${each.alias}.${name}` : name,
       })),
