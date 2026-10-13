@@ -1,0 +1,132 @@
+---
+description: ACID names four guarantees a database gives for transactions. A transaction happens completely or not at all, leaves the data valid, does not interfere with others running at the same time, and survives a crash once committed.
+difficulty: intermediate
+---
+
+Moving 100 from one bank account to another takes two changes: subtract from one, add to the other. A great deal can go wrong between them. The program might crash. The machine might lose power. Another program might read the balances in the middle and see money that has vanished. Two transfers might run at once and overwrite each other.
+
+A **transaction** is a group of operations that the database promises to treat as a single unit. The promise has four parts, known by the acronym **ACID**.
+
+```sql
+BEGIN;
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+COMMIT;
+```
+
+Everything between `BEGIN` and `COMMIT` is one transaction. `ROLLBACK` in place of `COMMIT` abandons it.
+
+| Letter | Property | Promise |
+| --- | --- | --- |
+| A | Atomicity | all of it happens, or none of it does |
+| C | Consistency | the data obeys its rules before and after |
+| I | Isolation | concurrent transactions do not interfere |
+| D | Durability | once committed, it stays committed |
+
+## Atomicity
+
+**All or nothing.** If the transaction commits, every change in it takes effect. If it fails for any reason, an error, a crash, a broken constraint or an explicit `ROLLBACK`, every change is undone and the data is as if the transaction had never begun.
+
+There is no state in which the 100 has left the first account and not reached the second.
+
+"Atomic" is used here in the old sense of indivisible. It does not mean the same as an [atomic operation](/concurrency/atomics-and-compare-and-swap/) in concurrent programming, which is closer to what databases call isolation.
+
+Atomicity is what makes errors manageable. Without it, every failure halfway through an operation would need hand-written code to clean up, and that code could fail too. With it, the response to any failure is the same: roll back, and perhaps try again.
+
+It is implemented with the [write-ahead log](/databases/write-ahead-logging/). The old value of everything a transaction changes is recorded, so the changes can be reversed.
+
+## Consistency
+
+**The rules hold.** A database has **invariants**, statements that must always be true: a balance is never negative, every order refers to a real customer, no two users have the same email. A transaction takes the database from one state that satisfies the invariants to another.
+
+Some invariants are declared to the database as constraints, and it enforces them. A transaction that would break one is rejected and rolled back.
+
+```sql
+ALTER TABLE accounts ADD CONSTRAINT no_overdraft CHECK (balance >= 0);
+```
+
+Others exist only in the application's logic, such as "the debits and credits in the ledger sum to zero". The database cannot check what it has not been told. Keeping those true is the application's job, and the other three properties are the tools it uses.
+
+For that reason, consistency is the odd letter out. Atomicity, isolation and durability are guarantees the database makes. Consistency is partly a property of how the application uses them.
+
+The word is heavily overloaded. Consistency in ACID is unrelated to consistency in the [CAP theorem](/distributed-systems/the-cap-theorem/) or in [consistency models](/distributed-systems/consistency-models/), which concern whether copies of data on different machines agree.
+
+## Isolation
+
+**No interference.** Databases run many transactions at once. Isolation means each behaves as if it were alone, even though their operations are interleaved.
+
+Here two transactions each deposit money into the same account. Step through it at the first level, then at the last.
+
+<IsolationDemo anomaly="lost update" />
+
+Both read the balance, both add to it, and one write lands on top of the other. A deposit disappears. This is a [race condition](/concurrency/race-conditions/), the same bug that threads have with shared memory.
+
+The strictest form of isolation is **serializability**: the result is the same as if the transactions had run one at a time, in some order. Nothing can go wrong that could not go wrong with no concurrency at all.
+
+Full serializability costs performance, so databases offer weaker [isolation levels](/databases/isolation-levels/) that allow certain kinds of interference in exchange for speed. Most databases default to one of the weaker levels. A system can be "ACID" and still permit the lost update above unless it is configured or coded to prevent it.
+
+Isolation is implemented with locks, with [multi-version concurrency control](/databases/mvcc/), or both.
+
+## Durability
+
+**Committed means permanent.** Once the database has confirmed a commit, the changes survive a crash, a power failure or a restart.
+
+In practice that means the data is in non-volatile storage before the confirmation is sent. With a [write-ahead log](/databases/write-ahead-logging/), the transaction's records are forced to disk at commit, and after a crash they are replayed.
+
+Durability has limits worth knowing.
+
+| Threat | Protected by |
+| --- | --- |
+| The database process crashes | the log on disk |
+| The machine loses power | the log, provided it was really flushed |
+| The disk fails | [replication](/distributed-systems/replication/) to another machine, and backups |
+| The data centre is destroyed | replication to another location |
+| Somebody runs the wrong `DELETE` | backups and point-in-time recovery |
+
+A single machine's durability is only as good as its disk. And replication done asynchronously has a window in which a committed transaction exists on one machine only.
+
+## How the four fit together
+
+| Property | Protects against | Main mechanism |
+| --- | --- | --- |
+| Atomicity | failures partway through | undo information in the log |
+| Consistency | invalid data | constraints, and correct application logic |
+| Isolation | concurrent transactions | locks and multiple versions |
+| Durability | crashes after commit | the log forced to disk, then replication |
+
+Atomicity and isolation are easy to confuse. Atomicity is about failure: half-finished work is never left behind. Isolation is about concurrency: others never see the work half-finished.
+
+## Using transactions well
+
+**Keep them short.** A transaction holds locks and keeps old versions of rows alive for as long as it is open. One left open for minutes, or while waiting for a person to click something, degrades the whole database.
+
+**Do not call other systems inside one.** A transaction cannot roll back an email that has been sent or a payment taken by another company's service. Do the external work before or after, and design for it failing.
+
+**Expect to retry.** A transaction can be aborted through no fault of its own, as the victim of a [deadlock](/concurrency/deadlock/) or a conflict detected at a strict isolation level. Application code should be ready to run it again from the top.
+
+**Remember that one statement is a transaction.** Outside an explicit `BEGIN`, each statement is wrapped in its own. A single `UPDATE` of a million rows is atomic.
+
+## What it costs
+
+| Guarantee | Cost |
+| --- | --- |
+| Atomicity | logging the old values |
+| Isolation | locks, waiting and retries, or stored row versions |
+| Durability | a forced write to disk at every commit |
+
+On one machine these costs are modest and long since engineered down. Across several machines they are much higher. A transaction that spans machines needs a protocol such as [two-phase commit](/distributed-systems/two-phase-commit/) to stay atomic, and that adds delay and new ways to fail.
+
+That expense produced an alternative philosophy with a deliberately contrasting name, **BASE**: basically available, soft state, eventually consistent. Such systems give up strict guarantees for availability and scale, and leave the application to cope with temporary disagreement. Many newer distributed databases have since shown that ACID across machines is achievable, at a price in latency.
+
+## Not only databases
+
+The same ideas turn up wherever a group of changes must stand or fall together. A [file system](/operating-systems/file-systems/) journals its metadata so that a crash cannot leave a directory half updated. A version control system commits a set of file changes as one. A well-designed message queue delivers a message and records the delivery together.
+
+## Key takeaways
+
+- A transaction groups operations so that they succeed or fail as one unit.
+- Atomicity means all or nothing: a failure partway through leaves no trace.
+- Consistency means invariants hold before and after. The database enforces declared constraints, and the application is responsible for the rest.
+- Isolation means concurrent transactions do not interfere. Its strongest form, serializability, is often relaxed for speed.
+- Durability means a confirmed commit survives a crash, within the limits of the storage it was written to.
+- Keep transactions short, keep outside systems out of them, and be prepared to retry.
