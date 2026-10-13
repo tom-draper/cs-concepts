@@ -1,0 +1,162 @@
+---
+description: Huffman coding gives frequent symbols short bit patterns and rare symbols long ones, using a tree built by repeatedly joining the two least common symbols. It produces the best possible code of its kind and is the final stage of most compression formats.
+difficulty: intermediate
+---
+
+ASCII spends eight bits on every character. In English text, `e` appears over a hundred times as often as `z`, and both cost the same.
+
+Morse code did better in the 1830s: `E` is a single dot and `Q` is dash dash dot dash. Giving common symbols short codes and rare ones long codes makes the average message shorter.
+
+**Huffman coding** is the method that finds the best such code for any set of frequencies. David Huffman invented it in 1951 as a student, for a term paper.
+
+## Codes that can be read back
+
+Variable lengths create a problem that fixed lengths do not have. Where does one symbol end and the next begin?
+
+Suppose `a` is `0`, `b` is `1` and `c` is `01`. The bits `01` could be `ab` or `c`. The code is useless.
+
+The fix is a **prefix code**: no symbol's code is the beginning of another's. Then a decoder reading left to right knows a symbol is complete the moment its bits match, with no need for separators.
+
+A prefix code is the same thing as a [binary tree](/data-structures/binary-trees/) with the symbols at the leaves. A symbol's code is the path to its leaf, 0 for left and 1 for right. No leaf is on the way to another leaf, so no code is a prefix of another.
+
+## Building the tree
+
+Common symbols should be near the root, where paths are short. Huffman's algorithm builds the tree from the bottom.
+
+1. Make a leaf for each symbol, weighted by its count.
+2. Take the two lightest nodes.
+3. Join them under a new node whose weight is their sum.
+4. Put the new node back, and repeat until one node is left.
+
+<HuffmanDemo />
+
+For `abracadabra` the counts are a: 5, b: 2, r: 2, c: 1, d: 1.
+
+| Step | Two lightest | Joined into |
+| --- | --- | --- |
+| 1 | c (1) and d (1) | a node of weight 2 |
+| 2 | b (2) and r (2) | a node of weight 4 |
+| 3 | the 2 and the 4 | a node of weight 6 |
+| 4 | a (5) and the 6 | the root, weight 11 |
+
+The rarest symbols are joined first, so they end up deepest. The resulting codes are in the widget's table: `a` gets one bit, and the other four get three.
+
+The encoded text is 23 bits. A fixed-width code for five symbols needs 3 bits each, 33 in all, and ASCII needs 88.
+
+Step 2 could equally have picked the first node of weight 2 instead of `b` or `r`. Ties can be broken either way. Different choices give different trees, and all of them give the same total length.
+
+## Why greedy works
+
+This is a [greedy algorithm](/algorithms/greedy-algorithms/): it makes the locally best move and never reconsiders. It is one of the cases where that is provably optimal.
+
+The argument rests on two facts. In a best tree, the two rarest symbols can always be placed as siblings at the deepest level, since swapping a rarer symbol deeper never makes the total longer. And once they are siblings, they can be treated as one combined symbol, which leaves the same problem with one symbol fewer.
+
+The result is the shortest possible code among all codes that give each symbol a whole number of bits.
+
+## Decoding
+
+The decoder walks the tree. Start at the root, go left on 0 and right on 1, and on reaching a leaf, output its symbol and return to the root.
+
+```
+bits:    0 110 111 0 100 0 101 0 110 111 0
+symbols: a  b   r  a  c  a  d  a  b   r  a
+```
+
+A single flipped bit can throw the decoder out of step for several symbols, because it loses track of where codes begin. Compressed formats add [checksums](/information/checksums/) for that reason.
+
+## Sending the code
+
+The decoder needs the same tree. There are three ways to arrange that.
+
+**Send it.** Put the code table at the front of the data. For a short message the table can cost more than it saves, which is why the 23-bit figure above flatters the result.
+
+**Canonical codes.** Send only the length of each symbol's code. Both sides then assign the actual bit patterns by a fixed rule: shorter codes first, in symbol order. DEFLATE does this, and the table shrinks to a few bits per symbol.
+
+**Agree in advance.** Use a fixed table built from typical data. HTTP/2 compresses header text this way, with a table defined in the standard.
+
+A fourth option, adaptive Huffman coding, starts both sides with the same tree and updates it after every symbol.
+
+## The whole-bit limit
+
+The [entropy](/information/entropy/) of `abracadabra` is 2.04 bits per character, a floor of 22.4 bits. Huffman reached 23.
+
+The gap comes from rounding. A symbol with probability p ideally gets log₂(1/p) bits. The `a`, at 5 in 11, deserves 1.14 bits and gets 1. Each `b` deserves 2.46 and gets 3. Huffman coding is only exactly optimal when every probability is a power of one half.
+
+It is always within one bit per symbol of the entropy, but that bound is weak when one symbol dominates.
+
+| Source | Entropy | Huffman | Overhead |
+| --- | --- | --- | --- |
+| `abcdefgh`, eight equal symbols | 3 bits each | 3 bits each | none |
+| `abracadabra` | 2.04 | 2.09 | 2% |
+| `aaaaaaab`, seven to one | 0.54 | 1 | 84% |
+| A symbol with probability 0.99 | 0.08 | 1 | over ten times |
+
+In the last two rows no symbol can cost less than one bit, however predictable it is.
+
+**Arithmetic coding** removes the limit. It encodes the whole message as a single number, a fraction between 0 and 1, narrowing the range for each symbol in proportion to its probability. A symbol can then cost a fraction of a bit. **Asymmetric numeral systems**, or ANS, get the same result at close to Huffman's speed, and newer formats such as Zstandard use it.
+
+One workaround keeps Huffman: code groups of symbols, or runs. Fax machines Huffman-coded the lengths of runs of white and black pixels, not single pixels.
+
+## Costs
+
+<Ops items={[
+  ['Build the tree', 'O(k log k)', 'k distinct symbols, with a heap'],
+  ['Encode', 'O(n)', 'a table lookup per symbol'],
+  ['Decode', 'O(n)', 'lookup tables, several bits at a time'],
+  ['Overhead vs entropy', '< 1 bit/symbol', 'worst when one symbol dominates'],
+]} />
+
+The alphabet is usually small, 256 byte values or a few hundred tokens, so building the tree costs almost nothing next to reading the data.
+
+## Implementation
+
+A [heap](/data-structures/heaps/) hands back the two lightest nodes each time.
+
+```python
+import heapq
+from collections import Counter
+
+def huffman_codes(text):
+    # Each heap entry: (weight, tie-breaker, {symbol: code so far})
+    heap = [(count, i, {symbol: ''})
+            for i, (symbol, count) in enumerate(Counter(text).most_common())]
+    heapq.heapify(heap)
+    serial = len(heap)
+    while len(heap) > 1:
+        w1, _, left = heapq.heappop(heap)
+        w2, _, right = heapq.heappop(heap)
+        merged = {s: '0' + code for s, code in left.items()}
+        merged.update({s: '1' + code for s, code in right.items()})
+        heapq.heappush(heap, (w1 + w2, serial, merged))
+        serial += 1
+    return heap[0][2]
+
+codes = huffman_codes('abracadabra')
+# {'a': '0', 'c': '100', 'd': '101', 'b': '110', 'r': '111'}
+
+encoded = ''.join(codes[symbol] for symbol in 'abracadabra')
+len(encoded)          # 23
+```
+
+Instead of building tree nodes, this version keeps each subtree as a table of codes and adds a leading bit whenever two subtrees are joined. The tie-breaker stops Python from trying to compare two dictionaries when weights are equal.
+
+## Where it is used
+
+Huffman coding is rarely used alone. It is the last stage of a pipeline, squeezing the output of a step that has already removed the larger patterns.
+
+| Format | What is Huffman coded |
+| --- | --- |
+| DEFLATE: gzip, zip, PNG | the literals and back-references from [LZ77](/information/lempel-ziv-compression/) |
+| JPEG | quantised frequency coefficients of each image block |
+| MP3 and AAC | quantised audio frequency values |
+| HTTP/2 headers | header text, with a fixed table |
+| Brotli | LZ output, with many context-dependent tables |
+
+## Key takeaways
+
+- A variable-length code saves space by giving common symbols fewer bits.
+- A prefix code can be decoded without separators, and corresponds to a binary tree with symbols at the leaves.
+- Huffman's algorithm builds the tree by repeatedly joining the two lightest nodes. The result is optimal among whole-bit codes.
+- It is always within one bit per symbol of the entropy, and wasteful when one symbol is very common.
+- Arithmetic coding and ANS can spend fractions of a bit and close that gap.
+- The decoder needs the code, so real formats send code lengths or use a fixed table.
