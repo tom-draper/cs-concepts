@@ -30,7 +30,7 @@ const page = pagesById.get(entry.id)!;
 const title = entry.data.title ?? page.title;
 const { Content, headings } = await render(entry);
 const toc = headings.filter((heading) => heading.depth === 2);
-const editUrl = `https://github.com/tom-draper/cs-concepts/edit/main/src/content/docs/${entry.id}.mdx`;
+const editUrl = `https://github.com/tom-draper/vcs/edit/main/src/content/docs/${entry.id}.mdx`;
 ---
 
 <Base title={title} description={entry.data.description} currentId={entry.id}>

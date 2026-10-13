@@ -1,7 +1,7 @@
 {
-  "name": "cs-concepts",
+  "name": "vcs",
   "version": "0.1.0",
-  "description": "A complete guide for Computer Science concepts.",
+  "description": "A visual guide for Computer Science concepts.",
   "private": true,
   "type": "module",
   "scripts": {

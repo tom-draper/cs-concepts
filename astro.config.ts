@@ -3,7 +3,7 @@ import mdx from '@astrojs/mdx';
 
 export default defineConfig({
   site: 'https://tom-draper.github.io',
-  base: '/cs-concepts',
+  base: '/vcs',
   trailingSlash: 'always',
   integrations: [mdx()],
   prefetch: { prefetchAll: true, defaultStrategy: 'hover' },
