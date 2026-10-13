@@ -1,0 +1,154 @@
+---
+description: Public-key cryptography uses a pair of keys, one published and one kept secret, so that anyone can encrypt a message that only one person can read. It rests on mathematical operations that are easy to do and infeasible to undo.
+difficulty: advanced
+---
+
+[Symmetric encryption](/security/symmetric-encryption/) needs both sides to hold the same secret key before they start. A web browser connecting to a shop for the first time has no such key, and no safe way to be sent one.
+
+**Public-key cryptography**, also called asymmetric cryptography, removes the need. Each party has a **key pair**. The **public key** can be given to anyone. The **private key** never leaves its owner. What one key does, only the other can undo.
+
+A padlock is the usual picture. Anyone can snap an open padlock shut on a box. Only the person with the key can open it again. Hand out as many open padlocks as you like.
+
+## A trapdoor
+
+The idea needs a function that is easy to compute and infeasible to reverse, unless you know a secret that makes reversing easy. That is a **trapdoor function**.
+
+**RSA**, published in 1977, uses multiplication. Multiplying two large primes takes a moment. Given only the product, finding the primes takes longer than anyone has.
+
+Pick a pair of primes in the widget and encrypt a number.
+
+<RsaDemo />
+
+## RSA with small numbers
+
+The steps below use the widget's default primes. They rely on [modular arithmetic](/foundations/modular-arithmetic/), which is arithmetic on remainders.
+
+| Step | Rule | With 61 and 53 |
+| --- | --- | --- |
+| Choose two primes | p and q, kept secret | 61 and 53 |
+| Multiply them | n = p × q | 3233 |
+| Compute the totient | φ = (p − 1)(q − 1) | 60 × 52 = 3120 |
+| Choose a public exponent | e, sharing no factor with φ | 7 |
+| Find the private exponent | d, where e × d leaves 1 when divided by φ | 1783 |
+
+The public key is the pair (n, e). The private key is d. The primes and φ are thrown away or locked up with d.
+
+To encrypt a number m, raise it to the power e and keep the remainder after dividing by n. To decrypt, do the same with d.
+
+```
+encrypt:  c = mᵉ mod n      42⁷ mod 3233    = 240
+decrypt:  m = cᵈ mod n      240¹⁷⁸³ mod 3233 = 42
+```
+
+It works because of a theorem of Euler: raising a number to a power that is one more than a multiple of φ brings it back to itself, modulo n. And e × d = 12481 = 4 × 3120 + 1.
+
+Raising to the power 1783 does not take 1783 multiplications. **Square and multiply** does it in about 2 log₂ d steps by squaring repeatedly, the same idea as [divide and conquer](/algorithms/divide-and-conquer/).
+
+## Why it is hard to break
+
+An attacker has n and e and wants d. Computing d needs φ, and computing φ needs p and q. So the attacker has to factor n.
+
+Press "Attack: factor n" in the widget. For 3233 it finds the primes after 52 trial divisions. For 1009 × 1013 it takes about a thousand. Each extra digit in the primes multiplies the work by ten for this method, while making the legitimate operations only slightly slower.
+
+Better factoring methods exist, but none is fast. The largest RSA number factored in public, in 2020, had 829 bits and took about 2700 core-years. Keys in use today have 2048 bits or more.
+
+| Asymmetric key | Roughly as strong as a symmetric key of |
+| --- | --- |
+| RSA 1024 bits | 80 bits, no longer safe |
+| RSA 2048 bits | 112 bits |
+| RSA 3072 bits | 128 bits |
+| Elliptic curve, 256 bits | 128 bits |
+
+RSA keys are long because factoring is much easier than trying every key. Nobody has proved that factoring is hard. It is a problem in [NP](/theory/p-vs-np/) that has resisted centuries of effort, and that is the whole basis for trusting it.
+
+## Elliptic curves
+
+Newer systems use a different trapdoor. Points on an **elliptic curve** can be added together by a geometric rule, and adding a point to itself k times is fast. Given the starting point and the result, finding k is the hard direction.
+
+No shortcut comparable to the factoring methods is known, so the numbers can be much smaller for the same strength.
+
+| | RSA 3072 | Curve25519 |
+| --- | --- | --- |
+| Public key | 384 bytes | 32 bytes |
+| Private key operation | milliseconds | tens of microseconds |
+| Key generation | slow, needs two large primes | any 32 random bytes |
+
+Elliptic curves are used for [key exchange](/security/key-exchange/) and [signatures](/security/digital-signatures/) in nearly every current protocol.
+
+## What the textbook leaves out
+
+The scheme above, known as textbook RSA, is not safe to use as written.
+
+**It is deterministic.** The same message always encrypts to the same ciphertext. An attacker who suspects the message is "yes" or "no" can encrypt both with the public key and compare.
+
+**It is malleable.** Multiplying a ciphertext by 2ᵉ gives a valid encryption of twice the message.
+
+**Small messages leak.** If mᵉ is less than n, no remainder is taken and an ordinary root recovers m.
+
+Real RSA encryption pads the message with random bytes in a structured way before the exponentiation. The scheme to use is **OAEP**. The older padding, PKCS#1 v1.5, has been broken repeatedly since 1998.
+
+<Aside type="warning" title="Never implement this yourself">
+
+Besides padding, a real implementation must run in constant time, validate every input and generate primes from a good random source. In 2012 researchers collected millions of public keys from the internet and found that thousands shared a prime with another key, because devices had generated them with too little randomness. A shared prime is found instantly with a greatest common divisor, and both keys fall.
+
+</Aside>
+
+## Hybrid encryption
+
+Public-key operations are thousands of times slower than AES and can only handle inputs smaller than the key. So they are never used on the data itself.
+
+Instead the sender picks a fresh random symmetric key, encrypts the message with that, and encrypts only the symmetric key with the recipient's public key. Both pieces are sent together.
+
+| Part | Encrypted with | Size |
+| --- | --- | --- |
+| Symmetric key | recipient's public key | a few hundred bytes |
+| Message | the symmetric key, with AES-GCM | as long as the message |
+
+Encrypted email, file encryption tools and messaging apps all work this way.
+
+## Whose key is it?
+
+A public key solves the secrecy problem and creates another. If an attacker can substitute their own public key for the shop's, the browser will carefully encrypt everything for the attacker.
+
+A public key is only useful together with evidence of who owns it. The web uses **certificates**, in which a trusted authority signs a statement binding a name to a key, as described on the [TLS](/networking/tls/#certificates) page. SSH asks you to confirm a fingerprint on first connection and remembers it. Messaging apps let two people compare a code in person.
+
+## Quantum computers
+
+**Shor's algorithm** factors numbers and solves the elliptic curve problem in polynomial time on a quantum computer. No machine large enough exists yet, but data recorded today could be decrypted later.
+
+Standards bodies published **post-quantum** algorithms in 2024, built on problems about lattices that no known quantum method solves. Browsers and servers already use one of them, ML-KEM, alongside an elliptic curve, so that a connection is safe if either holds.
+
+## Costs
+
+<Ops items={[
+  ['RSA public operation', 'fast', 'small exponent, usually 65537'],
+  ['RSA private operation', '~1 ms', 'for 2048 bits'],
+  ['Factor n by known methods', 'sub-exponential', 'infeasible at 2048 bits'],
+  ['AES, for comparison', '~1 ns/byte', 'why hybrid encryption exists'],
+]} />
+
+## Implementation
+
+The arithmetic fits in a few lines. Python's `pow` does modular exponentiation and modular inverses.
+
+```python
+p, q = 61, 53
+n = p * q                      # 3233
+phi = (p - 1) * (q - 1)        # 3120
+e = 7
+d = pow(e, -1, phi)            # 1783
+
+cipher = pow(42, e, n)         # 240
+pow(cipher, d, n)              # 42
+```
+
+This shows the idea and nothing more. For real work, call a library's OAEP or, better, a ready-made hybrid scheme.
+
+## Key takeaways
+
+- A key pair has a public half that anyone may hold and a private half that is never shared.
+- Anyone can encrypt with the public key. Only the private key can decrypt.
+- RSA is built on the difficulty of factoring the product of two large primes. Elliptic curves give the same strength with much smaller keys.
+- Textbook RSA is unsafe. Real schemes add randomised padding.
+- Public-key operations are slow, so they encrypt a symmetric key and the symmetric key encrypts the data.
+- A public key must be tied to an identity, or an attacker can swap in their own.
