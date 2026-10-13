@@ -1,0 +1,158 @@
+---
+description: Normalisation is the process of organising tables so that every fact is stored exactly once. It prevents the contradictions that appear when the same information is kept in several places, at the cost of needing joins to put the data back together.
+difficulty: intermediate
+---
+
+The natural first design for a database is one wide table that holds everything, like a spreadsheet. It works until something changes.
+
+| order_id | customer | customer_city | item | price |
+| --- | --- | --- | --- | --- |
+| 1 | Ada | London | keyboard | 80 |
+| 2 | Ada | London | monitor | 240 |
+| 3 | Grace | New York | laptop | 1200 |
+| 4 | Linus | Helsinki | mouse | 25 |
+| 5 | Grace | New York | cable | 10 |
+
+The fact that Ada lives in London is written twice. Grace's city is written twice. That repetition is **redundancy**, and it is the root of a family of bugs.
+
+## Three anomalies
+
+**Update anomaly.** Ada moves to Paris. If the change is made on order 1 and missed on order 2, the database now says Ada lives in two cities. Nothing in the table marks either as wrong. Every copy of a fact has to be found and changed together, for ever.
+
+**Insertion anomaly.** A new customer, Edsger, signs up but has not ordered anything. There is nowhere to put him. A row needs an `order_id`, and he has none.
+
+**Deletion anomaly.** Linus cancels his only order. Deleting that row also deletes the only record that Linus exists and lives in Helsinki.
+
+All three have the same cause. The table mixes facts about two different things, customers and orders, so a fact about one cannot be stored, changed or removed without touching the other.
+
+## The fix
+
+**Normalisation** splits the table so that each one describes a single kind of thing.
+
+<SqlDemo showTables query="SELECT orders.id, name, city, item, amount FROM customers JOIN orders ON customers.id = orders.customer_id" tries={[['rebuild the wide table', 'SELECT orders.id, name, city, item, amount FROM customers JOIN orders ON customers.id = orders.customer_id'], ['customers', 'SELECT * FROM customers'], ['orders', 'SELECT * FROM orders']]} />
+
+Ada's city is now written once, in `customers`. Orders point to her through a foreign key. Moving her to Paris is a change to one cell. Edsger exists without any orders. Deleting an order leaves its customer alone.
+
+Nothing has been lost. The query in the widget [joins](/databases/joins/) the two tables and produces the original wide table again. That is the test of a correct split, called a **lossless decomposition**.
+
+The guiding principle is that each fact is stored in one place. A common phrasing is that every column should depend on "the key, the whole key, and nothing but the key".
+
+## Functional dependencies
+
+The reasoning rests on one idea. Column B is **functionally dependent** on column A if knowing A tells you B. It is written A → B.
+
+In the wide table:
+
+- `order_id → customer, item, price`. An order has one customer, one item and one price.
+- `customer → customer_city`. A customer has one city.
+
+The second is the problem. `customer_city` depends on `customer`, and `customer` is not the key of the table. So the same customer, appearing in many rows, drags a copy of the city along each time. Normalising means finding dependencies like this and giving each its own table, where the left-hand side is the key.
+
+## The normal forms
+
+The rules come as a ladder of **normal forms**. Each adds a requirement to the one before.
+
+### First normal form
+
+Every cell holds a single value, and there are no repeating groups of columns.
+
+| order_id | customer | items |
+| --- | --- | --- |
+| 1 | Ada | keyboard, monitor |
+
+This breaks the rule. A list in a cell cannot be searched, counted or joined properly. Finding who ordered a monitor means picking strings apart. Columns named `item1`, `item2`, `item3` are the same mistake wearing a disguise. The fix is one row for each item.
+
+### Second normal form
+
+1NF, and no column depends on only part of the key. It matters when the key is made of more than one column.
+
+Suppose a table of order lines has the key (`order_id`, `product_id`) and also holds `product_name`.
+
+| order_id | product_id | product_name | quantity |
+| --- | --- | --- | --- |
+| 1 | 7 | keyboard | 2 |
+| 2 | 7 | keyboard | 1 |
+
+`quantity` depends on both parts of the key. `product_name` depends on `product_id` alone, so it repeats on every order for that product. It belongs in a `products` table.
+
+### Third normal form
+
+2NF, and no column depends on another column that is not a key. This is the original problem from the top of the page: `order_id → customer → customer_city`. The city depends on the key only by way of the customer. Such a chain is a **transitive dependency**, and the cure is to move the customer's details out.
+
+### Boyce-Codd normal form
+
+A stricter version of 3NF: in every dependency A → B, the left side must be a key. It differs from 3NF only in unusual tables with several overlapping candidate keys.
+
+| Form | Rule, informally | Removes |
+| --- | --- | --- |
+| 1NF | one value in each cell | lists and repeating groups |
+| 2NF | depend on the whole key | facts about part of a composite key |
+| 3NF | depend on nothing but the key | facts about some other column |
+| BCNF | every determinant is a key | the remaining edge cases |
+
+Higher forms exist, dealing with rarer kinds of redundancy. In practice "normalised" means third normal form, and most well-designed schemas reach it without the designer naming the steps. Asking "what is this table about?" and removing every column that describes something else gets to the same place.
+
+## A worked example
+
+One table for a college.
+
+| student_id | student_name | course_id | course_title | teacher | teacher_office | grade |
+| --- | --- | --- | --- | --- | --- | --- |
+
+The key is (`student_id`, `course_id`), since a grade belongs to one student on one course. The dependencies:
+
+- `student_id → student_name`
+- `course_id → course_title, teacher`
+- `teacher → teacher_office`
+- (`student_id`, `course_id`) `→ grade`
+
+Each dependency whose left side is not the whole key gets its own table.
+
+| Table | Columns | Key |
+| --- | --- | --- |
+| students | student_id, student_name | student_id |
+| courses | course_id, course_title, teacher | course_id |
+| teachers | teacher, teacher_office | teacher |
+| enrolments | student_id, course_id, grade | student_id and course_id |
+
+A teacher's office is now stored once, however many courses they teach and however many students take them. `enrolments` is the table for the many-to-many relationship between students and courses, and the only fact it holds is the one that needs both: the grade.
+
+## The cost
+
+Normalised data is spread over many tables, and reading it back needs joins. A page showing an order with its customer, products and delivery address may touch five tables.
+
+Joins on indexed keys are fast, and for most applications this cost is small. But at high volume, or for reports that scan millions of rows, it adds up.
+
+## Denormalising on purpose
+
+**Denormalisation** is the deliberate reintroduction of redundancy to make reads faster.
+
+| Technique | Example | Price |
+| --- | --- | --- |
+| Copy a column | store the customer's name on each order | must be updated in two places |
+| Store a computed value | keep an `order_total` instead of summing the lines each time | must be recalculated when a line changes |
+| Pre-join | a wide reporting table rebuilt every night | stale until the next rebuild |
+| Embed | keep an order's lines inside the order as a JSON document | harder to query across orders |
+
+The redundancy brings the update anomaly back, so something must keep the copies in step: application code, a database trigger, or a scheduled job. That mechanism is a permanent cost and a source of bugs.
+
+Sometimes a copy is not redundant at all. The price on an order line should be the price at the time of sale, and must not change when the product's price does. That is a different fact from the product's current price, and storing both is correct.
+
+| | Normalised | Denormalised |
+| --- | --- | --- |
+| Each fact stored | once | possibly several times |
+| Writes | simple and safe | must update every copy |
+| Reads | need joins | fewer joins, faster |
+| Risk | slow complex queries | inconsistent data |
+| Suits | transactional systems with many small writes | analytics, read-heavy workloads, caches |
+
+The usual advice is to normalise first, measure, and denormalise only the specific places where it is shown to matter. A normalised schema that is too slow can be fixed. A denormalised one that has become inconsistent is far harder to repair, because nobody knows which copy is right.
+
+## Key takeaways
+
+- Redundancy, the same fact stored in several places, causes update, insertion and deletion anomalies.
+- Normalisation splits tables so that each describes one kind of thing and each fact is stored once.
+- A functional dependency says one column determines another. Columns should depend on the key of their table and nothing else.
+- First normal form bans lists in cells, second bans dependence on part of a key, and third bans dependence on non-key columns.
+- A correct split loses nothing: joining the tables reproduces the original.
+- Denormalisation trades consistency risk for read speed and should be done deliberately, where measurement justifies it.
