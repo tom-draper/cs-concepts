@@ -1,0 +1,145 @@
+---
+description: Key exchange lets two parties who have never met agree on a shared secret while an eavesdropper hears every message. Diffie-Hellman does it with modular exponentiation, and a fresh exchange for each connection is what gives forward secrecy.
+difficulty: advanced
+---
+
+Two people stand at opposite ends of a crowded room and can only shout. They want to end up knowing a number that nobody else in the room knows.
+
+It sounds impossible. Everything either of them says is heard by everyone. Yet Whitfield Diffie and Martin Hellman published a way to do it in 1976, and some version of it runs at the start of nearly every encrypted connection today.
+
+## Mixing paint
+
+The idea is easiest to see with paint, where mixing is easy and unmixing is not.
+
+1. Alice and Bob agree on a common colour in public, say yellow.
+2. Each picks a secret colour. Alice picks red, Bob picks blue.
+3. Each mixes their secret with the common colour and sends the result. Alice sends orange, Bob sends green.
+4. Each adds their own secret to what they received.
+
+Alice has green plus red. Bob has orange plus blue. Both are yellow plus red plus blue, the same muddy brown.
+
+The eavesdropper saw yellow, orange and green. To make the brown they would need to separate red out of orange, and paint does not separate.
+
+## With numbers
+
+**Diffie-Hellman** replaces mixing with exponentiation in [modular arithmetic](/foundations/modular-arithmetic/). The public values are a prime p and a base g.
+
+<DiffieHellmanDemo />
+
+With the widget's defaults, p = 23 and g = 5.
+
+| Step | Alice | Bob |
+| --- | --- | --- |
+| Pick a secret | a = 6 | b = 15 |
+| Compute and send | A = 5⁶ mod 23 = 8 | B = 5¹⁵ mod 23 = 19 |
+| Receive | B = 19 | A = 8 |
+| Compute the shared secret | 19⁶ mod 23 = 2 | 8¹⁵ mod 23 = 2 |
+
+Both arrive at 2 because the order of exponents does not matter.
+
+```
+Bᵃ = (gᵇ)ᵃ = gᵃᵇ = (gᵃ)ᵇ = Aᵇ      all mod p
+```
+
+Neither secret was sent, and neither side learns the other's.
+
+## The hard problem
+
+The eavesdropper knows p, g, A and B. To get the shared secret they need a or b, which means solving 5ᵃ mod 23 = 8 for a. That is the **discrete logarithm problem**.
+
+Ordinary logarithms are easy because powers grow steadily, so you can home in on the answer. Modular powers jump around. The powers of 5 modulo 23 begin 5, 2, 10, 4, 20, 8, 17, 16 and give no hint of where 8 will turn up.
+
+Press the attack button in the widget. It tries each exponent in turn, so a secret of 6 is found on the seventh attempt whatever the prime. With p = 23 there are only 21 secrets to choose from. Switch to p = 7919 and type a secret in the thousands, and the search takes thousands of steps. Real exchanges use a prime of 2048 bits or more and secrets of at least 256 bits, and the best known methods are far too slow at that size.
+
+Like factoring, the discrete logarithm has no proof of hardness. It has decades of failed attempts behind it.
+
+## Elliptic curves
+
+Modern systems run the same exchange on an **elliptic curve** instead of with modular powers. Each side picks a secret number, multiplies a public point by it, and sends the resulting point. The shared secret is one side's secret times the other side's point.
+
+| | Classic Diffie-Hellman | X25519 |
+| --- | --- | --- |
+| Size of each public value | 256 bytes or more | 32 bytes |
+| Time per exchange | about a millisecond | tens of microseconds |
+| Parameters to choose | a prime and a base, which can be chosen badly | none, the curve is fixed |
+
+**X25519** is the default in TLS 1.3, SSH, WireGuard and Signal.
+
+## The man in the middle
+
+Diffie-Hellman defeats a passive eavesdropper. It does nothing against an attacker who can change messages.
+
+Suppose Mallory sits between Alice and Bob. She intercepts Alice's A and sends Bob her own value instead. She does the same in the other direction.
+
+| Alice believes | Reality |
+| --- | --- |
+| she shares a key with Bob | she shares a key with Mallory |
+| Bob's value was B | it was Mallory's |
+
+Bob is in the same position. Mallory now holds two keys, decrypts everything from one side, reads or changes it, and re-encrypts it for the other. Neither notices.
+
+The exchange says nothing about who is on the other end. It has to be **authenticated**. The usual way is for the server to [sign](/security/digital-signatures/) its half of the exchange with a long-term private key, whose public half is in a certificate. Mallory cannot forge that signature, so she cannot substitute her own value. This is what [TLS](/networking/tls/#the-handshake) does. SSH does the same with a host key that the client remembers.
+
+## Forward secrecy
+
+An older design skipped the exchange. The client chose a session key, encrypted it with the server's RSA public key and sent it.
+
+That has a serious weakness. Anyone who records the encrypted traffic and later obtains the server's private key, by theft, court order or a bug, can decrypt every session ever recorded.
+
+With Diffie-Hellman, both sides generate fresh secrets for each connection and delete them afterwards. These are **ephemeral** keys. The long-term key is used only to sign. Stealing it later lets an attacker impersonate the server in future, but past sessions stay sealed, because the secrets that protected them no longer exist anywhere.
+
+This property is **forward secrecy**. TLS 1.3 requires it, and it is discussed further on the [TLS](/networking/tls/#forward-secrecy) page.
+
+Messaging protocols such as Signal go further and run a new exchange with almost every message. Compromising a phone today then reveals neither old messages nor, once the next exchange happens, new ones.
+
+## From shared secret to keys
+
+The number that comes out of the exchange is not used as a key directly. It is not uniformly random, and a connection needs several keys: one for each direction, at least.
+
+A **key derivation function**, usually HKDF, hashes the shared secret together with the transcript of the handshake and stretches the result into as many independent keys as needed. Including the transcript ties the keys to this exact conversation.
+
+## After quantum computers
+
+Shor's algorithm solves discrete logarithms on a quantum computer, for both the classic and the elliptic curve forms. An attacker can record exchanges now and break them when such a machine exists, so key exchange is the most urgent thing to replace.
+
+The replacement is a **key encapsulation mechanism**. One side publishes a public key, the other uses it to wrap a random secret, and the first unwraps it. **ML-KEM**, standardised in 2024 and based on lattice problems, has public values of about 1200 bytes.
+
+Browsers and servers now run a hybrid: X25519 and ML-KEM together, with both results fed into the key derivation. The connection is safe unless both are broken.
+
+## Costs
+
+<Ops items={[
+  ['X25519 exchange', '~50 µs', 'per side'],
+  ['Messages needed', '2', 'one each way, can ride on the handshake'],
+  ['Best classical attack, 256-bit curve', '2¹²⁸', 'infeasible'],
+  ['Quantum attack', 'polynomial', 'needs a machine that does not exist yet'],
+]} />
+
+## Implementation
+
+The arithmetic is two calls to modular exponentiation on each side.
+
+```python
+import secrets
+
+p, g = 23, 5                          # public
+
+a = secrets.randbelow(p - 2) + 1      # Alice's secret
+b = secrets.randbelow(p - 2) + 1      # Bob's secret
+
+A = pow(g, a, p)                      # sent to Bob
+B = pow(g, b, p)                      # sent to Alice
+
+pow(B, a, p) == pow(A, b, p)          # True
+```
+
+`secrets` draws from the operating system's secure random source. An exchange is exactly as strong as the randomness behind the two secrets.
+
+## Key takeaways
+
+- Diffie-Hellman lets two parties agree on a secret using only public messages.
+- Each side combines its own secret with the other's public value, and both arrive at the same number.
+- Its security rests on the discrete logarithm problem. Elliptic curve versions such as X25519 are smaller and faster.
+- On its own it does not say who you are talking to. Signatures or certificates are needed to stop a man in the middle.
+- Fresh secrets for every connection give forward secrecy: a key stolen later cannot unlock recorded traffic.
+- Post-quantum key exchange is already deployed alongside the classical kind.
