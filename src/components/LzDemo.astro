@@ -1,0 +1,61 @@
+---
+// LZ77 on a short text: the stream of literal characters and back-references
+// that replaces it, and how many bits that stream takes.
+import { lzView } from '../lib/information';
+
+interface Props {
+  text?: string;
+}
+
+const { text = 'she sells sea shells on the sea shore' } = Astro.props;
+const view = lzView(text);
+---
+
+<lz-demo class="playground lz-demo">
+  <label class="wide">Text <input value={text} maxlength="90" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {
+      [
+        ['a tongue twister', 'she sells sea shells on the sea shore'],
+        ['a repeated word', 'abracadabra abracadabra abracadabra'],
+        ['one letter', 'aaaaaaaaaaaaaaaaaaaaaaaa'],
+        ['nothing repeats', 'the quick brown fox jumps'],
+      ].map(([label, item]) => <button type="button" data-try={item}>{label}</button>)
+    }
+  </p>
+  <h4>Compressed stream</h4>
+  <p class="slots lz-tokens" data-out="html" set:html={view.html} />
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Tokens</dt><dd data-out="tokens">{view.tokens}</dd></div>
+    <div><dt>Size</dt><dd data-out="size">{view.size}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">{view.status}</p>
+</lz-demo>
+
+<script>
+  import { lzView } from '../lib/information';
+
+  class LzDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('input')!;
+      const render = () => {
+        const view = lzView(field.value);
+        for (const [name, value] of Object.entries(view)) {
+          const target = this.querySelector(`[data-out="${name}"]`)!;
+          if (name === 'html') target.innerHTML = value;
+          else target.textContent = value;
+        }
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest('button')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        render();
+      });
+    }
+  }
+
+  customElements.define('lz-demo', LzDemo);
+</script>

@@ -1,0 +1,57 @@
+---
+// Counts the characters of a text and shows how many bits each one carries,
+// and the average: the entropy of the text as a source of single characters.
+import { entropyView } from '../lib/information';
+
+interface Props {
+  text?: string;
+}
+
+const { text = 'abracadabra' } = Astro.props;
+const view = entropyView(text);
+---
+
+<entropy-demo class="playground entropy-demo">
+  <label class="wide">Text <input value={text} maxlength="80" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {['aaaaaaaaaaaa', 'abababababab', 'abracadabra', 'the cat sat on the mat', 'abcdefghijklmnop'].map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <table class="grid">
+    <thead><tr><th>symbol</th><th>count</th><th>share</th><th>bits</th><th></th></tr></thead>
+    <tbody data-out="rows" set:html={view.rows} />
+  </table>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Distinct symbols</dt><dd data-out="alphabet">{view.alphabet}</dd></div>
+    <div><dt>Entropy</dt><dd data-out="entropy">{view.entropy}</dd></div>
+    <div><dt>Smallest encoding</dt><dd data-out="total">{view.total}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">{view.status}</p>
+</entropy-demo>
+
+<script>
+  import { entropyView } from '../lib/information';
+
+  class EntropyDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('input')!;
+      const render = () => {
+        const view = entropyView(field.value);
+        for (const [name, value] of Object.entries(view)) {
+          const target = this.querySelector(`[data-out="${name}"]`)!;
+          if (name === 'rows') target.innerHTML = value;
+          else target.textContent = value;
+        }
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest('button')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        render();
+      });
+    }
+  }
+
+  customElements.define('entropy-demo', EntropyDemo);
+</script>
