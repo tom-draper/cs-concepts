@@ -1,0 +1,119 @@
+---
+description: A load balancer spreads incoming requests across a group of servers. It lets a service handle more traffic than one machine can, keeps it available when servers fail, and allows servers to be added, removed and replaced without clients noticing.
+difficulty: intermediate
+---
+
+One server can only do so much. Past a certain load, responses slow down and then fail. And one server is one point of failure: when it crashes, or is restarted for an upgrade, the service is gone.
+
+The answer to both is to run several servers that can each do the same job, and put something in front to share out the work. That something is a **load balancer**. Clients connect to it, and it passes each request to one of the servers behind, known as the **backends** or the pool.
+
+## Choosing a server
+
+The interesting question is which server gets the next request. Here are three, one of which is slower than the others. Try each policy.
+
+<LoadBalancerDemo />
+
+| Policy | Chooses | Good when | Weak when |
+| --- | --- | --- | --- |
+| Round robin | each server in turn | servers and requests are all alike | servers differ in speed, or requests differ in cost |
+| Weighted round robin | in turn, in proportion to assigned weights | servers have known, different capacities | load changes unpredictably |
+| Least connections | the server with the fewest requests in progress | requests vary in duration | every request is very short |
+| Random | any server | simple, needs no shared state | small numbers, where luck is uneven |
+| Hash of the client or key | the same server for the same client | caches and sessions should stay together | a few clients produce most of the traffic |
+
+With round robin, the slow server is handed as many requests as the fast ones and falls steadily behind. With least connections, a server that is slow to finish naturally holds more open requests, so it is chosen less often. The balancer adapts without being told which server is slow.
+
+A refinement used in large systems is **the power of two choices**: pick two servers at random and send the request to the less busy of the pair. It gives nearly the benefit of least connections without needing an exact, up-to-date view of every server, which is hard to maintain when there are many balancers.
+
+## Health checks
+
+Press "Take down" on a server in the widget and keep sending requests. The others absorb its share.
+
+A balancer must know which servers are working. It finds out with **health checks**: every few seconds it sends each backend a small request, often to a dedicated path such as `/health`. A server that fails several checks in a row is removed from the pool. When it starts passing again, it is put back.
+
+This is what turns a group of servers into a reliable service. It also makes routine operations painless.
+
+- **Deploying.** Take one server out, upgrade it, check it, put it back, and repeat for the next. Users see nothing.
+- **Scaling.** Add servers when traffic rises and remove them when it falls.
+- **Draining.** Stop sending new requests to a server while letting its current ones finish, before shutting it down.
+
+A good health check tests that the server can really do its work. A check that only confirms the process is running will pass on a server whose database connection is broken.
+
+## Layer 4 and layer 7
+
+Balancers work at one of two levels, named after the layers of the [network model](/networking/the-network-layer-model/).
+
+| | Layer 4 | Layer 7 |
+| --- | --- | --- |
+| Sees | IP addresses and ports | whole [HTTP](/networking/http/) requests |
+| Decides | once per connection | once per request |
+| Can route by | address and port only | path, host name, headers, cookies |
+| Speed | very fast, little work per packet | slower, must parse the protocol |
+| Extras | few | [TLS](/networking/tls/) termination, compression, caching, retries, rate limiting |
+
+A **layer 4** balancer forwards [TCP](/networking/tcp/) connections or [UDP](/networking/udp/) packets without understanding their contents.
+
+A **layer 7** balancer, also called a reverse proxy, terminates the client's connection, reads the request and makes its own connection to a backend. It can send `/api` to one group of servers and `/images` to another, or direct a tenth of users to a new version.
+
+The difference matters most for long-lived connections. HTTP/2 carries many requests on one connection. A layer 4 balancer chooses a backend once, when the connection opens, and every request on it goes to the same server, however uneven that becomes. A layer 7 balancer can place each request separately.
+
+## Sessions
+
+Balancing is easiest when it makes no difference which server handles a request. That holds if servers keep nothing between requests. Such servers are **stateless**, and any shared state lives in a database or cache they all use.
+
+When a server does keep something in memory, such as a shopping basket or a logged-in session, later requests from the same user must return to it. That is **session affinity**, or sticky sessions, usually done by hashing the client's address or by a cookie the balancer sets.
+
+Stickiness has costs. Load becomes uneven, and when a server dies its users lose their sessions. The better design is to keep the servers stateless and put sessions in shared storage.
+
+Plain hashing has another problem: add or remove one server and almost every client maps to a different one. [Consistent hashing](/distributed-systems/consistent-hashing/) is the fix, moving only a small fraction when the pool changes.
+
+## TLS termination
+
+Layer 7 balancers usually decrypt incoming TLS themselves. Certificates then live in one place, the backends are spared the cryptography, and the balancer can read requests in order to route them.
+
+The traffic from balancer to backend may be sent in the clear on a trusted private network, or encrypted again. Stricter environments require the second.
+
+## Who balances the balancer?
+
+Putting a single machine in front of everything recreates the single point of failure. So balancers are made redundant too.
+
+| Technique | How it works |
+| --- | --- |
+| Active and standby pair | two balancers share one IP address, and the standby takes it over if the active one stops responding |
+| [DNS](/networking/dns/) | a name resolves to several balancers, and clients pick among them |
+| Anycast | the same IP address is announced from many locations, and the network routes each user to the nearest |
+| Several tiers | routers spread packets over a fleet of layer 4 balancers, which feed a fleet of layer 7 balancers |
+
+Balancing across the globe is usually done with DNS or anycast, sending each user to a nearby data centre and shifting traffic away from one that has failed. DNS-based switching is only as fast as the record's TTL allows.
+
+## What can go wrong
+
+**Retry storms.** If a balancer retries failed requests on other servers, a service that is slow because it is overloaded receives even more work. Retries need limits and delays.
+
+**Cascading failure.** When one server fails, its load moves to the rest. If they were already near capacity, they fail in turn. A pool must have enough headroom to lose a server.
+
+**The thundering herd.** A new server added to a least-connections pool has zero connections and is instantly sent everything, before its caches are warm. Balancers ramp new servers up gradually.
+
+**Too-clever health checks.** A check that depends on a shared database fails on every server at the same moment when the database hiccups. The balancer then removes the entire pool. Many balancers refuse to mark all backends unhealthy for this reason.
+
+## In practice
+
+| Kind | Examples |
+| --- | --- |
+| Software reverse proxies | NGINX, HAProxy, Envoy, Traefik |
+| Cloud services | load balancers offered by every cloud provider, in layer 4 and layer 7 forms |
+| In the kernel | Linux IPVS, and packet-processing balancers built on eBPF |
+| Inside the client | a library that knows the list of backends and picks one itself, common between internal services |
+
+Client-side balancing removes the extra network hop and the extra machine. It is the idea behind a service mesh, where a small proxy beside every service instance does the balancing.
+
+Load balancing appears at every scale: [CDNs](/networking/cdns/) balance users across locations, databases balance reads across [replicas](/distributed-systems/replication/), and an operating system's [scheduler](/operating-systems/cpu-scheduling/) balances threads across processor cores.
+
+## Key takeaways
+
+- A load balancer distributes requests over a pool of interchangeable servers, for capacity and for availability.
+- Round robin is simple. Least connections adapts to slow servers and uneven requests. Hashing keeps a client on the same server.
+- Health checks remove failed servers automatically and make rolling deployments and scaling routine.
+- Layer 4 balancers forward connections by address and port. Layer 7 balancers understand requests and can route on their content.
+- Stateless servers make balancing simple. Sticky sessions are a workaround with real costs.
+- The balancer must itself be redundant, and its retry and health-check behaviour must be designed not to amplify failures.
