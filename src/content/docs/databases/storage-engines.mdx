@@ -1,0 +1,158 @@
+---
+description: A storage engine is the part of a database that decides how data is laid out on disk and how it is read and written. The two main designs, B-trees and log-structured merge trees, make opposite trade-offs between read speed and write speed.
+difficulty: advanced
+---
+
+A database presents tables and answers queries. Underneath, something has to turn "store this row" and "find that key" into bytes on a disk, in a way that stays fast as the data grows and survives a power cut. That component is the **storage engine**.
+
+Many databases let the engine be swapped, and different engines suit different workloads. The choice comes down to how the engine handles one fact about storage hardware.
+
+## What storage is good at
+
+[Storage devices](/architecture/storage-devices/) are far slower than memory, and they are much better at **sequential** access, reading or writing consecutive blocks, than at **random** access, jumping from place to place.
+
+| | Sequential | Random |
+| --- | --- | --- |
+| Spinning disk | fast | about a hundred times slower, since the arm must move |
+| SSD | fast | closer, but still several times slower |
+| Memory | fast | slower, because of [cache misses](/architecture/cache-locality/) |
+
+Devices also read and write whole blocks, never single bytes. So engines organise data into fixed-size **pages**, typically 4 to 16 kilobytes, each holding many rows.
+
+Every design decision in a storage engine is an attempt to do fewer random page accesses.
+
+## Pages and the buffer pool
+
+Reading a page from disk for every query would be far too slow. An engine keeps recently used pages in memory, in a cache called the **buffer pool**.
+
+A read looks for its page there first. A write changes the page in memory and marks it **dirty**. Dirty pages are written back to disk later, in the background. When the pool is full, a page that has not been used recently is evicted, as in [operating system paging](/operating-systems/paging/).
+
+A change that exists only in memory would be lost in a crash, so before a page is changed the change is recorded in a [write-ahead log](/databases/write-ahead-logging/).
+
+How much of the data fits in the buffer pool is the largest single factor in a database's speed. A database whose working data fits in memory is rarely slow.
+
+## B-tree engines: update in place
+
+The traditional design keeps data in a [B+ tree](/data-structures/b-plus-trees/). Each node is a page. Keys are sorted, and finding one means walking from the root to a leaf, three or four pages.
+
+To change a row, the engine finds the page that holds it and modifies that page **in place**.
+
+| | B-tree engine |
+| --- | --- |
+| Read a key | one path from root to leaf |
+| Read a range | find the start, then follow the leaves in order |
+| Write | find the page, change it, eventually write the whole page back |
+| Space | pages are typically half to two-thirds full, to leave room for inserts |
+
+Reads are excellent. Each key lives in exactly one place.
+
+Writes are the weak point. Rows arriving in random key order land on random pages, and each dirty page must eventually be written back whole, even if only a few bytes changed. When a page fills, it is split in two, which changes its parent as well. Over time pages become partly empty and scattered, which is **fragmentation**.
+
+PostgreSQL, MySQL's InnoDB, SQL Server, Oracle and SQLite are all built on B-trees.
+
+## LSM engines: never update in place
+
+The **log-structured merge tree**, or [LSM tree](/data-structures/lsm-trees/), takes the opposite approach. It never modifies data on disk. Every write is an append.
+
+Write some keys and watch where they go.
+
+<LsmDemo />
+
+There are three moving parts.
+
+**The memtable.** Writes go into a sorted structure in memory. That is all a write does, apart from appending to a log for crash safety. No disk page is found or modified.
+
+**Sorted files.** When the memtable is full, it is written to disk in one sequential pass as a file of sorted keys, often called an SSTable. Files are **immutable**. Once written they are never changed.
+
+**Compaction.** Old values are not removed when a key is overwritten. A newer value simply sits in a newer file, and readers take the newest. A delete writes a marker called a **tombstone**. In the background, compaction merges files together, as in the merge step of [merge sort](/algorithms/merge-sort/), keeping only the latest value of each key and discarding the rest.
+
+Write `a` a few times and read it. Then delete it and read it again. Then compact, and see how much disappears.
+
+| | LSM engine |
+| --- | --- |
+| Write | append to memory. Later flushed sequentially |
+| Read a key | check the memtable, then each file from newest to oldest |
+| Read a range | merge the matching ranges from every file |
+| Space | compact, with no half-empty pages, but old versions linger until compaction |
+
+Writes are very fast, since they only ever touch memory and sequential disk. Reads are the weak point. A key might be in any file, and a key that does not exist is in none of them, so proving it absent means checking every one.
+
+Two additions keep reads acceptable. Each file carries a [Bloom filter](/data-structures/bloom-filters/), which can say "this key is definitely not in this file" without reading it. And compaction keeps the number of files small, usually by arranging them in levels of increasing size.
+
+RocksDB, LevelDB, Cassandra, ScyllaDB and HBase are LSM engines, and RocksDB sits underneath many newer distributed databases.
+
+## The trade-off
+
+| | B-tree | LSM tree |
+| --- | --- | --- |
+| Writes | random page writes | sequential appends |
+| Write throughput | moderate | high |
+| Point reads | fast and predictable | slower, may check several files |
+| Range reads | fast | must merge several files |
+| Space used | larger, with fragmentation | smaller, and compresses well |
+| Background work | little | compaction, which competes with queries |
+| Latency | steady | occasional slowdowns during heavy compaction |
+
+Three kinds of **amplification** make the comparison precise.
+
+| Measure | Meaning | B-tree | LSM |
+| --- | --- | --- | --- |
+| Write amplification | bytes written to disk for each byte of data | high: a whole page for a small change | high in a different way: each value is rewritten by several compactions |
+| Read amplification | pages read for one lookup | low | higher |
+| Space amplification | disk used compared with the data | moderate | low once compacted |
+
+No design wins on all three. It has been argued, and is widely believed, that an engine can be tuned to do well on any two at the expense of the third.
+
+As a rule of thumb, workloads dominated by reads and by transactions on existing rows favour B-trees. Workloads dominated by writes, such as logging, metrics, event streams and time series, favour LSM trees.
+
+## Rows and columns
+
+A separate question is how the values of a table are arranged within pages.
+
+A **row store** keeps all the columns of a row together. Fetching or updating one whole row touches one place. This suits **transactional** workloads: many small operations, each on a few rows.
+
+A **column store** keeps all the values of one column together, and each column separately.
+
+| Query | Row store | Column store |
+| --- | --- | --- |
+| Fetch one customer's whole record | one read | one read for every column |
+| Insert a row | one write | one write for every column |
+| Average of one column over a billion rows | reads every column of every row | reads only that column |
+
+For analytics, a column store reads a small fraction of the data. Values in one column are similar to each other, so they compress very well, often tenfold, and the processor can work through them with [vector instructions](/architecture/simd/).
+
+| | Transactional (OLTP) | Analytical (OLAP) |
+| --- | --- | --- |
+| Typical query | fetch or change a few rows by key | aggregate over millions of rows |
+| Layout | rows | columns |
+| Examples | PostgreSQL, MySQL | ClickHouse, DuckDB, Snowflake, BigQuery, Parquet files |
+
+## Other designs
+
+**In-memory engines.** If all the data fits in memory, the engine can drop the page structure and use data structures designed for memory, keeping a log on disk only for recovery. Redis works like this.
+
+**Append-only logs.** Systems such as Kafka store data purely as a log that is only appended to and read in order. It is the simplest and fastest design for writing, and offers no lookup by key.
+
+**Heap files.** PostgreSQL stores rows in unordered pages called a heap, with all indexes, including the primary key's, as separate B-trees pointing in.
+
+## Choosing
+
+Most applications never choose a storage engine directly. They choose a database, and its default engine is a good one. The differences start to matter at scale.
+
+| If the workload is | Lean towards |
+| --- | --- |
+| General-purpose, mixed reads and writes, transactions | a B-tree row store |
+| Write-heavy ingestion | an LSM engine |
+| Reports and aggregates over large tables | a column store |
+| Small, hot and needing microsecond latency | an in-memory store |
+
+Knowing which design is underneath explains a database's behaviour: why inserting in random key order is slow on one system, why another has periodic latency spikes, and why a third is fast at summing a column and slow at fetching a row.
+
+## Key takeaways
+
+- A storage engine decides how data is arranged on disk. Its design is driven by the cost of random access compared with sequential access.
+- Data is held in pages, cached in memory by a buffer pool, with changes protected by a log.
+- B-tree engines update pages in place. Reads are fast and predictable, and writes cause random page writes.
+- LSM engines only append. Writes are fast and sequential, while reads may check several files and compaction runs in the background.
+- Row stores suit transactions on individual records. Column stores suit analytics over many rows and few columns.
+- Every engine trades among read cost, write cost and space, and none is best at all three.
