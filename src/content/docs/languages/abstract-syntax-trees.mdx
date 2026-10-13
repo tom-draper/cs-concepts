@@ -1,0 +1,179 @@
+---
+description: An abstract syntax tree is a program stored as a tree of its meaningful parts, with the punctuation thrown away. It is the form in which compilers, linters, formatters and refactoring tools actually work with code.
+difficulty: intermediate
+---
+
+Source code is text, and text is a poor thing to compute with. Finding every call to a function by searching for its name also finds comments, strings and other functions with longer names. Renaming a variable with find-and-replace is an accident waiting to happen.
+
+Tools that work with programs first convert them into a tree. Each node is one construct of the language, such as an addition, a function call or an `if`, and its children are the parts of that construct. This is the **abstract syntax tree**, or AST.
+
+## The tree
+
+Type an expression. The [parser](/languages/parsing/) builds the tree.
+
+<CompilerDemo show="tree" tries={['n * (2 + 3)', 'if n < 3 then n + 1 else n * 2', '1 + 2 + 3 + 4', '((((n))))']} />
+
+Three things are worth noticing.
+
+**Leaves are values and names.** Interior nodes are operations. An operation's children are its operands, in order.
+
+**The tree is the order of evaluation.** A node cannot be computed until its children have been. Reading the tree from the bottom up gives the order in which things happen.
+
+**The brackets are gone.** Try `((((n))))`. Four pairs of brackets produce a single node. Brackets exist to tell the parser about grouping, and the shape of the tree already records the grouping.
+
+## What "abstract" means
+
+A grammar describes source text exactly, including every token. A tree that follows the grammar step by step is called a **parse tree**, or concrete syntax tree. For `(1 + 2) * 3` under a typical [expression grammar](/theory/context-free-grammars/) it looks like this.
+
+<Tree
+  root={{ k: 'expr', c: [{ k: 'term', c: [{ k: 'factor', c: ['(', { k: 'expr', c: [{ k: 'term', c: [{ k: 'factor', c: ['1'] }] }, '+', { k: 'term', c: [{ k: 'factor', c: ['2'] }] }] }, ')'] }, '*', { k: 'factor', c: ['3'] }] }] }}
+  caption="The parse tree: one node for each grammar rule applied and each token read. Eleven of its sixteen nodes are wrappers or punctuation."
+/>
+
+The abstract syntax tree keeps only what affects the meaning.
+
+<Tree
+  root={{ k: '*', c: [{ k: '+', c: [1, 2] }, 3] }}
+  caption="The abstract syntax tree for the same expression: five nodes."
+/>
+
+| Dropped from the AST | Why it is safe |
+| --- | --- |
+| Brackets | the tree's shape records the grouping |
+| Semicolons, commas, braces | each statement and argument is already a separate child |
+| Chains of single-child nodes such as `expr → term → factor` | they exist only to express precedence |
+| Whitespace and, usually, comments | no effect on behaviour |
+
+Different surface syntax can produce the same tree. In many languages `x += 1` and `x = x + 1` become the same node, and a `for` loop may be rewritten as a `while` loop. This rewriting of conveniences into simpler core constructs is called **desugaring**.
+
+## Nodes in code
+
+An AST is an ordinary [tree](/data-structures/binary-trees/) data structure with a different type of node for each construct.
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Number:
+    value: float
+
+@dataclass
+class Name:
+    name: str
+
+@dataclass
+class Binary:
+    operator: str
+    left: 'Node'
+    right: 'Node'
+
+@dataclass
+class If:
+    test: 'Node'
+    then: 'Node'
+    otherwise: 'Node'
+
+# n * (2 + 3)
+tree = Binary('*', Name('n'), Binary('+', Number(2), Number(3)))
+```
+
+A full language has a few dozen node types: literals, names, unary and binary operations, calls, assignments, blocks, loops, function and class definitions.
+
+Real nodes carry more than this. Each records its **position** in the source file, so that an error found much later can still point at the right line. After analysis, nodes are also annotated with their [types](/languages/type-systems/) and with links from each use of a name to its declaration.
+
+## Walking the tree
+
+Nearly everything done with an AST is a [recursive](/algorithms/recursion/) traversal: do something at a node, and do the same to its children. Which comes first depends on the job.
+
+An interpreter evaluates children first and then combines the results. That is a post-order traversal, the [depth-first](/algorithms/depth-first-search/) order in which a node is handled after its subtrees.
+
+```python
+def evaluate(node, variables):
+    match node:
+        case Number(value):
+            return value
+        case Name(name):
+            return variables[name]
+        case Binary('+', left, right):
+            return evaluate(left, variables) + evaluate(right, variables)
+        case Binary('*', left, right):
+            return evaluate(left, variables) * evaluate(right, variables)
+        case If(test, then, otherwise):
+            chosen = then if evaluate(test, variables) else otherwise
+            return evaluate(chosen, variables)
+
+evaluate(tree, {'n': 4})        # 20
+```
+
+Notice that `If` does not evaluate both branches. The node decides how its children are used, which is why control flow is so natural to express on a tree.
+
+A function that finds every variable used in an expression has the same skeleton.
+
+```python
+def names_used(node):
+    match node:
+        case Name(name):
+            return {name}
+        case Binary(_, left, right):
+            return names_used(left) | names_used(right)
+        case If(test, then, otherwise):
+            return names_used(test) | names_used(then) | names_used(otherwise)
+        case _:
+            return set()
+```
+
+When there are many node types and many operations, writing the recursion out each time becomes repetitive. The **visitor pattern** separates the two: the tree knows how to walk itself, and each tool supplies only the functions for the nodes it cares about.
+
+## Rewriting the tree
+
+A tree can be transformed as well as read. A transformation returns a new tree, usually a slightly simpler one. This one works out arithmetic on constants ahead of time.
+
+```python
+def fold(node):
+    match node:
+        case Binary(operator, left, right):
+            left, right = fold(left), fold(right)
+            if isinstance(left, Number) and isinstance(right, Number):
+                if operator == '+': return Number(left.value + right.value)
+                if operator == '*': return Number(left.value * right.value)
+            return Binary(operator, left, right)
+        case _:
+            return node
+
+fold(tree)       # Binary('*', Name('n'), Number(5))
+```
+
+Compilers make dozens of such passes. Each is small, and each takes a tree and hands a tree to the next. Many of them are done on a lower-level [intermediate representation](/languages/intermediate-representations/) that the AST is converted into.
+
+## Tools built on syntax trees
+
+A great deal of everyday tooling is "parse to a tree, do something, perhaps print it back".
+
+| Tool | What it does with the tree |
+| --- | --- |
+| Compiler or interpreter | checks it, then translates or executes it |
+| Linter | searches for suspicious shapes, such as a comparison of a value with itself |
+| Formatter | discards the original layout and prints the tree in a standard style |
+| Refactoring | renames the nodes that refer to one declaration, and only those |
+| Transpiler | rewrites new syntax into older syntax and prints the result |
+| Minifier | shortens names and removes unreachable nodes |
+| Syntax-aware search | finds code by structure, such as every call with three arguments |
+| Macros | let a program generate or rewrite tree fragments at compile time |
+
+Working on the tree is what makes these reliable. A rename tool using the AST changes the variable `count` and leaves alone the word "count" in a string and the unrelated `count` in another function. A text search cannot tell them apart.
+
+Lisp takes the idea to its end. Its source code is written directly as nested lists, which are the tree, so programs can construct and transform other programs with ordinary list operations.
+
+<Aside title="Keeping the details">
+
+A formatter or refactoring tool must put comments and blank lines back where it found them, so it cannot use a tree that threw them away. These tools use a **lossless** syntax tree that keeps every character, attached to nodes as extra detail, with the abstract structure layered on top.
+
+</Aside>
+
+## Key takeaways
+
+- An abstract syntax tree represents a program as nested constructs, with operations as interior nodes and values and names as leaves.
+- It omits anything that only guided the parser, such as brackets, separators and precedence rules.
+- The shape of the tree encodes the order of evaluation.
+- Working with an AST means walking it recursively: to evaluate, to check, to collect information, or to build a transformed tree.
+- Compilers, linters, formatters and refactoring tools all operate on syntax trees, which is why they are more reliable than tools that operate on text.
