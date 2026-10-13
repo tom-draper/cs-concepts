@@ -1,0 +1,145 @@
+---
+description: A Turing machine is a finite set of rules driving a read-write head along an endless tape. It is the standard definition of what it means to compute, and no realistic machine can compute anything it cannot.
+difficulty: intermediate
+---
+
+A [finite automaton](/theory/finite-automata/) has no memory beyond its state. A [pushdown automaton](/theory/pushdown-automata/) has a stack, which it can only use from one end. The next step is the obvious one: memory the machine can move around in freely, reading and writing as it goes.
+
+In 1936 Alan Turing described such a machine, before any electronic computer existed. He was trying to pin down what a person following a fixed procedure with pencil and paper could work out. His answer has turned out to cover everything any computer has done since.
+
+## The machine
+
+A Turing machine has three parts.
+
+- A **tape**, divided into cells and endless in both directions. Each cell holds one symbol or is blank.
+- A **head**, positioned over one cell, which can read that cell and overwrite it.
+- A **state**, one of a fixed finite set, and a table of **rules**.
+
+A rule says: in this state, reading this symbol, write that symbol, move the head one cell left or right, and go to that state. The machine repeats the cycle of read, write, move and change state until it reaches a point where no rule applies. Then it **halts**.
+
+This machine adds one to a binary number.
+
+<TuringDemo machine="increment" />
+
+It works the way you would by hand. The state `right` walks to the end of the number. The state `carry` then walks back, turning each `1` into `0` until it finds a `0` to turn into `1`. Try `111`, where the carry runs off the left end and the machine writes a new digit on a blank cell.
+
+The input is whatever is on the tape at the start. The output is whatever is on it at the end.
+
+## Using the tape as memory
+
+A machine can also answer yes or no, by halting in a state called `accept` or by halting anywhere else.
+
+This one accepts strings made of some 0s followed by the same number of 1s. A finite automaton cannot do this at all. A Turing machine does it without counting, by crossing off symbols in pairs.
+
+<TuringDemo machine="equal" />
+
+Each pass marks one `0` as `X`, finds the first unmarked `1`, marks it as `Y` and walks back. When no `0`s are left, the state `check` confirms that no `1`s are left either. Try `0010` and `011` to see the two ways it can get stuck.
+
+Notice that the machine writes symbols that were not in the input. The tape is working memory, used here as a tally. This is slow, taking about n² steps for an input of length n, but the model is concerned with what can be computed at all. Speed comes later, with [complexity classes](/theory/p-vs-np/).
+
+## The formal definition
+
+| Part | In the machine above |
+| --- | --- |
+| A finite set of states | `mark`, `find`, `back`, `check`, `accept` |
+| An input alphabet | `0` and `1` |
+| A tape alphabet, which adds the blank and any working symbols | `0`, `1`, `X`, `Y`, blank |
+| A transition function: (state, symbol) to (symbol, direction, state) | the rule table |
+| A start state | `mark` |
+| Accepting states | `accept` |
+
+Everything about the machine is finite except the tape. And at any moment only a finite part of the tape has been used, so the machine's whole situation, called its **configuration**, can be written down: the tape contents, the head position and the state.
+
+Unlike the simpler machines, a Turing machine does not have to stop when the input ends. It has three possible fates: halt and accept, halt and reject, or run for ever. The third possibility is the source of the [halting problem](/theory/the-halting-problem/).
+
+## The Church-Turing thesis
+
+The machine looks too crude to matter. It has no arithmetic, no variables and no random access. To reach a cell it has to walk there.
+
+Yet every attempt to define a more capable kind of computation has produced something a Turing machine can imitate.
+
+| Change to the model | Result |
+| --- | --- |
+| Several tapes | same power, at most quadratically faster |
+| A two-dimensional grid for a tape | same power |
+| A tape endless in one direction only | same power |
+| Nondeterminism, trying many rules at once | same power, possibly exponentially faster |
+| Random access memory, as in a real computer | same power |
+| The [lambda calculus](/theory/lambda-calculus/), a model with no machine at all | same power |
+
+The **Church-Turing thesis** is the claim that this will always happen: anything that can be computed by any mechanical procedure can be computed by a Turing machine.
+
+It is a thesis, not a theorem, because "mechanical procedure" is an informal idea and cannot be proved equal to a formal one. But it has stood for ninety years against every model proposed, including quantum computers, which are faster for some problems but compute nothing new.
+
+## The universal machine
+
+A Turing machine's rule table is a finite piece of text. So it can be written on a tape.
+
+Turing showed that there is a single machine, the **universal Turing machine**, which takes the description of any other machine and an input for it, and does what that machine would do. It reads the description to find the rule that applies, carries out that rule on a simulated tape, and repeats.
+
+This is the idea of a **stored program**. Before it, a computing device was built to do one job. After it, one machine could do any job, and the job was data. Every general-purpose computer is a universal machine: the processor's [fetch-decode-execute cycle](/architecture/fetch-decode-execute-cycle/) is the loop that looks up the next rule and applies it. So is every interpreter, and every virtual machine.
+
+It also means programs can be fed to other programs, including to themselves. Compilers depend on that. So does the proof that some problems cannot be solved.
+
+## Turing completeness
+
+A system is **Turing complete** if it can simulate any Turing machine. The requirements are modest: some form of conditional branching, some way to repeat, and memory that can grow without a fixed limit.
+
+Nearly every programming language qualifies, and so do some things that were never meant to.
+
+| Turing complete | Not Turing complete |
+| --- | --- |
+| C, Python, JavaScript and other general languages | regular expressions |
+| SQL with recursive queries | basic SQL queries |
+| Conway's Game of Life | HTML |
+| Spreadsheet formulas with lambda functions | JSON |
+| C++ templates and TypeScript's type system | a finite automaton or pushdown automaton |
+
+Being Turing complete says nothing about convenience. It says that, in principle, anything one of these systems can compute, all of them can.
+
+It has a cost as well. Questions about what a program in a Turing-complete language will do, such as whether it finishes, are in general impossible to answer automatically. Languages for configuration and data are often kept deliberately weaker so that they stay predictable.
+
+<Aside title="Real computers are finite">
+
+A physical computer has a fixed amount of memory, so strictly it is a very large finite automaton. The Turing machine is still the right model, because programs are written as if memory were unlimited, and the number of states of a real machine is far too large to reason about as a state diagram.
+
+</Aside>
+
+## Implementation
+
+A simulator is a few lines. A dictionary stands in for the endless tape, with missing cells read as blank.
+
+```python
+def run(rules, tape, state, limit=10_000):
+    cells = dict(enumerate(tape))
+    head = 0
+    for _ in range(limit):
+        symbol = cells.get(head, '_')
+        if (state, symbol) not in rules:
+            return state, cells                  # no rule applies: halt
+        write, move, state = rules[state, symbol]
+        cells[head] = write
+        head += 1 if move == 'R' else -1
+    raise TimeoutError('still running')
+
+increment = {
+    ('right', '0'): ('0', 'R', 'right'),
+    ('right', '1'): ('1', 'R', 'right'),
+    ('right', '_'): ('_', 'L', 'carry'),
+    ('carry', '1'): ('0', 'L', 'carry'),
+    ('carry', '0'): ('1', 'L', 'done'),
+    ('carry', '_'): ('1', 'L', 'done'),
+}
+
+run(increment, '1011', 'right')                  # tape now reads 1100
+```
+
+The `limit` is there because the simulator cannot know in advance whether the machine it is given will ever halt. That is not a shortcoming of this simulator. It is a fact about every program, and the subject of the next page.
+
+## Key takeaways
+
+- A Turing machine is a finite rule table, a head and an endless tape that it can read and write freely.
+- It may halt and accept, halt and reject, or never halt.
+- The Church-Turing thesis says that anything computable by any means is computable by a Turing machine. No counterexample has been found.
+- A universal Turing machine runs any other machine from its description, which is the principle of the stored-program computer.
+- A system that can simulate a Turing machine is Turing complete. Most programming languages are, and all of them are equal in what they can compute.
