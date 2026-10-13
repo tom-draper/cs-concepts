@@ -1,0 +1,117 @@
+---
+description: P is the class of problems that can be solved quickly, and NP is the class whose answers can be checked quickly. Whether the two are the same is the most important open question in computer science.
+difficulty: intermediate
+---
+
+Some problems are hard to solve and easy to check. A completed sudoku can be verified in a minute by reading the rows, columns and boxes. Filling one in from a few clues can take an hour.
+
+It seems obvious that finding an answer is harder than checking one. Nobody has been able to prove it. That gap between what seems obvious and what has been proved is the **P versus NP** problem.
+
+## Finding and checking
+
+Here are eight numbers. Find some of them that add up to exactly 90.
+
+<SubsetSumDemo />
+
+This is the **subset sum** problem. If someone hands you a set of numbers and claims it works, you add them up. That takes a few additions, however long the list.
+
+Finding the set is another matter. With 8 numbers there are 255 ways to choose a non-empty subset, and the obvious method tries them one by one. Press the search button to see how far it has to go. With 9 numbers there would be 511, with 20 over a million, and with 100 about 10³⁰.
+
+Cleverer methods exist, but for arbitrary large numbers every known method still takes time that grows exponentially.
+
+## Why polynomial is the dividing line
+
+Complexity theory sorts problems by how the work grows as the input gets larger, using [big-O notation](/foundations/big-o-notation/). The key distinction is between growth that is a **polynomial** in the input size n, such as n, n² or n³, and growth that is **exponential**, such as 2ⁿ.
+
+| n | n² | n³ | 2ⁿ |
+| --- | --- | --- | --- |
+| 10 | 100 | 1,000 | 1,024 |
+| 30 | 900 | 27,000 | about 1 billion |
+| 60 | 3,600 | 216,000 | about 10¹⁸ |
+| 100 | 10,000 | 1,000,000 | about 10³⁰ |
+
+At a billion steps per second, n³ for n = 100 takes a millisecond. 2ⁿ for n = 60 takes 36 years, and for n = 100 it takes 40 trillion years.
+
+A faster computer does not rescue an exponential algorithm. Doubling the speed lets a polynomial algorithm handle an input that is larger by some constant factor. It lets a 2ⁿ algorithm handle an input that is larger by one.
+
+So "polynomial time" is used as the formal meaning of "can be solved efficiently". It is a rough cut, since n¹⁰⁰ would be useless in practice, but problems that have polynomial algorithms nearly always turn out to have fast ones.
+
+## The two classes
+
+Both classes are about **decision problems**, which have a yes or no answer. "Is there a subset that sums to 90?" is one. Most problems can be put in this form.
+
+**P** is the set of decision problems that can be **solved** in polynomial time.
+
+**NP** is the set of decision problems where, whenever the answer is yes, there is a piece of evidence that can be **checked** in polynomial time. The evidence is called a **certificate**, or witness.
+
+| Problem | Certificate | In P? |
+| --- | --- | --- |
+| Is this list sorted? | none needed | yes |
+| Is there a path from A to B? | the path | yes, by [breadth-first search](/algorithms/breadth-first-search/) |
+| Is this number prime? | none needed | yes, shown in 2002 |
+| Does a subset sum to the target? | the subset | unknown |
+| Can this map be coloured with 3 colours? | the colouring | unknown |
+| Is there a route through every city shorter than k? | the route | unknown |
+| Does this number have a factor smaller than k? | the factor | unknown |
+
+<Aside type="warning" title="NP does not mean 'not polynomial'">
+
+NP stands for **nondeterministic polynomial** time. The name comes from an equivalent definition: the problems a nondeterministic machine could solve in polynomial time by guessing the certificate and then checking it. It is a common mistake to read NP as "hard". Every easy problem is in NP too.
+
+</Aside>
+
+## P is inside NP
+
+If a problem can be solved quickly, a claimed answer can be checked quickly: ignore the certificate and solve the problem yourself. So every problem in P is also in NP.
+
+The question is whether NP contains anything else.
+
+| If P = NP | If P ≠ NP |
+| --- | --- |
+| Every problem whose answers can be checked quickly can also be solved quickly | Some problems are fundamentally harder to solve than to check |
+| Searching is never essentially harder than verifying | Brute-force search cannot always be avoided |
+
+Almost every researcher believes P ≠ NP. Decades of effort by many people have found no polynomial algorithm for subset sum, map colouring, or thousands of related problems. But "nobody has found one" is not a proof, and proving that no algorithm exists means ruling out every possible approach, including ones nobody has imagined.
+
+The question was posed precisely in 1971 by Stephen Cook, and independently by Leonid Levin. It is one of the seven Millennium Prize Problems, with a million dollars offered for a solution.
+
+## What hangs on it
+
+**Cryptography.** Modern [public-key cryptography](/security/public-key-cryptography/) relies on problems that are easy in one direction and hard in the other. Multiplying two large primes is fast, and recovering them from the product seems not to be. Yet a claimed factor is checked with one division, so the problem is in NP. If P = NP with a practical algorithm, encryption of this kind would be breakable.
+
+**Optimisation.** Scheduling, routing, packing, circuit layout and protein structure prediction all contain NP problems. A fast general method would transform every one of them. In its absence, industry relies on approximations and heuristics.
+
+**Mathematics.** Checking a formal proof is mechanical and quick. Finding one is not. If P = NP, finding a proof of reasonable length would be about as easy as checking it.
+
+That last consequence is one reason for the general scepticism. P = NP would mean that creativity in search adds nothing essential, and that recognising a good solution is as good as being able to produce one.
+
+## The hardest problems in NP
+
+The problems marked "unknown" in the table are not an assortment of unrelated puzzles. Most of them are tied together.
+
+Subset sum, map colouring and the travelling route problem are all **NP-complete**. Each one is as hard as every other problem in NP, in a precise sense: a fast algorithm for any one of them could be converted into a fast algorithm for all of them. So they stand or fall together, and the P versus NP question comes down to whether a single one of them has a polynomial algorithm.
+
+That is the subject of [NP-completeness](/theory/np-completeness/). Factoring is a notable exception. It is in NP and has no known fast algorithm, but it is not known to be NP-complete and is suspected not to be.
+
+## Beyond NP
+
+NP is not the top of anything. It sits in a longer ladder.
+
+| Class | Contains problems that are | Example |
+| --- | --- | --- |
+| P | solvable in polynomial time | sorting, shortest paths |
+| NP | checkable in polynomial time | subset sum |
+| PSPACE | solvable with polynomial memory, in any amount of time | who wins a given position in a generalised board game |
+| EXPTIME | solvable in exponential time | generalised chess |
+| Decidable | solvable at all | |
+| Undecidable | not solvable by any program | the [halting problem](/theory/the-halting-problem/) |
+
+Each class contains the ones above it in the table. It is known that P is strictly smaller than EXPTIME, so at least one of the steps between them is a real one. Which of them is real is not known.
+
+## Key takeaways
+
+- P is the class of problems that can be solved in polynomial time. NP is the class whose "yes" answers can be verified in polynomial time, given a certificate.
+- NP does not stand for "not polynomial". Everything in P is also in NP.
+- Polynomial time is the working definition of efficient, because exponential growth outruns any improvement in hardware.
+- Whether P equals NP is unproved. Nearly everyone expects that it does not.
+- Cryptography depends on certain NP problems being hard, and much of practical optimisation is shaped by NP problems having no known fast algorithm.
