@@ -1,0 +1,133 @@
+---
+description: DNS translates names such as example.org into the IP addresses that networks actually use. It is a distributed database, organised as a hierarchy so that nobody has to know everything, and made fast by caching at every level.
+difficulty: beginner
+---
+
+Networks deliver packets to [IP addresses](/networking/ip-addressing/). People remember names. Something has to turn `www.example.org` into `203.0.113.10`, billions of times a day, for hundreds of millions of names that change constantly and belong to different owners.
+
+A single central list could not do it. The **Domain Name System**, DNS, is a database spread across millions of servers, in which each organisation looks after its own names and nobody holds the whole picture.
+
+## A hierarchy of names
+
+A domain name is read from right to left, from the most general part to the most specific.
+
+```
+www . example . org .
+ │       │       │  └── the root
+ │       │       └── top-level domain
+ │       └── a domain registered under .org
+ └── a name chosen by whoever owns example.org
+```
+
+The names form a [tree](/data-structures/tries/). The **root** is at the top. Below it are the top-level domains such as `org`, `com` and `uk`. Below those are the domains people register, and their owners can create as many names underneath as they like.
+
+Responsibility follows the tree. The operators of the root know only who runs each top-level domain. The operators of `org` know only who runs each domain registered under it. The owner of `example.org` knows the addresses of the machines in it. Handing a branch of the tree to somebody else is called **delegation**, and a branch under one organisation's control is a **zone**.
+
+## Resolving a name
+
+Your computer does not walk the tree itself. It asks a **recursive resolver**, usually provided by the internet provider or a public service, and the resolver does the legwork.
+
+<SequenceDemo scenario="dns" />
+
+There are three kinds of server on the right, and none of the first two knows the answer.
+
+| Server | Knows | Answers with |
+| --- | --- | --- |
+| Root | who runs each top-level domain | a referral |
+| Top-level domain | who runs each registered domain | a referral |
+| Authoritative, for the domain | the actual records | the answer |
+
+Each referral narrows the search by one label. The resolver follows the chain and returns only the final answer.
+
+How does the resolver find the root in the first place? It is shipped with a short list of root server addresses. There are thirteen root server names, `a.root-servers.net` to `m.root-servers.net`, each of which is really hundreds of machines around the world sharing an address.
+
+## Caching
+
+Eight messages for every name would be slow and would crush the servers at the top. In practice the full walk is rare, because every answer is cached.
+
+<SequenceDemo scenario="dns-cached" />
+
+Each record carries a **TTL**, or time to live, which is the number of seconds it may be kept. Until that expires, the resolver answers from memory.
+
+The referrals are cached too. Having once learned who runs `.org`, a resolver does not ask the root again for hours or days. A busy resolver contacts the root very rarely.
+
+There are caches at several levels: the browser, the operating system, the home router and the resolver. Most lookups never leave the machine or the local network.
+
+The TTL is a trade-off chosen by the owner of the record.
+
+| TTL | Benefit | Cost |
+| --- | --- | --- |
+| Long, such as a day | fewer queries, faster for users | a change takes up to a day to reach everyone |
+| Short, such as a minute | changes take effect quickly | more queries, and more depends on the name servers staying up |
+
+This explains the folklore that "DNS takes 48 hours to propagate". Nothing is being pushed anywhere. Old answers are sitting in caches until their TTLs run out. Lowering the TTL well before a planned change makes the switch quick.
+
+## Record types
+
+A name can have several kinds of record.
+
+| Type | Holds | Example |
+| --- | --- | --- |
+| `A` | an IPv4 address | `203.0.113.10` |
+| `AAAA` | an IPv6 address | `2001:db8::10` |
+| `CNAME` | another name to look up instead | `www` is an alias for `example.org` |
+| `MX` | the mail servers for the domain | `10 mail.example.org` |
+| `NS` | the authoritative name servers for a zone | `ns1.example.org` |
+| `TXT` | free text | domain ownership proofs, email sender policies |
+| `SRV` | the host and port of a service | used by some chat and telephony protocols |
+| `PTR` | the name for an address, the reverse lookup | used in logs and by mail servers |
+
+One name can have several `A` records. Clients pick among them, which gives a crude form of [load balancing](/networking/load-balancing/). An authoritative server can also give different answers to different askers, sending each user to a nearby data centre. This is how many [CDNs](/networking/cdns/) direct traffic.
+
+## On the wire
+
+A DNS query is small, and by default it travels in a single [UDP](/networking/udp/) datagram to port 53, with the reply in another. No connection is set up. If no reply comes, the client asks again or tries another server.
+
+A reply too large for one datagram is marked as truncated, and the client repeats the query over [TCP](/networking/tcp/).
+
+You can watch a lookup with `dig`.
+
+```
+$ dig +noall +answer www.example.org
+
+www.example.org.    3600    IN    A    203.0.113.10
+```
+
+The number in the second column is the remaining TTL. Run it again against the same resolver and it will have counted down. `dig +trace` shows the walk from the root.
+
+## What can go wrong
+
+DNS sits in front of nearly everything, so its failures are widely felt.
+
+**Outages.** If a domain's authoritative servers cannot be reached and caches have expired, the domain vanishes from the internet, even though its web servers are running. Several of the largest outages of recent years were DNS failures at a single provider.
+
+**Stale answers.** A cached record keeps pointing at the old address until its TTL ends. Software that looks a name up once at start-up and never again keeps a stale address indefinitely.
+
+**Misconfiguration.** A wrong record sends traffic to the wrong place for as long as it is cached. The engineers' saying is "it's always DNS".
+
+## Security and privacy
+
+DNS was designed in 1983 for a small and trusting network.
+
+**Forgery.** A classic reply is not authenticated. An attacker who gets a forged answer into a resolver's cache, known as **cache poisoning**, redirects every user of that resolver. Resolvers defend themselves by randomising the query's identifier and source port, so a forgery has to guess both. **DNSSEC** goes further and adds [digital signatures](/security/digital-signatures/) to records, so a resolver can verify an answer against a chain of keys leading back to the root. It is deployed unevenly.
+
+**Eavesdropping.** A classic query is sent unencrypted, so anybody on the path can see which names you look up, even when the connection that follows is protected by [TLS](/networking/tls/). **DNS over TLS** and **DNS over HTTPS** encrypt the conversation between your device and the resolver. The resolver still sees every name.
+
+**Abuse.** Because DNS uses UDP and replies can be much larger than queries, open resolvers have been used for amplification attacks.
+
+## More than a phone book
+
+"The phone book of the internet" undersells it. DNS adds a layer of indirection between a name and a machine, and that indirection is used everywhere.
+
+- A service can move to a new address without its users changing anything.
+- Traffic can be spread over many servers, or shifted away from a failed data centre, by changing the answers.
+- Email delivery, service discovery inside data centres and the issuing of TLS certificates all rely on DNS records.
+
+## Key takeaways
+
+- DNS maps names to IP addresses and other records, using a tree of zones each managed by its owner.
+- A recursive resolver follows referrals from the root to a top-level domain to the domain's authoritative servers.
+- Every record has a TTL, and caching at every level makes the full walk rare.
+- TTLs trade freshness against load. "Propagation" is the expiry of cached answers.
+- Queries normally use one UDP datagram each way, on port 53.
+- Classic DNS is neither authenticated nor encrypted. DNSSEC adds signatures, and DNS over TLS or HTTPS adds privacy on the way to the resolver.
