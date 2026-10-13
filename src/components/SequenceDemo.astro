@@ -3,14 +3,17 @@
 // TCP handshake, a DNS lookup, a TLS handshake and so on.
 import Controls from './Controls.astro';
 import { arrowHead, fit } from './viz/geom';
-import { sequences, type Sequence, type SequenceName } from '../lib/networking';
+import { sequences, type Sequence } from '../lib/networking';
+import { distributedSequences } from '../lib/distributed';
+
+const all = { ...sequences, ...distributedSequences };
 
 interface Props {
-  scenario: SequenceName;
+  scenario: keyof typeof all;
 }
 
 const { scenario: name } = Astro.props;
-const { actors, steps }: Sequence = sequences[name];
+const { actors, steps }: Sequence = all[name];
 const GAP = actors.length === 2 ? 340 : 152;
 const localHalf = (label: string) => label.length * 3.7 + 10;
 // Leave room at the edges for the widest box drawn on an outer lifeline.
@@ -80,11 +83,13 @@ const rows = steps.map((step, i) => {
 
 <script>
   import { attachStepper } from '../lib/stepper';
-  import { sequences, type Sequence, type SequenceName } from '../lib/networking';
+  import { sequences, type Sequence } from '../lib/networking';
+  import { distributedSequences } from '../lib/distributed';
 
   class SequenceDemo extends HTMLElement {
     connectedCallback() {
-      const { steps }: Sequence = sequences[this.dataset.scenario as SequenceName];
+      const all: Record<string, Sequence> = { ...sequences, ...distributedSequences };
+      const { steps } = all[this.dataset.scenario!];
       const rows = [...this.querySelectorAll<SVGElement>('[data-step]')];
       const note = this.querySelector('[data-out="note"]')!;
       attachStepper(this, {

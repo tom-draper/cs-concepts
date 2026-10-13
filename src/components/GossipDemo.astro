@@ -1,0 +1,68 @@
+---
+// A rumour spreading through 36 nodes: each round, every node that knows it
+// tells a few others picked at random.
+import { Gossip } from '../lib/distributed';
+---
+
+<gossip-demo class="playground gossip-demo">
+  <p class="tries" role="group" aria-label="Fanout">
+    Each node tells:
+    {[1, 2, 3].map((n) => <button type="button" data-fanout={n} aria-pressed={n === 2 ? 'true' : 'false'}>{n} {n === 1 ? 'other' : 'others'}</button>)}
+  </p>
+  <p class="gossip-grid" data-out="grid">{Array.from({ length: Gossip.N }, (_, i) => <i data-heard={i === 14 ? '0' : undefined}></i>)}</p>
+  <p class="tries">
+    <button type="button" data-act="step">Next round</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Round</dt><dd data-out="round">0</dd></div>
+    <div><dt>Nodes that know</dt><dd data-out="informed">1 of {Gossip.N}</dd></div>
+    <div><dt>Messages sent</dt><dd data-out="messages">0</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">One node has learnt something new. Run a round.</p>
+</gossip-demo>
+
+<script>
+  import { Gossip } from '../lib/distributed';
+
+  class GossipDemo extends HTMLElement {
+    connectedCallback() {
+      let gossip = new Gossip();
+      let fanout = 2;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (message: string) => {
+        [...out('grid').children].forEach((cell, i) => {
+          const heard = gossip.heard[i];
+          if (heard < 0) cell.removeAttribute('data-heard');
+          else cell.setAttribute('data-heard', heard === gossip.round && heard > 0 ? 'new' : 'old');
+        });
+        out('round').textContent = String(gossip.round);
+        out('informed').textContent = `${gossip.informed} of ${Gossip.N}`;
+        out('messages').textContent = String(gossip.messages);
+        out('status').textContent = message;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-fanout]')) button.setAttribute('aria-pressed', String(Number(button.dataset.fanout) === fanout));
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.fanout || data.act === 'reset') {
+          fanout = Number(data.fanout ?? fanout);
+          gossip = new Gossip();
+          render('One node has learnt something new. Run a round.');
+        } else if (gossip.informed === Gossip.N) {
+          render(`Everyone knows already. It took ${gossip.round} rounds.`);
+        } else {
+          const before = gossip.informed;
+          const fresh = gossip.step(fanout);
+          render(
+            gossip.informed === Gossip.N
+              ? `Everyone knows after ${gossip.round} rounds. The last few nodes took longest, because most messages by then went to nodes that had already heard.`
+              : `${before} ${before === 1 ? 'node' : 'nodes'} sent ${before * fanout} messages and reached ${fresh} new ${fresh === 1 ? 'node' : 'nodes'}, in orange. ${before * fanout - fresh ? `${before * fanout - fresh} went to nodes that already knew.` : ''}`,
+          );
+        }
+      });
+    }
+  }
+
+  customElements.define('gossip-demo', GossipDemo);
+</script>

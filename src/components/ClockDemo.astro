@@ -1,0 +1,127 @@
+---
+// Three processes exchanging messages. Every event is stamped with a Lamport
+// clock and a vector clock, and any two events can be compared.
+const WIDTH = 700;
+const pairs = [[0, 1], [1, 0], [1, 2], [2, 1], [0, 2], [2, 0]];
+---
+
+<clock-demo class="playground clock-demo">
+  <p class="tries" role="group" aria-label="Clock shown">
+    Show:
+    <button type="button" data-show="lamport" aria-pressed="true">Lamport clocks</button>
+    <button type="button" data-show="vector" aria-pressed="false">vector clocks</button>
+  </p>
+  <div class="viz-scroll">
+    <svg class="viz-svg sequence" viewBox={`0 0 ${WIDTH} 190`} style={`width:clamp(${WIDTH * 0.7}px,100%,${WIDTH}px);height:auto`} role="img" aria-label="Events on three processes over time">
+      {[0, 1, 2].map((p) => <g><line class="lifeline" x1="46" y1={36 + p * 60} x2={WIDTH - 6} y2={36 + p * 60}></line><text class="v-text" x="20" y={36 + p * 60}>P{p + 1}</text></g>)}
+      <g data-out="events"></g>
+    </svg>
+  </div>
+  <p class="tries">
+    Event on:
+    {[0, 1, 2].map((p) => <button type="button" data-local={p}>P{p + 1}</button>)}
+  </p>
+  <p class="tries">
+    Message:
+    {pairs.map(([from, to]) => <button type="button" data-send={`${from},${to}`}>P{from + 1} to P{to + 1}</button>)}
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Add events and messages. Then click any two events to ask which happened first.</p>
+</clock-demo>
+
+<script>
+  import { causalOrder, Clocks } from '../lib/distributed';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  class ClockDemo extends HTMLElement {
+    connectedCallback() {
+      let clocks = new Clocks();
+      let show = 'lamport';
+      let chosen: number[] = [];
+      const layer = this.querySelector('[data-out="events"]')!;
+      const status = this.querySelector('[data-out="status"]')!;
+      const make = (tag: string, attributes: Record<string, string | number>, text?: string) => {
+        const element = document.createElementNS(SVG, tag);
+        for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value));
+        if (text !== undefined) element.textContent = text;
+        return element;
+      };
+      const x = (index: number) => 72 + index * 44;
+      const y = (process: number) => 36 + process * 60;
+      const render = (message?: string) => {
+        layer.replaceChildren();
+        clocks.events.forEach((event, i) => {
+          if (event.from !== undefined) {
+            const sent = clocks.events[event.from];
+            layer.append(make('line', { class: 'v-edge', x1: x(event.from), y1: y(sent.process), x2: x(i), y2: y(event.process) }));
+          }
+        });
+        clocks.events.forEach((event, i) => {
+          const group = make('g', { class: `v-node ${chosen.includes(i) ? 'hl' : ''}`, 'data-event': i, style: 'cursor:pointer' });
+          group.append(
+            make('rect', { x: x(i) - 12, y: y(event.process) - 12, width: 24, height: 24, rx: 12 }),
+            make('text', { class: 'v-text', x: x(i), y: y(event.process) }, show === 'lamport' ? String(event.lamport) : ''),
+          );
+          if (show === 'vector') group.append(make('text', { class: 'v-small', x: x(i), y: y(event.process) - 20 }, event.vector.join(',')));
+          layer.append(group);
+        });
+        for (const button of this.querySelectorAll<HTMLElement>('[data-show]')) button.setAttribute('aria-pressed', String(button.dataset.show === show));
+        if (message) status.textContent = message;
+      };
+      const compare = () => {
+        const [i, j] = chosen;
+        const a = clocks.events[i];
+        const b = clocks.events[j];
+        const order = causalOrder(a, b);
+        const first = order === 'before' ? a : b;
+        const second = order === 'before' ? b : a;
+        return order === 'concurrent'
+          ? `These two are concurrent. Their vectors, [${a.vector}] and [${b.vector}], each lead in some position, so neither could have influenced the other. Their Lamport clocks, ${a.lamport} and ${b.lamport}, ${a.lamport === b.lamport ? 'happen to be equal' : 'suggest an order that does not exist'}.`
+          : `The event with vector [${first.vector}] happened before the one with [${second.vector}]: every count is at least as large in the second. There is a chain of messages from one to the other. Their Lamport clocks agree: ${first.lamport} is less than ${second.lamport}.`;
+      };
+      this.addEventListener('click', (event) => {
+        const target = event.target as Element;
+        const picked = target.closest<SVGElement>('[data-event]');
+        const data = target.closest<HTMLElement>('button')?.dataset ?? {};
+        if (picked) {
+          const index = Number(picked.dataset.event);
+          chosen = chosen.includes(index) ? chosen.filter((each) => each !== index) : [...chosen.slice(-1), index];
+          render(chosen.length === 2 ? compare() : 'Now click a second event.');
+        } else if (data.show) {
+          show = data.show;
+          render(
+            show === 'lamport'
+              ? 'A Lamport clock is one number. If one event happened before another, its number is smaller. The reverse does not hold.'
+              : 'A vector clock has one count for each process: how many of its events this one knows about.',
+          );
+        } else if (data.act === 'reset') {
+          clocks = new Clocks();
+          chosen = [];
+          render('Cleared.');
+        } else if (data.local || data.send) {
+          if (clocks.events.length + (data.send ? 2 : 1) > 14) return void render('The timeline is full. Reset to start again.');
+          chosen = [];
+          if (data.local) {
+            clocks.local(Number(data.local));
+            render(`P${Number(data.local) + 1} did something on its own, and ticked its clock.`);
+          } else {
+            const [from, to] = data.send!.split(',').map(Number);
+            clocks.send(from, to);
+            const received = clocks.events.at(-1)!;
+            render(`P${from + 1} ticked and sent its clock with the message. P${to + 1} took the larger of its own clock and the one received, then ticked, giving ${received.lamport}.`);
+          }
+        }
+      });
+      // Start with something to look at.
+      clocks.local(0);
+      clocks.send(0, 1);
+      clocks.local(2);
+      clocks.send(1, 2);
+      clocks.local(0);
+      render();
+    }
+  }
+
+  customElements.define('clock-demo', ClockDemo);
+</script>

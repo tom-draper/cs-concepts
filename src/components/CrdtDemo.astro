@@ -1,0 +1,75 @@
+---
+// A counter on two replicas that change independently and then sync, kept
+// both as a CRDT and as a plain number where the last write wins.
+---
+
+<crdt-demo class="playground crdt-demo">
+  <div class="columns cap-nodes">
+    {
+      ['A', 'B'].map((name, i) => (
+        <div class="env" data-replica={i}>
+          <h4>Replica {name}</h4>
+          <dl class="readouts stacked">
+            <div><dt>CRDT counter</dt><dd data-out="crdt">0</dd></div>
+            <div><dt>Its tallies</dt><dd data-out="state">+[0, 0] −[0, 0]</dd></div>
+            <div><dt>Plain number</dt><dd data-out="plain">0</dd></div>
+          </dl>
+          <p class="tries">
+            <button type="button" data-change={`${i},1`}>+1</button>
+            <button type="button" data-change={`${i},-1`}>−1</button>
+          </p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="tries">
+    <button type="button" data-act="sync">Sync the replicas</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Changes made in total</dt><dd data-out="truth">0</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The two replicas are offline from each other. Change the counter on both, then sync.</p>
+</crdt-demo>
+
+<script>
+  import { Counters } from '../lib/distributed';
+
+  class CrdtDemo extends HTMLElement {
+    connectedCallback() {
+      let counters = new Counters();
+      const render = (message: string) => {
+        [0, 1].forEach((i) => {
+          const box = this.querySelector(`[data-replica="${i}"]`)!;
+          box.querySelector('[data-out="crdt"]')!.textContent = String(counters.value(i));
+          box.querySelector('[data-out="state"]')!.textContent = `+[${counters.added[i].join(', ')}] −[${counters.removed[i].join(', ')}]`;
+          box.querySelector('[data-out="plain"]')!.textContent = String(counters.plain[i].value);
+        });
+        this.querySelector('[data-out="truth"]')!.textContent = `net ${counters.truth}`;
+        this.querySelector('[data-out="status"]')!.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (data.change) {
+          const [replica, delta] = data.change.split(',').map(Number);
+          counters.change(replica, delta as 1 | -1);
+          render(`Replica ${'AB'[replica]} recorded the change in its own slot of the tally. The other replica has not heard.`);
+        } else if (data.act === 'sync') {
+          counters.sync();
+          const plain = counters.plain[0].value;
+          render(
+            `The CRDT took the larger number in each slot of each tally, so both replicas now show ${counters.value(0)}, and no change was lost. ` +
+              (plain === counters.truth
+                ? `The plain number kept whichever replica wrote last and also shows ${plain}, by luck.`
+                : `The plain number kept whichever replica wrote last and shows ${plain}. The other replica's changes are gone.`),
+          );
+        } else if (data.act === 'reset') {
+          counters = new Counters();
+          render('Both replicas are back to zero.');
+        }
+      });
+    }
+  }
+
+  customElements.define('crdt-demo', CrdtDemo);
+</script>

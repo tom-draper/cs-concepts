@@ -1,0 +1,114 @@
+---
+// A consistent hashing ring: keys and nodes placed on a circle, each key owned
+// by the next node clockwise. Nodes can be added and removed.
+const SIZE = 300;
+const all = ['A', 'B', 'C', 'D', 'E'];
+---
+
+<hash-ring class="playground hash-ring">
+  <p class="tries" role="group" aria-label="Nodes">
+    Nodes:
+    {all.map((node, i) => <button type="button" data-node={node} aria-pressed={i < 3 ? 'true' : 'false'}>{node}</button>)}
+  </p>
+  <p class="tries" role="group" aria-label="Virtual nodes">
+    Points on the ring for each node:
+    <button type="button" data-virtual="1" aria-pressed="true">1</button>
+    <button type="button" data-virtual="24" aria-pressed="false">24</button>
+  </p>
+  <div class="viz-scroll">
+    <svg class="viz-svg" viewBox={`0 0 ${SIZE} ${SIZE}`} style={`width:${SIZE}px;max-width:100%;height:auto`} role="img" aria-label="Keys and nodes on a hash ring">
+      <circle class="ring" cx={SIZE / 2} cy={SIZE / 2} r="112"></circle>
+      <g data-out="ring"></g>
+    </svg>
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Keys on each node</dt><dd data-out="counts">-</dd></div>
+    <div><dt>Moved by the last change</dt><dd data-out="moved">-</dd></div>
+    <div><dt>hash mod N would have moved</dt><dd data-out="naive">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Forty keys, as dots, coloured by the node that owns them. A key belongs to the first node clockwise from it. Add or remove a node.</p>
+</hash-ring>
+
+<script>
+  import { modOwner, ringAngle, ringKeys, ringOwner, ringPoints } from '../lib/distributed';
+
+  const SVG = 'http://www.w3.org/2000/svg';
+
+  class HashRing extends HTMLElement {
+    connectedCallback() {
+      let nodes = ['A', 'B', 'C'];
+      let virtual = 1;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const owners = (list: string[]) => {
+        const points = ringPoints(list, virtual);
+        return ringKeys.map((key) => ringOwner(key, points));
+      };
+      let before = owners(nodes);
+      const at = (angle: number, radius: number) => {
+        const radians = ((angle - 90) * Math.PI) / 180;
+        return [150 + radius * Math.cos(radians), 150 + radius * Math.sin(radians)];
+      };
+      const make = (tag: string, attributes: Record<string, string | number>, text?: string) => {
+        const element = document.createElementNS(SVG, tag);
+        for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, String(value));
+        if (text !== undefined) element.textContent = text;
+        return element;
+      };
+      const render = (previous?: string[], message?: string) => {
+        const now = owners(nodes);
+        const moved = previous ? now.map((owner, i) => owner !== before[i]) : now.map(() => false);
+        const layer = out('ring');
+        layer.replaceChildren(
+          ...ringKeys.map((key, i) => {
+            const [x, y] = at(ringAngle(key), 98);
+            return make('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: moved[i] ? 5 : 3.5, class: `owner-${now[i]} ${moved[i] ? 'moved' : ''}` });
+          }),
+          ...ringPoints(nodes, virtual).flatMap((point) => {
+            const [x, y] = at(point.angle, 112);
+            if (virtual > 1) return [make('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: 4, class: `owner-${point.node} point` })];
+            const [tx, ty] = at(point.angle, 132);
+            return [
+              make('circle', { cx: x.toFixed(1), cy: y.toFixed(1), r: 9, class: `owner-${point.node} point` }),
+              make('text', { class: 'v-text', x: tx.toFixed(1), y: ty.toFixed(1) }, point.node),
+            ];
+          }),
+        );
+        out('counts').textContent = nodes.map((node) => `${node}: ${now.filter((owner) => owner === node).length}`).join('  ');
+        out('moved').textContent = previous ? `${moved.filter(Boolean).length} of ${ringKeys.length}` : '-';
+        out('naive').textContent = previous ? `${ringKeys.filter((key) => modOwner(key, previous) !== modOwner(key, nodes)).length} of ${ringKeys.length}` : '-';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-node]')) button.setAttribute('aria-pressed', String(nodes.includes(button.dataset.node!)));
+        for (const button of this.querySelectorAll<HTMLElement>('[data-virtual]')) button.setAttribute('aria-pressed', String(Number(button.dataset.virtual) === virtual));
+        if (message) out('status').textContent = message;
+        before = now;
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.virtual) {
+          virtual = Number(data.virtual);
+          before = owners(nodes);
+          render(
+            undefined,
+            virtual === 1
+              ? 'With one point each, the arcs between nodes are of very unequal length, so some nodes own far more keys than others.'
+              : 'Each node now appears at 24 scattered points. Its share is the sum of 24 small arcs, which evens out, and when a node leaves its keys are spread over all the others.',
+          );
+        } else if (data.node) {
+          const previous = [...nodes];
+          const node = data.node;
+          if (nodes.includes(node)) {
+            if (nodes.length === 1) return;
+            nodes = nodes.filter((each) => each !== node);
+            render(previous, `Node ${node} left. Only the keys it owned, shown larger, had to move, each to the next node clockwise. Every other key stayed where it was.`);
+          } else {
+            nodes = [...nodes, node].sort();
+            render(previous, `Node ${node} joined. It took over the keys just before it on the ring, shown larger. Every other key stayed where it was.`);
+          }
+        }
+      });
+      render();
+    }
+  }
+
+  customElements.define('hash-ring', HashRing);
+</script>

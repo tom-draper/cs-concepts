@@ -1,0 +1,85 @@
+---
+// Five replicas with tunable write and read quorums: how many must confirm a
+// write, how many are asked on a read, and whether a read can be stale.
+const counts = [1, 2, 3, 4, 5];
+---
+
+<quorum-demo class="playground quorum-demo">
+  <p class="tries" role="group" aria-label="Write quorum">
+    W, replicas that must confirm a write:
+    {counts.map((n) => <button type="button" data-w={n} aria-pressed={n === 1 ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <p class="tries" role="group" aria-label="Read quorum">
+    R, replicas asked on a read:
+    {counts.map((n) => <button type="button" data-r={n} aria-pressed={n === 1 ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <p class="slots replicas" data-out="replicas">{counts.map(() => <i>v0</i>)}</p>
+  <p class="tries">
+    <button type="button" data-act="write">Write a new version</button>
+    <button type="button" data-act="read">Read</button>
+    <button type="button" data-act="many">Write and read 100 times</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>R + W</dt><dd data-out="sum">2</dd></div>
+    <div><dt>Stale reads possible</dt><dd data-out="possible">yes</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">There are N = 5 replicas. A write is confirmed once W of them have it. A read asks R of them and takes the newest answer.</p>
+</quorum-demo>
+
+<script>
+  import { Quorum } from '../lib/distributed';
+
+  class QuorumDemo extends HTMLElement {
+    connectedCallback() {
+      let quorum = new Quorum();
+      let w = 1;
+      let r = 1;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (message: string, wrote: number[] = [], read: number[] = []) => {
+        [...out('replicas').children].forEach((cell, i) => {
+          cell.textContent = `v${quorum.versions[i]}`;
+          cell.className = read.includes(i) ? 'hit' : wrote.includes(i) ? '' : quorum.versions[i] < quorum.latest ? 'blocked' : '';
+        });
+        for (const button of this.querySelectorAll<HTMLElement>('[data-w]')) button.setAttribute('aria-pressed', String(Number(button.dataset.w) === w));
+        for (const button of this.querySelectorAll<HTMLElement>('[data-r]')) button.setAttribute('aria-pressed', String(Number(button.dataset.r) === r));
+        out('sum').textContent = `${r + w}, ${r + w > Quorum.N ? 'more than' : 'not more than'} N`;
+        out('possible').textContent = r + w > Quorum.N ? 'no' : 'yes';
+        out('status').textContent = message;
+      };
+      const rule = () =>
+        r + w > Quorum.N
+          ? `With R + W = ${r + w}, any ${r} replicas must include at least one of the ${w} that took the latest write. Every read sees it.`
+          : `With R + W = ${r + w}, a read can land entirely on replicas the latest write missed.`;
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (data.w || data.r) {
+          w = Number(data.w ?? w);
+          r = Number(data.r ?? r);
+          quorum = new Quorum();
+          render(rule());
+        } else if (data.act === 'write') {
+          const picked = quorum.write(w);
+          render(`Version ${quorum.latest} was confirmed by ${w} ${w === 1 ? 'replica' : 'replicas'}. The ones in orange have not received it yet.`, picked);
+        } else if (data.act === 'read') {
+          const { picked, version, stale } = quorum.read(r);
+          render(
+            stale
+              ? `The read asked the outlined ${r === 1 ? 'replica' : 'replicas'} and got v${version}. The latest is v${quorum.latest}. A stale read.`
+              : `The read asked the outlined ${r === 1 ? 'replica' : 'replicas'} and got v${version}, the latest.`,
+            [],
+            picked,
+          );
+        } else if (data.act === 'many') {
+          let stale = 0;
+          for (let i = 0; i < 100; i++) {
+            quorum.write(w);
+            if (quorum.read(r).stale) stale++;
+          }
+          render(`${stale} of 100 reads were stale. ${rule()}`);
+        }
+      });
+    }
+  }
+
+  customElements.define('quorum-demo', QuorumDemo);
+</script>

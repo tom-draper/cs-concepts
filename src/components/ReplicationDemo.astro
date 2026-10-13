@@ -1,0 +1,106 @@
+---
+// A leader and two followers. Writes go to the leader, followers catch up
+// later or at once, and the leader can be crashed to see what a failover loses.
+---
+
+<replication-demo class="playground replication-demo">
+  <p class="tries" role="group" aria-label="Replication mode">
+    Replication:
+    <button type="button" data-mode="asynchronous" aria-pressed="true">asynchronous</button>
+    <button type="button" data-mode="synchronous" aria-pressed="false">synchronous</button>
+  </p>
+  <div class="columns cap-nodes">
+    {
+      [0, 1, 2].map((i) => (
+        <div class="env" data-node={i}>
+          <h4 data-out="role">{i === 0 ? 'Leader' : 'Follower'}</h4>
+          <p class="slots" data-out="log"><i class="none">empty</i></p>
+          <p class="tries"><button type="button" data-read={i}>Read</button></p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="tries">
+    <button type="button" data-act="write">Write to the leader</button>
+    <button type="button" data-act="catch">Followers catch up</button>
+    <button type="button" data-act="crash">Crash the leader</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Write a few times, then read from a follower before it has caught up.</p>
+</replication-demo>
+
+<script>
+  import { ReplicaSet } from '../lib/distributed';
+
+  class ReplicationDemo extends HTMLElement {
+    connectedCallback() {
+      let set = new ReplicaSet();
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message: string) => {
+        set.logs.forEach((log, i) => {
+          const box = this.querySelector<HTMLElement>(`[data-node="${i}"]`)!;
+          box.dataset.up = String(set.up[i]);
+          box.querySelector('[data-out="role"]')!.textContent = !set.up[i] ? 'Crashed' : i === set.leader ? 'Leader' : `Follower${set.lag(i) ? `, ${set.lag(i)} behind` : ''}`;
+          box.querySelector('[data-out="log"]')!.replaceChildren(
+            ...(log.length ? log : ['empty']).map((value) => {
+              const cell = document.createElement('i');
+              cell.textContent = String(value);
+              if (value === 'empty') cell.className = 'none';
+              else if (!set.up[i] && Number(value) > set.logs[set.leader].length) cell.className = 'blocked';
+              return cell;
+            }),
+          );
+          box.querySelector<HTMLButtonElement>('[data-read]')!.disabled = !set.up[i];
+        });
+        for (const button of this.querySelectorAll<HTMLElement>('[data-mode]')) button.setAttribute('aria-pressed', String(button.dataset.mode === set.mode));
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (data.mode) {
+          set = new ReplicaSet();
+          set.mode = data.mode as ReplicaSet['mode'];
+          render(
+            set.mode === 'synchronous'
+              ? 'Synchronous: the leader waits for the followers to confirm before it tells the client the write succeeded. Slower, and nothing confirmed can be lost.'
+              : 'Asynchronous: the leader confirms a write at once and sends it to the followers afterwards. Fast, with a window in which the write exists on one machine only.',
+          );
+        } else if (data.read) {
+          const i = Number(data.read);
+          const value = set.logs[i].at(-1);
+          render(
+            set.lag(i) > 0
+              ? `This follower answered ${value ?? 'nothing'}. The leader is at ${set.logs[set.leader].at(-1)}. A client that just wrote ${set.logs[set.leader].at(-1)} and then read here would not see its own write.`
+              : `This node answered ${value ?? 'nothing'}, which is the latest.`,
+          );
+        } else if (data.act === 'write') {
+          const value = set.write();
+          render(
+            set.mode === 'synchronous'
+              ? `Write ${value} was applied on every node before the client was told it succeeded.`
+              : `Write ${value} was applied on the leader and confirmed to the client. The followers have not seen it yet.`,
+          );
+        } else if (data.act === 'catch') {
+          set.catchUp();
+          render('The followers applied everything the leader sent. All copies now agree.');
+        } else if (data.act === 'crash') {
+          const result = set.failover();
+          render(
+            !result
+              ? 'There is no follower left to promote.'
+              : result.lost.length
+                ? `The leader is gone and the most up-to-date follower was promoted. ${result.lost.length === 1 ? `Write ${result.lost[0]} was` : `Writes ${result.lost.join(', ')} were`} confirmed to clients and existed only on the old leader. ${result.lost.length === 1 ? 'It is' : 'They are'} lost.`
+                : 'The leader is gone and a follower was promoted. It had every write, so nothing was lost.',
+          );
+        } else if (data.act === 'reset') {
+          const mode = set.mode;
+          set = new ReplicaSet();
+          set.mode = mode;
+          render('Three healthy nodes again.');
+        }
+      });
+    }
+  }
+
+  customElements.define('replication-demo', ReplicationDemo);
+</script>

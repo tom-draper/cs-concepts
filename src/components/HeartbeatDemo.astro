@@ -1,0 +1,73 @@
+---
+// A monitor watching a node's heartbeats with a timeout the reader sets: too
+// short and a slow node is declared dead, too long and a dead one goes unnoticed.
+import { heartbeatTrace } from '../lib/distributed';
+
+const timeouts = [1.25, 2, 3, 5];
+const first = heartbeatTrace(2, 'healthy');
+---
+
+<heartbeat-demo class="playground heartbeat-demo">
+  <p class="tries" role="group" aria-label="What happens">
+    The node:
+    <button type="button" data-scenario="healthy" aria-pressed="true">stays healthy</button>
+    <button type="button" data-scenario="pause" aria-pressed="false">freezes for 3 seconds</button>
+    <button type="button" data-scenario="crash" aria-pressed="false">crashes</button>
+  </p>
+  <p class="tries" role="group" aria-label="Timeout">
+    Timeout:
+    {timeouts.map((value) => <button type="button" data-timeout={value} aria-pressed={value === 2 ? 'true' : 'false'}>{value} s</button>)}
+  </p>
+  <p class="beats" data-out="beats" aria-label="Twelve seconds, a quarter of a second per cell">
+    {first.slots.map((slot) => <i data-beat={slot.beat ? '' : undefined}></i>)}
+  </p>
+  <p class="hint legend"><i data-beat></i> heartbeat received <i data-state="false"></i> suspected, wrongly <i data-state="true"></i> suspected, correctly</p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>False alarms</dt><dd data-out="false">0</dd></div>
+    <div><dt>Time to notice a crash</dt><dd data-out="detected">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The node sends a heartbeat every second. The monitor suspects it once no heartbeat has arrived for longer than the timeout.</p>
+</heartbeat-demo>
+
+<script>
+  import { heartbeatTrace, type HeartbeatScenario } from '../lib/distributed';
+
+  class HeartbeatDemo extends HTMLElement {
+    connectedCallback() {
+      let scenario: HeartbeatScenario = 'healthy';
+      let timeout = 2;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = () => {
+        const trace = heartbeatTrace(timeout, scenario);
+        [...out('beats').children].forEach((cell, i) => {
+          const slot = trace.slots[i];
+          cell.toggleAttribute('data-beat', slot.beat);
+          if (slot.suspect) cell.setAttribute('data-state', String(!slot.alive));
+          else cell.removeAttribute('data-state');
+        });
+        out('false').textContent = String(trace.falseAlarms);
+        out('detected').textContent = trace.detected === null ? 'no crash' : `${trace.detected.toFixed(1)} s`;
+        out('status').textContent =
+          trace.falseAlarms > 0
+            ? `The node was alive throughout, only slow, yet the monitor declared it dead. If that triggered a failover, the cluster now has two nodes that both think they are in charge.`
+            : trace.detected !== null
+              ? `The crash went unnoticed for ${trace.detected.toFixed(1)} seconds, during which requests sent to the node were lost. A shorter timeout notices sooner and makes false alarms more likely.`
+              : scenario === 'pause'
+                ? 'This timeout is long enough to ride out the freeze. It would also take this long to notice a real crash.'
+                : 'Heartbeats arrive at slightly uneven intervals, because network delay varies. The timeout has to allow for that.';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-scenario]')) button.setAttribute('aria-pressed', String(button.dataset.scenario === scenario));
+        for (const button of this.querySelectorAll<HTMLElement>('[data-timeout]')) button.setAttribute('aria-pressed', String(Number(button.dataset.timeout) === timeout));
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        scenario = (data.scenario as HeartbeatScenario) ?? scenario;
+        timeout = Number(data.timeout ?? timeout);
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('heartbeat-demo', HeartbeatDemo);
+</script>

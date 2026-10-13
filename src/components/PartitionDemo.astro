@@ -1,0 +1,95 @@
+---
+// The same 24 customer names split across machines by key range and by hash,
+// with a count of how many move when a machine is added.
+import { customerNames, partition } from '../lib/distributed';
+
+const first = partition('range', 3);
+---
+
+<partition-demo class="playground partition-demo">
+  <p class="tries" role="group" aria-label="Scheme">
+    Partition by:
+    <button type="button" data-scheme="range" aria-pressed="true">key range</button>
+    <button type="button" data-scheme="hash" aria-pressed="false">hash of key</button>
+  </p>
+  <p class="tries" role="group" aria-label="Number of partitions">
+    Partitions:
+    {[2, 3, 4, 5].map((n) => <button type="button" data-nodes={n} aria-pressed={n === 3 ? 'true' : 'false'}>{n}</button>)}
+  </p>
+  <div class="lsm-levels" data-out="partitions">
+    {[0, 1, 2].map((i) => <div><h4>Partition {i + 1}</h4><p class="slots">{customerNames.filter((_, k) => first[k] === i).map((name) => <i>{name}</i>)}</p></div>)}
+  </div>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Largest partition</dt><dd data-out="largest">-</dd></div>
+    <div><dt>Smallest</dt><dd data-out="smallest">-</dd></div>
+    <div><dt>Keys moved by the last change</dt><dd data-out="moved">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Names are split by first letter into equal slices of the alphabet. Names are not spread evenly over the alphabet.</p>
+</partition-demo>
+
+<script>
+  import { customerNames, letterRange, partition, type PartitionScheme } from '../lib/distributed';
+
+  class PartitionDemo extends HTMLElement {
+    connectedCallback() {
+      let scheme: PartitionScheme = 'range';
+      let nodes = 3;
+      let before = partition(scheme, nodes);
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = (moved?: number) => {
+        const now = partition(scheme, nodes);
+        const sizes = Array.from({ length: nodes }, (_, i) => now.filter((each) => each === i).length);
+        out('partitions').replaceChildren(
+          ...sizes.map((size, i) => {
+            const box = document.createElement('div');
+            const slots = document.createElement('p');
+            slots.className = 'slots';
+            slots.append(
+              ...customerNames.flatMap((name, k) => {
+                if (now[k] !== i) return [];
+                const cell = document.createElement('i');
+                cell.textContent = name;
+                // Outline the keys that had to be copied to a different machine.
+                if (moved !== undefined && before[k] !== now[k]) cell.className = 'blocked';
+                return [cell];
+              }),
+            );
+            if (!size) slots.append(Object.assign(document.createElement('i'), { className: 'none', textContent: 'empty' }));
+            box.append(Object.assign(document.createElement('h4'), { textContent: `Partition ${i + 1}${scheme === 'range' ? `, ${letterRange(i, nodes)}` : ''}, ${size} keys` }), slots);
+            return box;
+          }),
+        );
+        out('largest').textContent = `${Math.max(...sizes)} keys`;
+        out('smallest').textContent = `${Math.min(...sizes)} keys`;
+        out('moved').textContent = moved === undefined ? '-' : `${moved} of ${customerNames.length}`;
+        out('status').textContent =
+          moved !== undefined
+            ? scheme === 'hash'
+              ? `With hash mod N, changing N changes the answer for almost every key. ${moved} of ${customerNames.length} keys, in orange, had to move to a different machine.`
+              : `Only the keys near the boundaries that shifted had to move: ${moved} of ${customerNames.length}, in orange.`
+            : scheme === 'range'
+              ? 'Names are split by first letter into equal slices of the alphabet. Neighbouring keys stay together, so a range of names is one partition. But names are not spread evenly, so neither is the load.'
+              : 'Each name is hashed and the hash decides the partition. The load is spread evenly, and neighbouring names are scattered, so reading a range means asking every partition.';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-scheme]')) button.setAttribute('aria-pressed', String(button.dataset.scheme === scheme));
+        for (const button of this.querySelectorAll<HTMLElement>('[data-nodes]')) button.setAttribute('aria-pressed', String(Number(button.dataset.nodes) === nodes));
+        before = now;
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.scheme) {
+          scheme = data.scheme as PartitionScheme;
+          before = partition(scheme, nodes);
+          render();
+        } else if (data.nodes) {
+          nodes = Number(data.nodes);
+          const now = partition(scheme, nodes);
+          render(now.filter((each, k) => each !== before[k]).length);
+        }
+      });
+      render();
+    }
+  }
+
+  customElements.define('partition-demo', PartitionDemo);
+</script>
