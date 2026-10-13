@@ -1,0 +1,137 @@
+---
+description: A regular expression describes a set of strings using three operations, sequence, choice and repetition. Every regular expression can be turned into a finite automaton, which is how fast regex engines work and why slow ones can be attacked.
+difficulty: intermediate
+---
+
+A [finite automaton](/theory/finite-automata/) is a good way to run a pattern and a poor way to write one down. Nobody wants to draw circles and arrows to say "a date" or "a word ending in ing".
+
+A **regular expression** is the written form. It is a small formula that describes a set of strings, and it describes exactly the sets that finite automata can recognise.
+
+## Three operations
+
+Everything is built from single characters and three ways of combining patterns.
+
+| Operation | Written | Matches |
+| --- | --- | --- |
+| Sequence | `ab` | an `a` then a `b` |
+| Choice | `a\|b` | an `a` or a `b` |
+| Repetition | `a*` | zero or more `a`s |
+
+Brackets group, as in arithmetic. Repetition binds tightest, then sequence, then choice, so `ab*|c` means "either `a` followed by any number of `b`s, or `c`".
+
+The `*` is named the **Kleene star** after Stephen Kleene, who introduced the notation in the 1950s.
+
+Type a pattern and some text. The widget builds an automaton from the pattern and runs it.
+
+<RegexDemo />
+
+Everything else in everyday regex syntax is shorthand for the three operations.
+
+| Shorthand | Means | Written out |
+| --- | --- | --- |
+| `a+` | one or more | `aa*` |
+| `a?` | optional | `a\|` (an `a` or nothing) |
+| `.` | any one character | a choice of every character |
+| `[abc]` | one of these | `a\|b\|c` |
+| `[a-z]` | one in this range | `a\|b\|...\|z` |
+| `a{3}` | exactly three | `aaa` |
+| `\d` | a digit | `0\|1\|...\|9` |
+
+## From a pattern to a machine
+
+**Kleene's theorem** says that regular expressions and finite automata describe the same languages. The useful half is a recipe for turning any pattern into an NFA, known as **Thompson's construction**. It builds a small machine for each character and then glues machines together, one rule per operation.
+
+Each piece has one entrance and one exit. For a choice, a new start state offers an ε arrow into each alternative, and each alternative has an ε arrow out to a shared exit.
+
+<Automaton
+  machine={{
+    states: { s: [0, 0.6], p: [1, 0], q: [2.2, 0], u: [1, 1.2], v: [2.2, 1.2], f: [3.2, 0.6] },
+    start: 's',
+    accept: ['f'],
+    edges: [['s', 'p', 'ε'], ['p', 'q', 'a'], ['q', 'f', 'ε'], ['s', 'u', 'ε'], ['u', 'v', 'b'], ['v', 'f', 'ε']],
+  }}
+  caption="The machine for <code>a|b</code>. The ε arrows are taken without reading anything, so the machine tries both branches."
+/>
+
+For repetition, one ε arrow skips the inner machine altogether and another leads from its exit back to its entrance.
+
+<Automaton
+  machine={{
+    states: { s: [0, 0], p: [1.2, 0], q: [2.6, 0], f: [3.8, 0] },
+    start: 's',
+    accept: ['f'],
+    edges: [['s', 'p', 'ε'], ['p', 'q', 'a'], ['q', 'p', 'ε'], ['q', 'f', 'ε'], ['s', 'f', 'ε', -58]],
+  }}
+  caption="The machine for <code>a*</code>. The lower arrow skips the <code>a</code>, and the arrow back from the exit allows another one."
+/>
+
+Sequence is the simplest: the exit of the first machine is joined to the entrance of the second.
+
+Applying these rules from the inside of the pattern outwards gives an NFA whose size is proportional to the length of the pattern. The widget reports that size as "NFA states".
+
+## Running the machine
+
+There are two ways to run the NFA, and a third way that does not use it at all.
+
+**Track a set of states.** Follow every possible path at once, as on the [finite automata](/theory/finite-automata/#nondeterminism) page. For a pattern of length m and a text of length n, each character of text updates a set of at most m states, so the time is O(n · m). Nothing is ever read twice.
+
+**Convert to a DFA first.** The subset construction gives a machine that does one table lookup per character, which is O(n) whatever the pattern. The cost is the size of the table. Try `(a|b)*a(a|b)(a|b)(a|b)` in the widget, which means "the fourth character from the end is an `a`". It has 36 NFA states and 17 DFA states. Add another `(a|b)` to the end and the NFA grows by 8 while the DFA nearly doubles to 33. Each further one doubles it again.
+
+**Backtrack.** Try the first alternative, and if the match fails later, come back and try the next. This is how the regex engines built into Python, JavaScript, Java, Perl and most other languages work. It is simple, and it supports features that automata cannot. It also has a failure mode.
+
+## Catastrophic backtracking
+
+Consider the pattern `(a+)+b` against the text `aaaaaaaaaaaaaaaaaaaaaaaa`, which has no `b`.
+
+The match must fail, but a backtracking engine has to discover that. The inner `a+` and the outer `+` can share out the run of `a`s in a huge number of ways: all of them in one group, or split after the first, or after the second, or split in two places, and so on. For n characters there are 2ⁿ⁻¹ ways, and the engine tries every one before giving up.
+
+| Length of the run of `a`s | Ways to try |
+| --- | --- |
+| 10 | 512 |
+| 20 | 524,288 |
+| 30 | 536,870,912 |
+| 40 | about 550 billion |
+
+Each extra character doubles the time. A text of 40 characters can hold a processor for minutes.
+
+<Aside type="warning" title="Regular expression denial of service">
+
+If a server applies a vulnerable pattern to text supplied by a user, one short request can occupy a thread for as long as the attacker likes. The warning signs are a repetition inside a repetition, such as `(a+)+` or `(a*)*`, and alternatives that can match the same text, such as `(a|aa)+`.
+
+</Aside>
+
+An automaton-based engine cannot have this problem. Its running time depends on the lengths of the pattern and the text, never on how many ways the pattern could be matched.
+
+| Engine | Used by | Worst case | Backreferences |
+| --- | --- | --- | --- |
+| Backtracking | Python `re`, JavaScript, Java, Perl, PCRE, .NET | exponential | yes |
+| Automaton | RE2, Go `regexp`, Rust `regex`, `grep`, `awk` | linear in the text | no |
+
+## What is not regular
+
+The limits of regular expressions are the limits of finite automata.
+
+**Nesting.** No regular expression matches balanced brackets to any depth, because that needs unbounded counting. For the same reason, a regular expression cannot parse HTML, JSON or arithmetic. Those are described by [context-free grammars](/theory/context-free-grammars/).
+
+**Backreferences.** The pattern `(.+)\1` matches some text followed by the same text again, such as `abcabc`. Recognising that needs the machine to remember an arbitrarily long string, so the language is not regular. Engines that support `\1` are doing something more powerful than a finite automaton, and that is one reason they backtrack.
+
+**Lookahead and lookbehind** do not add power in theory, but most automaton-based engines leave them out because they make the construction far more complicated.
+
+So the word "regular" in "regular expression" is a technical term, and the regex syntax of most programming languages goes beyond it.
+
+## Using them well
+
+- Anchor the pattern when the whole input should match. `^\d+$` says "only digits". `\d+` says "contains a digit".
+- Prefer a specific class to `.`. In `"[^"]*"` the engine cannot run past the closing quote, where `".*"` runs to the last quote on the line and then has to back up.
+- Avoid a repetition inside a repetition unless the inner pieces cannot overlap.
+- For untrusted input, use an automaton-based engine or set a time limit.
+- When the input has nested structure, write a [parser](/languages/parsing/) instead.
+
+## Key takeaways
+
+- A regular expression is built from sequence, choice and repetition. Other syntax is shorthand for those.
+- Regular expressions and finite automata describe exactly the same languages.
+- Thompson's construction turns a pattern into an NFA of proportional size.
+- Running the NFA by tracking sets of states takes time proportional to pattern length times text length, with no bad cases.
+- Backtracking engines can take exponential time on patterns with nested or overlapping repetition.
+- Nested structure and repeated text are beyond regular languages.
