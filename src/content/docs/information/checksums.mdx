@@ -1,0 +1,172 @@
+---
+description: A checksum is a small value computed from data and sent or stored with it, so that accidental damage can be noticed. Parity bits, simple sums and cyclic redundancy checks trade a few extra bits for increasing confidence that the data arrived intact.
+difficulty: beginner
+---
+
+Bits get damaged. A cosmic ray flips one in memory. Electrical noise corrupts a few on a cable. A failing disk returns the wrong block. Each event is rare, but a computer moves trillions of bits a day.
+
+The data cannot tell you it is wrong. `PAY 900` looks as valid as `PAY 100`. The defence is to send something extra: a **checksum**, a small value computed from the data. The receiver computes it again from what arrived. If the two differ, something changed.
+
+## Three checks
+
+The widget sends a message with three different checks attached, then damages it on the way.
+
+<ChecksumDemo />
+
+**A parity bit** is the simplest check there is. Count the 1 bits in the data. The parity bit is 1 if the count is odd and 0 if it is even, which is the [XOR](/foundations/bitwise-operations/) of all the bits. It costs one bit.
+
+**A sum** adds up the bytes and keeps the low eight bits of the total. For `PAY 100` the bytes add up to 411, which is `19b` in hexadecimal, so the check is `9b`.
+
+**A CRC**, a cyclic redundancy check, is explained below. For now it is a third function that produces eight bits.
+
+Try each kind of damage.
+
+| Damage | Parity | Sum | CRC-8 |
+| --- | --- | --- | --- |
+| Flip one bit | detected | detected | detected |
+| Flip two bits | missed | missed | detected |
+| Swap two bytes | missed | missed | detected |
+| Burst of five bits | detected | detected | detected |
+
+**One flipped bit** changes the count of 1s from even to odd, so parity always catches it. The sum changes too.
+
+**Two flipped bits** bring the count back to the same parity. Parity misses every error that flips an even number of bits. The widget picks its two bits to fool the sum as well: it flips the same bit position in two bytes, one from 0 to 1 and the other from 1 to 0, so one byte goes up by exactly as much as the other goes down.
+
+**Swapped bytes** leave every bit and every byte value present. Addition does not care about order, so the sum is unchanged. This is a common real error, in typed numbers and in reordered data.
+
+The burst is caught by all three here, though parity only by luck: five flips is an odd number.
+
+## Why a CRC is better
+
+A good check should depend on where each bit is, not only on what the bits are.
+
+A **CRC** gets that by treating the whole message as one very long binary number and dividing it by a fixed constant, called the **generator polynomial**. The remainder is the checksum.
+
+The division is not ordinary arithmetic. It uses XOR in place of subtraction, with no carries or borrows, which makes it simple in hardware: a shift register and a few XOR gates. The effect is the same as ordinary remainders in one important way. Changing any digit, anywhere, changes the remainder in a way that depends on the position.
+
+In software the division is a loop: shift the running value one bit, and XOR in the generator whenever a 1 falls off the end.
+
+```python
+def crc8(data, generator=0x07):
+    crc = 0
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x80:
+                crc = ((crc << 1) ^ generator) & 0xFF
+            else:
+                crc = (crc << 1) & 0xFF
+    return crc
+
+crc8(b'PAY 100')        # 0x65
+crc8(b'APY 100')        # 0xde, the swap is noticed
+```
+
+Real implementations process a byte or more at a time with lookup tables, and current processors have an instruction for CRC-32.
+
+The mathematics gives guarantees that depend on the generator chosen. For a well-chosen n-bit CRC:
+
+| Error | Detected? |
+| --- | --- |
+| Any single flipped bit | always |
+| Any two flipped bits | always, up to a maximum message length |
+| Any odd number of flipped bits | always, for many common generators |
+| Any burst no longer than n bits | always |
+| Anything else | all but about 1 in 2ⁿ |
+
+The burst guarantee is the reason CRCs are used on networks and disks. Noise on a wire and scratches on a disc damage runs of neighbouring bits, not scattered single ones.
+
+## How much to trust it
+
+A check of n bits has 2ⁿ possible values. Damage that scrambles the data at random will, by chance, leave the check unchanged about once in 2ⁿ times.
+
+| Check | Bits | Random damage slips through |
+| --- | --- | --- |
+| Parity | 1 | 1 in 2 |
+| 8-bit sum or CRC-8 | 8 | 1 in 256 |
+| 16-bit Internet checksum, CRC-16 | 16 | 1 in 65,536 |
+| CRC-32 | 32 | 1 in 4 billion |
+| CRC-64, or a 64-bit hash | 64 | effectively never |
+
+One in 65,536 sounds safe and is not, at scale. [TCP](/networking/tcp/) uses a 16-bit sum, and studies of real traffic have found corrupted packets passing it at a rate that matters for large transfers. That is one reason protocols above TCP carry their own stronger checks.
+
+## Other checksums
+
+**The Internet checksum**, used by IP, TCP and UDP, adds the data as 16-bit words and wraps any carry back into the total. It is fast and can be updated when one field changes, without rereading the packet. Like any sum, it misses reordered words.
+
+**Fletcher and Adler** checksums keep two running totals: the sum of the bytes, and the sum of the sums. The second total depends on position, so swaps are caught. They are faster than a CRC and weaker. zlib uses Adler-32.
+
+**Check digits** protect numbers that people type. The last digit of a credit card number comes from the **Luhn algorithm**, which doubles every second digit before adding. It catches any single wrong digit and nearly every swap of two adjacent digits, the two commonest typing mistakes.
+
+```python
+def luhn_valid(number):
+    digits = [int(d) for d in number][::-1]
+    total = 0
+    for i, digit in enumerate(digits):
+        if i % 2 == 1:
+            digit *= 2
+            if digit > 9:
+                digit -= 9
+        total += digit
+    return total % 10 == 0
+
+luhn_valid('4539578763621486')      # True
+luhn_valid('4539578763621468')      # False, last two digits swapped
+```
+
+ISBNs, IBANs and many national identity numbers have check digits of the same kind.
+
+## Accidents, not attackers
+
+A checksum protects against chance. It gives no protection against someone who changes the data on purpose.
+
+A CRC is easy to defeat. Its mathematics is linear, so an attacker can work out exactly which extra bits to flip to bring the CRC back to its old value. Anyone who can alter the data can also just recompute the checksum and replace it.
+
+| Threat | Use |
+| --- | --- |
+| Noise, faulty hardware, typing mistakes | a checksum or CRC |
+| Someone who can change the data but not the published digest | a [cryptographic hash](/security/cryptographic-hash-functions/) |
+| Someone who can change everything in transit | a [keyed MAC](/security/cryptographic-hash-functions/#hashing-with-a-key) or a [signature](/security/digital-signatures/) |
+
+The early Wi-Fi security scheme, WEP, used a CRC-32 as its integrity check. Attackers could flip chosen bits in encrypted packets and fix up the CRC without knowing the key. That was one of several flaws that broke it.
+
+## After detection
+
+A checksum only says that something is wrong. What happens next depends on the system.
+
+- **Retransmit.** Networks discard the damaged frame, and [TCP](/networking/tcp/) sends the data again.
+- **Use another copy.** A file system that checksums every block, such as ZFS or Btrfs, reads the block from a mirror and repairs the bad copy.
+- **Report it.** A database or archive tool refuses the data and raises an error, which is far better than returning it as if it were good.
+- **Repair it.** With more redundancy, the receiver can work out which bits are wrong and fix them. That is the subject of [error-correcting codes](/information/error-correcting-codes/).
+
+## Costs
+
+<Ops items={[
+  ['Compute any of them', 'O(n)', 'one pass'],
+  ['CRC-32 with hardware support', 'many GB/s', 'faster than memory can be read'],
+  ['Space', '1 to 8 bytes', 'per frame, block or file'],
+  ['Undetected random error, CRC-32', '1 in 2³²', ''],
+]} />
+
+## Where they are used
+
+| Place | Check |
+| --- | --- |
+| Ethernet frames, zip, gzip, PNG | CRC-32 |
+| IP, TCP and UDP headers | 16-bit Internet checksum |
+| Disk sectors, USB, Bluetooth, CAN bus | CRCs of various widths |
+| iSCSI, ext4, Btrfs, many databases | CRC-32C, which has processor support |
+| ZFS blocks | Fletcher-4 or SHA-256 |
+| Serial links, old memory | a parity bit per byte |
+| Card numbers, ISBNs, IBANs | check digits |
+
+A [write-ahead log](/databases/write-ahead-logging/) checksums each record so that, after a crash, recovery can tell where the valid log ends and a half-written record begins.
+
+## Key takeaways
+
+- A checksum is a short value computed from data, recomputed by the receiver to detect accidental change.
+- A parity bit catches any odd number of flipped bits and misses any even number.
+- A simple sum misses reordered data and changes that cancel out.
+- A CRC is the remainder of a polynomial division. It depends on bit positions and is guaranteed to catch short bursts.
+- An n-bit check lets about 1 in 2ⁿ random corruptions through, so 16 bits is not enough at scale.
+- Checksums do not stop deliberate tampering. That needs a cryptographic hash, a MAC or a signature.
