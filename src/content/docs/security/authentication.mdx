@@ -1,0 +1,150 @@
+---
+description: Authentication is how a system decides who it is talking to. It covers proving identity once, with a password, a device or a key, and then carrying that proof across many requests with a session or a signed token.
+difficulty: intermediate
+---
+
+[HTTP](/networking/http/) is stateless. Each request arrives on its own, and the server has no built-in way to know that the request for your inbox comes from the person who typed your password a minute ago.
+
+**Authentication** is establishing who is making a request. It has two parts: proving identity once, at login, and then remembering that proof for the requests that follow.
+
+It is often confused with **authorisation**, which is deciding what an identified user may do. Authentication says "this is Alice". Authorisation says "Alice may read this file".
+
+## Factors
+
+Evidence of identity comes in three kinds.
+
+| Factor | Examples | Fails when |
+| --- | --- | --- |
+| Something you know | password, PIN | guessed, reused, phished |
+| Something you have | phone, security key, smart card | lost, stolen |
+| Something you are | fingerprint, face | copied, and it cannot be changed |
+
+**Multi-factor authentication** asks for two different kinds. An attacker with a leaked password still lacks the phone. Two passwords are not two factors.
+
+## Remembering a login: sessions
+
+After checking a password, the server creates a **session**: a record that says who logged in and when. It generates a long random **session ID**, stores the record under it, and sends the ID to the browser in a cookie. The browser returns the cookie with every request, and the server looks the ID up.
+
+The ID carries no information. It is a claim ticket, and its only protection is that it cannot be guessed, so it needs at least 128 random bits from a secure source.
+
+Whoever holds the cookie is the user, so the cookie needs protecting.
+
+| Cookie attribute | Effect |
+| --- | --- |
+| `Secure` | only sent over [TLS](/networking/tls/) |
+| `HttpOnly` | hidden from JavaScript, so an [injected script](/security/injection-attacks/#the-same-bug-elsewhere) cannot read it |
+| `SameSite` | not sent with requests started by other sites, which blocks cross-site request forgery |
+
+Logging out deletes the record on the server, and the ID becomes worthless immediately.
+
+## Remembering a login: tokens
+
+Sessions need a lookup on every request, and every server must reach the same store. The alternative puts the facts in the client's hands and makes them tamper-proof.
+
+A **signed token** holds a payload, such as a user and a role, and a signature over it. The server keeps no record. It checks the signature and believes the payload.
+
+<TokenDemo />
+
+The signature is an [HMAC](/security/cryptographic-hash-functions/#hashing-with-a-key) of the payload under a secret that only the server knows. Press "Change the role to admin". The payload changes, the signature the server computes for it no longer matches the one on the token, and the request is refused. Press "Sign it with a guessed secret" and the forged signature is wrong too, because the attacker's key is not the server's.
+
+Notice what is not happening: nothing is encrypted. The payload is only encoded, and anyone holding the token can read it.
+
+The standard format is the **JSON Web Token**, or JWT. It has three parts separated by dots, each encoded in base64.
+
+```
+eyJhbGciOiJIUzI1NiJ9 . eyJ1c2VyIjoiYWxpY2UiLCJleHAiOjE3NjAwMDAwMDB9 . 3q2-7wQx...
+header                 payload                                         signature
+{"alg":"HS256"}        {"user":"alice","exp":1760000000}
+```
+
+| | Session | Signed token |
+| --- | --- | --- |
+| Server stores | a record per login | nothing but the key |
+| Each request costs | a lookup | a signature check |
+| Revoke one login | delete the record | not possible without a store of revoked tokens |
+| Size | about 32 bytes | hundreds of bytes |
+| Works across services | needs a shared store | any service with the key can verify |
+
+Revocation is the real trade. A token is valid until it expires, whatever happens in the meantime. The usual compromise is an **access token** that lasts minutes and a longer-lived **refresh token**, checked against a store, that is used to get new ones.
+
+<Aside type="warning" title="Token mistakes">
+
+The header names the algorithm, and the header is written by whoever made the token. Libraries once accepted `"alg": "none"` and skipped verification. Others could be tricked into checking an RSA-signed token as HMAC, with the public key as the secret. Always tell the library which algorithm you expect, and always check the expiry.
+
+</Aside>
+
+When tokens are verified by services that should not be able to issue them, the token is signed with a private key instead, as on the [digital signatures](/security/digital-signatures/) page, and the services hold only the public key.
+
+## One-time codes
+
+The six-digit code from an authenticator app is a **time-based one-time password**, or TOTP. At setup, the server and the app share a secret, usually through a QR code. After that they need no contact at all.
+
+Both sides compute an HMAC of the current time, counted in 30-second steps, under the shared secret, and reduce it to six digits. If the codes match, the user has the device that holds the secret.
+
+```python
+import hashlib, hmac, struct
+
+def totp(secret, now, digits=6):
+    counter = struct.pack('>Q', int(now) // 30)
+    mac = hmac.new(secret, counter, hashlib.sha1).digest()
+    offset = mac[-1] & 0x0F
+    number = struct.unpack('>I', mac[offset:offset + 4])[0] & 0x7FFFFFFF
+    return str(number % 10 ** digits).zfill(digits)
+
+totp(b'12345678901234567890', 59)        # '287082'
+```
+
+The standard specifies SHA-1 inside the HMAC, which is still safe in that role.
+
+A code is useless after half a minute, which defeats password reuse and database leaks. It does not defeat **phishing**. A fake login page can ask for the code and pass it to the real site within the 30 seconds. Codes sent by text message have that weakness and another: phone numbers can be transferred to an attacker's SIM by deceiving the phone company.
+
+## Passkeys
+
+**Passkeys**, built on the WebAuthn standard, replace the shared secret with a key pair.
+
+At registration, the user's device creates a key pair for that one website and gives the site the public key. At login, the site sends a random challenge. The device asks for a fingerprint or PIN locally, then [signs](/security/digital-signatures/) the challenge with the private key. The site verifies the signature with the stored public key.
+
+| | Password | Passkey |
+| --- | --- | --- |
+| Server stores | a hash, which can be attacked by guessing | a public key, which is not secret |
+| Sent at login | the secret itself | a signature over a fresh challenge |
+| Reused across sites | commonly | never, one key pair per site |
+| Phishing | the user can type it into any page | the browser only offers the key to the site it was made for |
+
+The last row is the important one. The browser includes the site's real address in what gets signed, and will not use a key created for one site on another. A convincing fake page gets nothing, because the decision no longer depends on the user noticing.
+
+## Logging in with another service
+
+"Sign in with Google" is **delegated authentication**. The site, called the relying party, sends the browser to an identity provider. The user logs in there, and the provider sends the browser back with a short-lived code. The site exchanges the code for a signed token that says who the user is.
+
+The protocol for this is **OpenID Connect**, built on **OAuth 2.0**. OAuth on its own is about authorisation: letting an app act on your behalf, with limited scope, without giving it your password.
+
+The site never sees a password and has none to leak. In exchange it depends on the provider, and the provider learns where the user logs in.
+
+## Getting it right
+
+- Never build your own password storage or token format. Use the framework's.
+- Serve everything over TLS, or the session cookie crosses the network in the clear.
+- Issue a new session ID at login, so that an ID planted beforehand by an attacker does not become a logged-in one.
+- Rate-limit login attempts and one-time codes. Six digits is only a million possibilities.
+- Give the same response for an unknown user and a wrong password.
+- Treat account recovery as part of authentication. A password reset by email makes the mailbox the real credential.
+- Check authorisation on every request, on the server. A hidden button is not access control.
+
+## Costs
+
+<Ops items={[
+  ['Session lookup', '~1 ms', 'a read from a shared store'],
+  ['Verify an HMAC token', '~1 µs', 'no network'],
+  ['Verify a signed token', '~50 µs', 'with a public key'],
+  ['Guess a 6-digit code', '1 in 10⁶', 'per attempt, so limit attempts'],
+]} />
+
+## Key takeaways
+
+- Authentication establishes who is making a request. Authorisation decides what they may do.
+- Factors are things you know, have or are. Combining two kinds stops most account takeovers.
+- A session keeps the login on the server and gives the client an unguessable ID. A signed token gives the client the facts and a signature.
+- Tokens scale without shared state but cannot be revoked easily, so they should be short-lived.
+- One-time codes are an HMAC of the time under a shared secret. They can still be phished.
+- Passkeys sign a challenge with a per-site private key, so there is no secret on the server and nothing to phish.
