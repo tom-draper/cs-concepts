@@ -1,0 +1,141 @@
+---
+description: Raft is a consensus algorithm that keeps a log identical across a cluster of machines. It elects one leader at a time, has the leader replicate every entry to a majority before it counts, and was designed above all to be understandable.
+difficulty: advanced
+---
+
+[Consensus](/distributed-systems/consensus/) lets a group of machines agree on a sequence of commands and so behave like one reliable machine. For years the standard algorithm was Paxos, which is correct and notoriously hard to follow.
+
+In 2014 Diego Ongaro and John Ousterhout published **Raft**, an algorithm with the same guarantees, built to be easy to understand and to implement correctly. It has since become the usual choice, and runs inside etcd, Consul, CockroachDB, TiKV and many others.
+
+Raft splits the problem into three parts: electing a leader, replicating the log, and keeping both safe when things fail.
+
+## The setting
+
+A cluster has an odd number of nodes, usually three or five. Each keeps a **log**, an ordered list of commands. The aim is for every node's log to be the same, so that every node, applying the same commands in the same order, reaches the same state.
+
+At any moment a node is in one of three roles.
+
+| Role | Does |
+| --- | --- |
+| Follower | passive. Answers requests from the leader and from candidates |
+| Candidate | is asking for votes to become leader |
+| Leader | handles all client requests and tells the followers what to store |
+
+Time is divided into **terms**, numbered 1, 2, 3 and so on. Each term begins with an election and has at most one leader. The term number is a [logical clock](/distributed-systems/logical-clocks/). Every message carries the sender's term, and a node that sees a higher term than its own updates at once. A leader or candidate that finds it is behind steps down to follower.
+
+## Try it
+
+Five nodes, all followers. Make one time out, send some client requests, and crash things.
+
+<RaftDemo />
+
+A few experiments.
+
+- **Elect a leader**, then send requests. Each entry appears on every node, and is committed.
+- **Crash two followers** and send a request. Three of five still form a majority, so it commits.
+- **Crash a third node.** The leader accepts the request and cannot commit it. The entry is dashed. Restart a node, and it commits.
+- **Crash the leader.** Nothing happens until another node times out and wins an election in a higher term.
+- **Leave a node down through several requests**, then restart it. The leader brings its log up to date.
+
+## Leader election
+
+A leader sends **heartbeats** to every follower at short intervals. A follower that hears nothing for a while, its **election timeout**, assumes there is no leader and starts an election.
+
+1. It adds one to its term and becomes a candidate.
+2. It votes for itself and asks every other node for a vote.
+3. A node grants its vote if it has not yet voted in that term and the candidate's log is at least as up to date as its own.
+4. A candidate that collects votes from a majority becomes leader, and immediately sends heartbeats to assert itself.
+
+Each node has one vote in each term, so two candidates cannot both reach a majority in the same term. That is what guarantees a single leader.
+
+Two followers might time out together and split the vote, so that nobody wins. Raft avoids endless ties with **randomised timeouts**. Each node picks its timeout at random from a range, such as 150 to 300 milliseconds. Usually one node times out well before the rest, wins, and its heartbeats stop the others from trying. If a vote does split, the nodes wait new random times and try again.
+
+## Log replication
+
+Once elected, the leader handles every client request.
+
+1. The leader appends the command to its own log, as a new entry stamped with the current term.
+2. It sends the entry to every follower.
+3. When a **majority** of nodes have stored the entry, it is **committed**. It will never be lost or changed.
+4. The leader applies the command, replies to the client, and tells the followers the entry is committed so they apply it as well.
+
+The leader waits for a majority and no more. Slow or crashed followers do not hold things up, and are sent the entries later.
+
+Each message the leader sends includes the index and term of the entry just before the new ones. A follower accepts only if its own log has a matching entry at that position. If not, it refuses, and the leader steps back one entry and tries again, until it finds the point where the two logs agree. From there the leader's entries overwrite whatever the follower had.
+
+That check gives a strong guarantee, the **log matching property**: if two logs have an entry with the same index and term, the logs are identical up to that point.
+
+So the leader never changes its own log. It only appends. Followers are made to match the leader, and any conflicting entries they hold are discarded. Those can only ever be uncommitted ones.
+
+## Safety
+
+The crucial promise is that a committed entry is never lost, even through leader crashes. Two rules secure it.
+
+**The voting restriction.** A node refuses to vote for a candidate whose log is less up to date than its own, comparing the term of the last entry and then the length.
+
+A committed entry is on a majority of nodes. A candidate needs votes from a majority. Any two majorities share a node, so every winning candidate has been approved by at least one node that holds every committed entry, and that node would have refused a candidate lacking them. Therefore **a new leader always has every committed entry**.
+
+In the widget, crash a follower, send a request, crash the leader, then restart the follower and make it time out. Its log is missing an entry, and the others refuse it.
+
+**Only entries from the current term are committed by counting.** A new leader does not declare an old term's entry committed just because it sees it on a majority. It commits an entry from its own term, which commits everything before it. This closes a subtle hole in which an entry on a majority could still be overwritten.
+
+| Guarantee | Meaning |
+| --- | --- |
+| Election safety | at most one leader in a term |
+| Leader append-only | a leader never overwrites or deletes its own entries |
+| Log matching | same index and term means identical logs up to there |
+| Leader completeness | a committed entry is in the log of every later leader |
+| State machine safety | no two nodes apply different commands at the same index |
+
+## Stale leaders
+
+A leader cut off from the cluster by a [network partition](/distributed-systems/the-cap-theorem/) does not know it. It carries on accepting requests.
+
+It cannot commit any of them, since it cannot reach a majority. Meanwhile the majority side elects a new leader in a higher term. When the partition heals, the old leader sees the higher term, steps down, and its uncommitted entries are overwritten.
+
+Clients of the old leader were never told those requests succeeded, so nothing confirmed is lost. The term number acts as a [fencing token](/distributed-systems/failure-detection/#fencing). Any message from a past term is rejected.
+
+Reads need care for the same reason. A stale leader answering reads from its own state could return old data. To be [linearizable](/distributed-systems/consistency-models/#linearizability), a leader confirms it is still leader, by exchanging heartbeats with a majority, before it answers.
+
+## Practical matters
+
+**Persistence.** A node writes its current term, its vote and its log to disk before replying. Otherwise a node that crashed and restarted could vote twice in one term.
+
+**Snapshots.** The log cannot grow for ever. From time to time a node saves a snapshot of its whole state and discards the log entries the snapshot covers. A follower too far behind is sent the snapshot instead of the missing entries.
+
+**Membership changes.** Adding or removing nodes is dangerous if done abruptly, since for a moment an old majority and a new majority might not overlap. Raft makes the change through the log itself, one node at a time.
+
+**Client retries.** A client whose request times out may send it again, and the command must not be applied twice. Clients attach a unique identifier to each request, and the state machine remembers which it has seen.
+
+## Costs
+
+<Ops items={[
+  ['Commit one entry', '1 round trip', 'leader to a majority'],
+  ['Election', 'one timeout plus a round trip', 'typically under a second'],
+  ['Failures tolerated', '(n − 1) / 2', '1 of 3, 2 of 5'],
+]} />
+
+Every write goes through the leader, which limits throughput. Implementations batch many client requests into each message to the followers. During an election, typically a few hundred milliseconds, the cluster accepts no writes.
+
+Systems that need more capacity than one leader allows split their data into many ranges and run a separate Raft group for each.
+
+## Raft and Paxos
+
+| | Paxos | Raft |
+| --- | --- | --- |
+| Core unit | agreement on a single value | a replicated log |
+| Leader | an optimisation added on top | central to the design |
+| Log gaps | allowed | never. Entries are committed in order |
+| Who can become leader | any node, which then fetches what it lacks | only a node whose log is already complete |
+| Specification | leaves much to the implementer | complete and prescriptive |
+
+Raft gives up a little flexibility for a great deal of clarity. In the study that accompanied the paper, students who learned both scored noticeably better on questions about Raft.
+
+## Key takeaways
+
+- Raft keeps a replicated log identical on every node by having a single leader for each term decide its contents.
+- A follower that hears no heartbeat starts an election. A candidate needs votes from a majority, and randomised timeouts avoid repeated ties.
+- An entry is committed once a majority of nodes have stored it, and the leader then applies it and answers the client.
+- A node will only vote for a candidate whose log is at least as complete as its own, so a new leader always holds every committed entry.
+- Term numbers expose stale leaders, whose uncommitted entries are discarded when they rejoin.
+- A cluster of n nodes keeps working while a majority is up, and stops accepting writes when it is not.
