@@ -1,0 +1,137 @@
+---
+description: Multi-version concurrency control keeps old versions of a row when it is changed, so each transaction can read a consistent snapshot of the past without waiting for writers. It is how most modern databases let readers and writers work at the same time.
+difficulty: advanced
+---
+
+The simple way to stop transactions interfering is to lock. A reader locks a row so it cannot change underfoot, and a writer locks it so nobody reads a half-finished change. It works, and it means a long report blocks every update to the rows it has touched, while a long update blocks every reader.
+
+**Multi-version concurrency control**, MVCC, removes that conflict with one idea: never overwrite. An update leaves the existing row alone and adds a new **version** beside it. Readers go on looking at the old one. Nobody waits.
+
+## Versions
+
+One row, holding a balance. Start a reader, then let a writer change the value, then start another reader.
+
+<MvccDemo />
+
+Each transaction has a number, handed out in increasing order. Each version of a row carries two of them.
+
+| Stamp | Meaning |
+| --- | --- |
+| written by | the transaction that created this version |
+| replaced by | the transaction that updated or deleted it, if any |
+
+A transaction, on starting, takes a **snapshot**: a note of which transactions had committed at that moment. From then on it sees a version only if both of these hold.
+
+1. The version was written by a transaction that had committed before the snapshot.
+2. It had not been replaced by such a transaction.
+
+In the widget, a reader that began before a write keeps seeing the old balance, however many writers come and go. A reader that begins afterwards sees the new one. Two transactions looking at the "same row" at the same time read different values, and both are correct for the moment each one represents.
+
+## What it buys
+
+| | With locks | With MVCC |
+| --- | --- | --- |
+| A reader and a writer on the same row | one waits for the other | neither waits |
+| A long report during heavy writing | blocks writers, or is blocked by them | sees a frozen snapshot, and blocks nobody |
+| A backup of a live database | needs writes paused, or care | reads one snapshot of everything |
+
+The slogan is **readers do not block writers, and writers do not block readers**. For a typical application, where reads far outnumber writes, that removes most contention.
+
+It also gives a clean implementation of [isolation levels](/databases/isolation-levels/). The only question is when a snapshot is taken.
+
+| Level | Snapshot taken |
+| --- | --- |
+| Read committed | at the start of each statement |
+| Repeatable read, or snapshot isolation | once, at the start of the transaction |
+
+Under read committed, each statement gets a fresh view, so a transaction sees other transactions' commits as it goes. Under snapshot isolation, the whole transaction works from a single frozen picture of the database.
+
+## Writers still conflict
+
+MVCC separates readers from writers. Two writers changing the same row cannot both win.
+
+If one transaction has updated a row and not yet committed, a second that tries to update the same row must wait. What happens when the first commits depends on the level.
+
+| Level | The second writer |
+| --- | --- |
+| Read committed | re-reads the row as it now is and applies its change on top |
+| Snapshot isolation | is aborted, since the row changed after its snapshot. The rule is "first committer wins" |
+
+The abort at snapshot isolation is what prevents a lost update. The second transaction's decision was based on a value that is no longer current, so it must start again.
+
+What snapshots cannot catch is two transactions that read the same rows and write **different** ones. Neither write conflicts, both commit, and a rule spanning the rows may be broken. That is [write skew](/databases/isolation-levels/#write-skew), and preventing it takes extra machinery on top of MVCC.
+
+## Deletes and updates
+
+In an MVCC system nothing is removed at the moment it is deleted.
+
+| Operation | What actually happens |
+| --- | --- |
+| `INSERT` | a new version is created |
+| `DELETE` | the current version is stamped as replaced. It stays where it is |
+| `UPDATE` | the current version is stamped as replaced, and a new one is created |
+
+A deleted row is still on disk, still visible to any transaction whose snapshot predates the delete. An update is, physically, a delete and an insert.
+
+## Cleaning up
+
+Old versions pile up. A version is **dead** once no running transaction could possibly see it, and somebody has to remove it.
+
+In the widget, write several times and press Vacuum. Then start a reader, write a few more times, and vacuum again. The versions the open reader might need cannot be removed.
+
+Databases store old versions in one of two places.
+
+| Design | Old versions live | Clean-up | Used by |
+| --- | --- | --- | --- |
+| In the table | beside the current version, in the same pages | a background process, **vacuum**, sweeps tables and frees dead versions | PostgreSQL |
+| In an undo log | in a separate area, with the table holding only the newest | old undo records are purged once unneeded | MySQL InnoDB, Oracle |
+
+With versions in the table, an update never has to move data elsewhere, and rolling back is cheap, since the new version is simply ignored. The cost is **bloat**: tables and indexes swell with dead versions if vacuum falls behind.
+
+With an undo log, the table stays compact and reading the latest version is direct. A transaction that needs an old version has to rebuild it by walking back through undo records, which gets slower the further back it goes.
+
+## The long transaction problem
+
+The most important operational fact about MVCC follows directly from the rule for removing versions.
+
+A dead version can be removed only if no open transaction might need it. So a single transaction left open holds back the clean-up of every version created since it began, in every table. It does not have to be doing anything. An idle connection that ran `BEGIN` and was forgotten is enough.
+
+The symptoms are tables growing without bound, queries slowing as they wade through dead versions, and disks filling. The cause is often a script that crashed with a transaction open, or a reporting query that has run for six hours.
+
+| Good practice | Why |
+| --- | --- |
+| Keep transactions short | so old versions can be reclaimed promptly |
+| Set a timeout for idle transactions | catches forgotten ones |
+| Monitor the age of the oldest open transaction | it is the earliest warning |
+| Run long reports against a replica | keeps their snapshots off the primary |
+
+PostgreSQL has a further hazard. Its transaction numbers are 32 bits and eventually wrap around. Vacuum must periodically mark old rows as "frozen" so they remain visible after the wrap. A database where vacuum has been blocked for long enough will refuse writes to protect itself.
+
+## The costs
+
+| Cost | Detail |
+| --- | --- |
+| Space | several versions of frequently updated rows |
+| Write work | every update creates a version, and may add an entry to every index |
+| Clean-up | vacuum or purge runs continuously, competing with queries |
+| Visibility checks | every row read must be tested against the snapshot |
+| Aborts | at snapshot isolation, a write conflict forces a retry |
+
+For workloads that update the same rows constantly, the version churn is significant. For most workloads the freedom from read locks more than repays it.
+
+## Beyond one machine
+
+The same idea extends to databases spread over many machines, with one change. Transaction numbers from a single counter become **timestamps**, and a snapshot becomes "everything committed before time T".
+
+The hard part is agreeing on time across machines whose clocks disagree. Systems solve it with [logical clocks](/distributed-systems/logical-clocks/), or with physical clocks whose error is bounded and waited out.
+
+Keeping history has other uses. Some databases let a query ask for the data "as of" a past moment, for auditing or to recover from a mistake. Version control and immutable, persistent data structures rest on the same principle: adding a new version is safer than changing the old one in place.
+
+## Key takeaways
+
+- Under MVCC a write creates a new version of a row and leaves the old one for transactions that still need it.
+- Each transaction reads from a snapshot, seeing only versions committed before it.
+- Readers and writers never block each other. Two writers on the same row still conflict.
+- Taking the snapshot once per statement gives read committed. Taking it once per transaction gives snapshot isolation.
+- Old versions must be removed by vacuum or purge, and a single long-open transaction prevents that for the whole database.
+- Snapshot isolation prevents lost updates, by aborting the second writer, and does not prevent write skew.
