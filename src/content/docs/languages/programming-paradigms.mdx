@@ -1,0 +1,182 @@
+---
+description: A programming paradigm is a style of organising programs, built around a central idea such as a sequence of commands, objects that hold state, or functions without side effects. Most modern languages support several, and knowing them widens the set of solutions you can see.
+difficulty: beginner
+---
+
+There are thousands of programming languages, but far fewer ideas about how a program should be organised. A **paradigm** is one of those ideas: a view of what a program is made of and how its parts combine.
+
+The same problem looks different in each. Take a list of orders and find the total value of the ones that have been paid.
+
+## Imperative
+
+An **imperative** program is a sequence of commands that change the program's state. It says how to compute the answer, step by step.
+
+```python
+total = 0
+for order in orders:
+    if order.paid:
+        total = total + order.amount
+```
+
+There is a variable, and the program changes it repeatedly until it holds the answer. This is the oldest paradigm and the closest to the machine, since a [processor](/architecture/fetch-decode-execute-cycle/) is itself a device that executes instructions that modify registers and memory.
+
+**Procedural** programming is imperative programming organised into procedures, or functions, so that a sequence of steps can be named and reused. C is the standard example.
+
+**Structured** programming was the reform that replaced arbitrary jumps with three constructs: sequence, selection with `if`, and repetition with loops. Edsger Dijkstra's 1968 letter "Go To Statement Considered Harmful" argued that code full of jumps could not be reasoned about. The argument won so completely that structured code is now simply what code looks like.
+
+## Object-oriented
+
+An **object-oriented** program is a collection of objects. Each object bundles some data with the operations that work on it, and objects interact by calling each other's methods.
+
+```python
+class Order:
+    def __init__(self, amount, paid):
+        self.amount = amount
+        self.paid = paid
+
+class OrderBook:
+    def __init__(self):
+        self._orders = []
+
+    def add(self, order):
+        self._orders.append(order)
+
+    def paid_total(self):
+        return sum(order.amount for order in self._orders if order.paid)
+```
+
+Three ideas carry most of the weight.
+
+| Idea | Meaning |
+| --- | --- |
+| Encapsulation | an object's data is hidden behind its methods, so its internals can change without breaking callers |
+| Polymorphism | different kinds of object can respond to the same method call in their own way |
+| Inheritance | a class can be defined as an extension of another, reusing its behaviour |
+
+Polymorphism is the one with the most lasting value. Code that calls `shape.area()` works for circles, squares and shapes not yet written, without a chain of `if` statements asking what kind of shape it has.
+
+Inheritance has aged least well. Deep class hierarchies couple code tightly, and the usual advice now is to prefer **composition**, building objects out of other objects, over inheriting from them.
+
+Java, C#, C++, Python and Ruby are all object-oriented to some degree. Large programs suit the style, because objects give a natural way to divide a system into parts with clear boundaries.
+
+## Functional
+
+A **functional** program is built from functions in the mathematical sense: given the same input they return the same output, and they do nothing else. Values are not modified. New values are computed from old ones.
+
+```python
+total = sum(order.amount for order in orders if order.paid)
+```
+
+Or with the pieces named.
+
+```python
+from functools import reduce
+
+paid = filter(lambda order: order.paid, orders)
+amounts = map(lambda order: order.amount, paid)
+total = reduce(lambda a, b: a + b, amounts, 0)
+```
+
+There is no variable being updated. The data flows through a pipeline of transformations.
+
+| Idea | Meaning |
+| --- | --- |
+| Pure functions | no side effects: no changing variables outside, no input or output |
+| Immutability | data is never changed after it is created |
+| First-class functions | functions are values that can be passed, returned and stored, as [closures](/languages/closures/) |
+| Higher-order functions | functions such as `map` and `filter` that take other functions as arguments |
+| [Recursion](/algorithms/recursion/) | used in place of loops, since a loop needs a counter that changes |
+
+The payoff is in reasoning and testing. A pure function can be understood on its own, tested without any setup, cached, and run in parallel safely. A [race condition](/concurrency/race-conditions/) needs shared state that changes, and immutable data cannot be changed.
+
+The difficulty is that programs exist to have effects: writing files, sending messages, drawing on screens. Functional languages keep the effects at the edges of the program and the logic pure in the middle. Haskell enforces the separation in its [type system](/languages/type-systems/). Most others leave it to discipline.
+
+The paradigm descends from the [lambda calculus](/theory/lambda-calculus/). Haskell, OCaml, F#, Clojure, Elixir and Erlang are functional languages. Its ideas have spread into nearly every other language.
+
+## Declarative
+
+Imperative code says how. **Declarative** code says what result is wanted, and leaves the how to the system.
+
+```sql
+SELECT SUM(amount) FROM orders WHERE paid = TRUE;
+```
+
+This [SQL](/databases/sql/) does not mention loops, the order in which rows are visited, or whether an [index](/databases/indexes/) is used. The database's [query planner](/databases/query-planning/) decides, and may choose differently tomorrow when the table has grown.
+
+That is the strength of the approach. The system is free to pick the best strategy, and the programmer cannot get the strategy wrong. The weakness appears when the system picks badly and there is little to adjust.
+
+| Declarative language | Describes |
+| --- | --- |
+| SQL | what data is wanted |
+| HTML and CSS | what a document contains and how it should look |
+| [Regular expressions](/theory/regular-expressions/) | what text to match |
+| Spreadsheet formulas | how cells relate to each other |
+| Build and infrastructure configuration | what should exist when the tool has finished |
+
+Functional programming is often counted as declarative, since it describes values and not steps.
+
+## Logic
+
+**Logic programming** is a declarative paradigm in which a program is a set of facts and rules, and running it means asking a question. The system searches for answers that follow from what it was told.
+
+```prolog
+parent(alice, bob).
+parent(bob, carol).
+
+grandparent(X, Z) :- parent(X, Y), parent(Y, Z).
+
+?- grandparent(alice, Who).
+Who = carol.
+```
+
+Nothing says how to find a grandparent. The rule states what a grandparent is, and the engine tries combinations of facts until one fits, by [backtracking](/algorithms/backtracking/).
+
+Prolog is the main language of this kind. The paradigm is a niche one, but its descendants are in everyday use inside type checkers, database query engines and the solvers used for scheduling and [satisfiability](/theory/np-completeness/).
+
+## Others worth knowing
+
+**Event-driven.** The program does not run from top to bottom. It registers handlers and waits, and an [event loop](/concurrency/event-loops/) calls them when something happens. Every graphical interface and most network servers work this way.
+
+**Reactive.** Values are defined in terms of other values, and updates propagate automatically when the inputs change. A spreadsheet is the original example, and most current user-interface frameworks follow it.
+
+**Concurrent.** The program is a set of independent activities that communicate, whether by [channels](/concurrency/channels/) or as [actors](/concurrency/the-actor-model/).
+
+**Array-oriented.** Operations apply to whole arrays at once, with no explicit loops, as in NumPy, MATLAB and APL.
+
+## Side by side
+
+| | Imperative | Object-oriented | Functional | Declarative |
+| --- | --- | --- | --- | --- |
+| A program is | a sequence of commands | objects sending messages | functions applied to values | a description of the result |
+| State | changed freely | hidden inside objects | avoided | managed by the system |
+| Repetition | loops | loops, iterators | recursion, `map`, `fold` | implicit |
+| Reuse through | procedures | classes and interfaces | functions and composition | the language itself |
+| Good at | low-level control, performance | large systems with many kinds of thing | data transformation, concurrency | queries, layout, configuration |
+
+## Languages are mixtures
+
+Very few languages are pure. Python, JavaScript, Kotlin, Swift, Scala, Rust and C++ are all **multi-paradigm**: they have loops and mutable variables, classes or something like them, and first-class functions.
+
+The direction of travel has been towards borrowing. Java added lambdas and streams. C# added a query syntax modelled on SQL. JavaScript programmers use `map` and `filter` daily. Rust is imperative, with a functional language's types and iterators and no classes at all.
+
+So in practice a paradigm is a way of writing a particular piece of code, and one program uses several.
+
+- A data transformation reads best as a functional pipeline.
+- A component with a life cycle and internal state is naturally an object.
+- A performance-critical inner loop is often clearest as plain imperative code.
+- A query belongs in a query language.
+
+<Aside type="tip" title="Why learn more than one">
+
+Each paradigm trains a different habit: thinking about state, about boundaries, about data flow, about specifying a result. A programmer who knows only one sees only the solutions it suggests. Learning a language from an unfamiliar paradigm improves your code in the languages you already use.
+
+</Aside>
+
+## Key takeaways
+
+- A paradigm is a way of organising programs around a central idea. It describes a style, and a language may support several.
+- Imperative code gives step-by-step commands that change state. Procedural and structured programming organise those commands.
+- Object-oriented code groups state with the operations on it, and relies on encapsulation and polymorphism.
+- Functional code builds programs from pure functions and immutable data, which makes them easier to test and to run concurrently.
+- Declarative code states what is wanted and lets the system decide how.
+- Modern languages mix paradigms, and good programs choose the style that fits each part.
