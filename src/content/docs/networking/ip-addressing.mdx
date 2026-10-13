@@ -1,0 +1,140 @@
+---
+description: An IP address identifies a network interface on the internet. Its leading bits name a network and the rest name a machine on it, which is what lets routers find any destination without knowing about every machine.
+difficulty: beginner
+---
+
+To send a packet to a machine on the other side of the world, you need a way to say which machine. The internet's answer is the **IP address**: a number, unique across the network, attached to every interface that sends or receives packets.
+
+The clever part is its structure. The number is not a serial number handed out at random. It is arranged so that machines near each other in the network share the beginning of their address, in the way that telephone numbers in one area share a code.
+
+## The format
+
+An **IPv4** address is 32 [bits](/foundations/bits-and-bytes/). It is written as four numbers from 0 to 255 separated by dots, one for each byte.
+
+```
+192.168.1.130   =   11000000 10101000 00000001 10000010
+```
+
+32 bits allow about 4.3 billion addresses. That seemed inexhaustible in 1981.
+
+## Network and host
+
+Every address is split in two. The leading bits are the **network part**, shared by every machine on the same network. The remaining bits are the **host part**, different for each machine.
+
+The split point is written after the address as a **prefix length**. `192.168.1.130/26` means the first 26 bits are the network and the last 6 are the host. This notation is called **CIDR**, pronounced "cider".
+
+Change the prefix and watch the boundary move.
+
+<SubnetDemo />
+
+A group of addresses with the same network part is a **subnet**. Everything about it follows from the prefix.
+
+| Term | Meaning | For `192.168.1.130/26` |
+| --- | --- | --- |
+| Subnet mask | 1s over the network part, 0s over the host part | `255.255.255.192` |
+| Network address | host bits all 0, names the subnet itself | `192.168.1.128` |
+| Broadcast address | host bits all 1, reaches every machine on the subnet | `192.168.1.191` |
+| Usable hosts | everything in between | 62 |
+
+The mask is an older way of writing the prefix length. To find the network an address belongs to, a machine computes address [AND](/foundations/bitwise-operations/) mask, which clears the host bits.
+
+Each bit added to the prefix halves the size of the subnet.
+
+| Prefix | Addresses | Typical use |
+| --- | --- | --- |
+| `/8` | 16,777,216 | a very large organisation |
+| `/16` | 65,536 | a campus |
+| `/24` | 256 | one office or home network |
+| `/30` | 4 | a link between two routers |
+| `/32` | 1 | a single machine |
+
+## Why the split matters
+
+A machine uses the split to answer one question before sending anything: is the destination on my own network?
+
+If the destination has the same network part, the packet can be delivered directly. If not, it is sent to the **default gateway**, the router that connects this network to the rest.
+
+Routers use the same structure on a larger scale. A router does not have an entry for every machine on the internet. It has entries for **prefixes**, and each entry says where to forward packets for any address that begins that way.
+
+| Prefix | Send to |
+| --- | --- |
+| `203.0.113.0/24` | interface 2 |
+| `203.0.0.0/16` | interface 1 |
+| `0.0.0.0/0` | interface 0, the default route |
+
+When several entries match, the router takes the one with the longest prefix, since that is the most specific. A packet for `203.0.113.10` matches all three rows above and goes out of interface 2. This is **longest prefix match**, and it is usually implemented with a [trie](/data-structures/tries/) keyed on the bits of the address.
+
+Because addresses are handed out in blocks, a single entry can stand for millions of machines. That aggregation is what keeps the internet's core routing tables to around a million entries instead of billions.
+
+## Special addresses
+
+Some ranges are reserved.
+
+| Range | Purpose |
+| --- | --- |
+| `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` | private networks, not routed on the public internet |
+| `127.0.0.0/8` | loopback: `127.0.0.1` is always this machine |
+| `169.254.0.0/16` | link-local, chosen by a machine that could not get an address |
+| `0.0.0.0` | "any address", or "no address yet" |
+| `255.255.255.255` | broadcast on the local network |
+
+The private ranges can be reused by anybody. Your home network and millions of others all use `192.168.1.x` without conflict, because those addresses never appear on the public internet.
+
+## Running out
+
+There are more than 4.3 billion devices. The central pool of unallocated IPv4 addresses ran dry in 2011. Two things kept the internet working.
+
+**Network address translation.** With **NAT**, a whole home or office shares one public address. Machines inside use private addresses. When one of them sends a packet out, the router replaces the private source address with its own public one and a port number it picks, and remembers the pairing in a table. When the reply comes back to that port, it reverses the swap.
+
+| Inside | Rewritten by the router to |
+| --- | --- |
+| `192.168.1.20`, port 51234 | `198.51.100.7`, port 40001 |
+| `192.168.1.31`, port 51234 | `198.51.100.7`, port 40002 |
+
+NAT works well for connections that start from the inside. A connection from outside has no entry in the table, so the router does not know which machine it is for. That is why hosting a server at home needs port forwarding, and why video calls and games need special techniques to connect two people who are both behind NAT.
+
+**IPv6.** The real fix is a larger address. **IPv6** addresses are 128 bits, written as eight groups of four hexadecimal digits.
+
+```
+2001:0db8:0000:0000:0000:ff00:0042:8329
+2001:db8::ff00:42:8329                       the same, shortened
+```
+
+Leading zeros in a group may be dropped, and one run of all-zero groups may be replaced by `::`.
+
+128 bits give about 3.4 × 10³⁸ addresses, enough to give every device its own public address many times over, so NAT is not needed. The same prefix notation applies. A typical subnet is a `/64`, which leaves 64 bits for the host.
+
+| | IPv4 | IPv6 |
+| --- | --- | --- |
+| Size | 32 bits | 128 bits |
+| Addresses | 4.3 billion | 3.4 × 10³⁸ |
+| Written as | `192.0.2.1` | `2001:db8::1` |
+| Loopback | `127.0.0.1` | `::1` |
+| NAT | nearly universal | unnecessary |
+
+IPv6 was standardised in 1998 and is not compatible with IPv4, so the two run side by side. Adoption has been slow, and a little under half of traffic to large web sites now arrives over IPv6.
+
+## Getting an address
+
+Machines are rarely configured by hand. On joining a network, a machine broadcasts a request, and a **DHCP** server answers with an address to use for a limited time, along with the subnet mask, the default gateway and the address of a [DNS](/networking/dns/) server.
+
+To deliver a packet on the local network, the machine also needs the hardware address that goes with an IP address. It broadcasts "who has 192.168.1.1?", and the owner replies. That exchange is **ARP**, and the answers are cached.
+
+## What an address is not
+
+**It is not a person or a device.** Addresses belong to network interfaces. A laptop with Wi-Fi and a cable has two, and behind NAT hundreds of devices share one.
+
+**It is not permanent.** Most are assigned temporarily and change.
+
+**It is not a precise location.** Addresses are allocated to network operators in blocks, so an address reveals the operator and often the city, with frequent errors.
+
+**It is not a name.** People use names such as `example.org`, and [DNS](/networking/dns/) translates them into addresses.
+
+## Key takeaways
+
+- An IPv4 address is 32 bits, written as four decimal bytes. An IPv6 address is 128 bits, written in hexadecimal.
+- A prefix length such as `/24` splits an address into a network part and a host part.
+- A machine compares network parts to decide whether a destination is local or must go through the gateway.
+- Routers store prefixes, not individual machines, and forward by longest prefix match.
+- Private ranges and NAT let many machines share one public address, which postponed the exhaustion of IPv4.
+- IPv6 removes the shortage but is being adopted gradually alongside IPv4.
