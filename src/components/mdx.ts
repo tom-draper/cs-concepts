@@ -1,5 +1,13 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import BlockModeDemo from './BlockModeDemo.astro';
+import DiffieHellmanDemo from './DiffieHellmanDemo.astro';
+import HashDemo from './HashDemo.astro';
+import InjectionDemo from './InjectionDemo.astro';
+import OverflowDemo from './OverflowDemo.astro';
+import PasswordDemo from './PasswordDemo.astro';
+import RsaDemo from './RsaDemo.astro';
+import TokenDemo from './TokenDemo.astro';
 import CapDemo from './CapDemo.astro';
 import ClockDemo from './ClockDemo.astro';
 import CrdtDemo from './CrdtDemo.astro';
@@ -91,6 +99,14 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  BlockModeDemo,
+  DiffieHellmanDemo,
+  HashDemo,
+  InjectionDemo,
+  OverflowDemo,
+  PasswordDemo,
+  RsaDemo,
+  TokenDemo,
   CapDemo,
   ClockDemo,
   CrdtDemo,

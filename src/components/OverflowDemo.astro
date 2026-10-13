@@ -1,0 +1,80 @@
+---
+// A stack frame with an eight-byte buffer. Typing more than fits overwrites
+// the variable and return address stored after it.
+import { overflow } from '../lib/security';
+
+const first = overflow('hello', 'none');
+const names = { buffer: 'buffer[8]', canary: 'canary', flag: 'authorised', return: 'return address' };
+---
+
+<overflow-demo class="playground overflow-demo">
+  <label>Name <input value="hello" maxlength="20" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {['hello', 'AAAAAAAA', 'AAAAAAAAA', 'AAAAAAAAAAAAAAAA'].map((item) => <button type="button" data-try={item}>{item.length} characters</button>)}
+  </p>
+  <p class="tries" role="group" aria-label="Protection">
+    Protection:
+    <button type="button" data-protection="none" aria-pressed="true">none</button>
+    <button type="button" data-protection="bounds" aria-pressed="false">bounds check</button>
+    <button type="button" data-protection="canary" aria-pressed="false">stack canary</button>
+  </p>
+  <div class="stack-frame" data-out="frame">
+    {first.layout.map((cell) => <i data-region={cell.region} title={names[cell.region]}>{cell.value.toString(16).padStart(2, '0')}</i>)}
+  </div>
+  <p class="hint legend"><i data-region="buffer"></i> buffer <i data-region="canary"></i> canary <i data-region="flag"></i> authorised <i data-region="return"></i> return address</p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>authorised</dt><dd data-out="flag">false</dd></div>
+    <div><dt>Function returns to</dt><dd data-out="return">0x00401a2c</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Memory addresses rise from left to right. The buffer holds eight bytes, and whatever follows it is next in line.</p>
+</overflow-demo>
+
+<script>
+  import { overflow, type Protection } from '../lib/security';
+
+  class OverflowDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      let protection: Protection = 'none';
+      const render = () => {
+        const result = overflow(field.value, protection);
+        out('frame').replaceChildren(
+          ...result.layout.map((cell) => {
+            const box = document.createElement('i');
+            box.dataset.region = cell.region;
+            box.textContent = cell.value.toString(16).padStart(2, '0');
+            if (cell.smashed) box.className = 'smashed';
+            return box;
+          }),
+        );
+        const hijacked = result.returnAddress !== '0x00401a2c';
+        out('flag').textContent = String(result.authorised);
+        out('return').textContent = result.returnAddress;
+        out('status').textContent = result.canaryDead
+          ? 'The overflow had to cross the canary to reach anything else, and changed it. The function checks the canary before returning, finds it altered and aborts the program. A crash, and not a takeover.'
+          : result.truncated
+            ? 'The copy stopped at seven characters and a terminator. The input was cut short, and nothing outside the buffer was touched.'
+            : hijacked
+              ? `The return address is now ${result.returnAddress}, made from the bytes that were typed. When the function returns, the processor jumps wherever the input says.`
+              : result.authorised
+                ? 'One byte too many. It landed on the variable after the buffer and turned authorised from false to true. No password was needed.'
+                : field.value.length === 8
+                  ? 'Eight characters fill the buffer exactly, and the terminating zero byte is written one place beyond it. An off-by-one error, harmless here only because that byte was already zero.'
+                  : 'The input and its terminating zero fit inside the buffer.';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-protection]')) button.setAttribute('aria-pressed', String(button.dataset.protection === protection));
+      };
+      field.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.try) field.value = data.try;
+        protection = (data.protection as Protection) ?? protection;
+        render();
+      });
+    }
+  }
+
+  customElements.define('overflow-demo', OverflowDemo);
+</script>

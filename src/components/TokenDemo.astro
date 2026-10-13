@@ -1,0 +1,64 @@
+---
+// A signed login token. The payload can be read and edited by anyone, but the
+// signature only matches if it was produced with the server's secret.
+import { signToken, tokenText } from '../lib/security';
+
+const payload = '{"user":"alice","role":"user"}';
+const signature = signToken(payload);
+---
+
+<token-demo class="playground token-demo" data-payload={payload} data-signature={signature}>
+  <label class="wide">Payload <textarea rows="2" spellcheck="false" autocomplete="off">{payload}</textarea></label>
+  <p class="tries">
+    <button type="button" data-act="admin">Change the role to admin</button>
+    <button type="button" data-act="forge">Sign it with a guessed secret</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>Signature on the token</dt><dd data-out="signature">{signature}</dd></div>
+    <div><dt>Signature the server computes</dt><dd data-out="expected">{signature}</dd></div>
+    <div><dt>Token as sent</dt><dd data-out="token">{tokenText(payload, signature)}</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The server issued this token to alice at login and signed it. She sends it back with every request. Edit the payload.</p>
+</token-demo>
+
+<script>
+  import { signToken, tokenText } from '../lib/security';
+
+  class TokenDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector('textarea')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      let signature = this.dataset.signature!;
+      const render = (note = '') => {
+        const expected = signToken(field.value);
+        out('signature').textContent = signature;
+        out('expected').textContent = expected;
+        out('token').textContent = tokenText(field.value, signature);
+        out('status').textContent =
+          note +
+          (signature === expected
+            ? 'The signatures match. The server accepts the payload as its own work, without looking anything up in a database.'
+            : 'The signatures differ, so the server rejects the token. The payload is not what it signed, and without the secret nobody else can produce the matching signature.');
+      };
+      field.addEventListener('input', () => render());
+      this.addEventListener('click', (event) => {
+        const act = (event.target as HTMLElement).closest('button')?.dataset.act;
+        if (!act) return;
+        if (act === 'admin') {
+          field.value = field.value.replace('"role":"user"', '"role":"admin"');
+          render('The payload is only encoded, not encrypted, so anyone holding the token can read and change it. ');
+        } else if (act === 'forge') {
+          signature = signToken(field.value, 'password123');
+          render('The attacker signed the payload with a guess at the secret. ');
+        } else {
+          field.value = this.dataset.payload!;
+          signature = this.dataset.signature!;
+          render();
+        }
+      });
+    }
+  }
+
+  customElements.define('token-demo', TokenDemo);
+</script>

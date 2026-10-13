@@ -1,0 +1,107 @@
+---
+// RSA with primes small enough to follow: generate keys, then encrypt and
+// decrypt a number, or sign and verify a message.
+import { primePairs } from '../lib/security';
+
+interface Props {
+  mode?: 'encrypt' | 'sign';
+}
+
+const { mode = 'encrypt' } = Astro.props;
+---
+
+<rsa-demo class="playground rsa-demo" data-mode={mode}>
+  <p class="tries" role="group" aria-label="Primes">
+    Secret primes p and q:
+    {primePairs.map(([p, q], i) => <button type="button" data-primes={`${p},${q}`} aria-pressed={i === 1 ? 'true' : 'false'}>{p} and {q}</button>)}
+  </p>
+  <dl class="readouts stacked">
+    <div><dt>Public key</dt><dd data-out="public">-</dd></div>
+    <div><dt>Private key</dt><dd data-out="private">-</dd></div>
+  </dl>
+  {
+    mode === 'encrypt' ? (
+      <>
+        <label>Message, a number <input data-in="message" type="number" value="65" min="0" /></label>
+        <dl class="readouts stacked" aria-live="polite">
+          <div><dt>Encrypt with the public key</dt><dd data-out="cipher">-</dd></div>
+          <div><dt>Decrypt with the private key</dt><dd data-out="plain">-</dd></div>
+        </dl>
+      </>
+    ) : (
+      <>
+        <label>Signed <input data-in="message" value="Pay Bob 10" maxlength="40" spellcheck="false" autocomplete="off" /></label>
+        <label>Received <input data-in="received" value="Pay Bob 10" maxlength="40" spellcheck="false" autocomplete="off" /></label>
+        <dl class="readouts stacked" aria-live="polite">
+          <div><dt>Digest of the signed message</dt><dd data-out="digest">-</dd></div>
+          <div><dt>Signature</dt><dd data-out="signature">-</dd></div>
+          <div><dt>Signature opened with the public key</dt><dd data-out="opened">-</dd></div>
+          <div><dt>Digest of the received message</dt><dd data-out="check">-</dd></div>
+        </dl>
+      </>
+    )
+  }
+  <p class="tries"><button type="button" data-act="factor">Attack: factor n</button></p>
+  <p class="hint" data-out="status" aria-live="polite">Pick a pair of primes.</p>
+</rsa-demo>
+
+<script>
+  import { digestNumber, factor, modPow, rsaKeys } from '../lib/security';
+
+  class RsaDemo extends HTMLElement {
+    connectedCallback() {
+      let primes = [61, 53];
+      const signing = this.dataset.mode === 'sign';
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const field = (name: string) => this.querySelector<HTMLInputElement>(`[data-in="${name}"]`)!;
+      const render = (attack?: string) => {
+        const { n, phi, e, d } = rsaKeys(primes[0], primes[1]);
+        out('public').textContent = `n = ${primes[0]} × ${primes[1]} = ${n}, e = ${e}`;
+        out('private').textContent = `d = ${d}, because ${e} × ${d} leaves 1 when divided by ${phi}`;
+        let status: string;
+        if (signing) {
+          const digest = digestNumber(field('message').value, n);
+          const signature = modPow(digest, d, n);
+          const opened = modPow(signature, e, n);
+          const check = digestNumber(field('received').value, n);
+          out('digest').textContent = String(digest);
+          out('signature').textContent = `${digest}^${d} mod ${n} = ${signature}`;
+          out('opened').textContent = `${signature}^${e} mod ${n} = ${opened}`;
+          out('check').textContent = String(check);
+          status =
+            opened === check
+              ? 'The two numbers match, so the signature is valid: the message is the one that was signed, and only the holder of d could have signed it.'
+              : 'The numbers do not match. The message was changed after signing, and the signature is rejected. Producing a signature that fits the new message needs d.';
+        } else {
+          const raw = field('message').value;
+          const message = /^\d+$/.test(raw) ? BigInt(raw) : 0n;
+          const cipher = modPow(message, e, n);
+          out('cipher').textContent = `${message}^${e} mod ${n} = ${cipher}`;
+          out('plain').textContent = `${cipher}^${d} mod ${n} = ${modPow(cipher, d, n)}`;
+          status =
+            message >= n
+              ? `The message must be smaller than n = ${n}. Larger values wrap round and cannot be recovered.`
+              : `Anyone can encrypt, using n and e. Undoing it needs d, and finding d needs the two primes.`;
+        }
+        out('status').textContent = attack ?? status;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-primes]')) button.setAttribute('aria-pressed', String(button.dataset.primes === primes.join(',')));
+      };
+      this.addEventListener('input', () => render());
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.primes) {
+          primes = data.primes.split(',').map(Number);
+          render();
+        } else {
+          const { n } = rsaKeys(primes[0], primes[1]);
+          const { p, tries } = factor(n);
+          render(`Trial division found ${n} = ${p} × ${n / p} after ${tries.toLocaleString('en')} attempts. With the primes, d follows at once and the key is broken. Each extra digit in the primes multiplies the work by ten, and real primes have over 300 digits.`);
+        }
+      });
+      render();
+    }
+  }
+
+  customElements.define('rsa-demo', RsaDemo);
+</script>

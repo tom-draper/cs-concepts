@@ -1,0 +1,76 @@
+---
+// A login form whose inputs are pasted into a SQL query, and the same form
+// using a parameterised query.
+import { login } from '../lib/security';
+
+const tries = [
+  ['a real login', 'alice', 'sunshine'],
+  ['wrong password', 'alice', 'guess'],
+  ['comment out the check', "admin' --", ''],
+  ['always true', 'anyone', "' OR '1'='1"],
+  ['stray quote', "o'brien", 'x'],
+];
+const first = login('alice', 'sunshine', false);
+---
+
+<injection-demo class="playground injection-demo">
+  <label>Username <input data-in="name" value="alice" maxlength="40" spellcheck="false" autocomplete="off" /></label>
+  <label>Password <input data-in="password" value="sunshine" maxlength="40" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map(([label, name, password]) => <button type="button" data-name={name} data-password={password}>{label}</button>)}
+  </p>
+  <p class="tries" role="group" aria-label="How the query is built">
+    Query built by:
+    <button type="button" data-safe="false" aria-pressed="true">pasting the inputs in</button>
+    <button type="button" data-safe="true" aria-pressed="false">passing parameters</button>
+  </p>
+  <h4>What the database receives</h4>
+  <pre data-out="query">{first.query}</pre>
+  <p class="hint" data-out="status" aria-live="polite">Logged in as alice.</p>
+</injection-demo>
+
+<script>
+  import { login } from '../lib/security';
+
+  class InjectionDemo extends HTMLElement {
+    connectedCallback() {
+      const field = (name: string) => this.querySelector<HTMLInputElement>(`[data-in="${name}"]`)!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      let safe = false;
+      const render = () => {
+        const name = field('name').value;
+        const password = field('password').value;
+        const result = login(name, password, safe);
+        out('query').textContent = safe ? `${result.query}\n\nparameter 1: ${JSON.stringify(name)}\nparameter 2: ${JSON.stringify(password)}` : result.query;
+        const genuine = login(name, password, true).rows!.length > 0;
+        out('status').textContent =
+          'error' in result
+            ? `The database rejected the query as malformed. ${result.error} An error like this tells an attacker the input reaches the SQL unescaped.`
+            : !result.rows!.length
+              ? safe && !genuine && /['-]/.test(name + password)
+                ? 'Login refused. The inputs were sent separately from the query, so the quote is just a character in a name nobody has. It cannot change what the query means.'
+                : 'Login refused. No user has that name and password.'
+              : genuine
+                ? `Logged in as ${result.rows![0][1]}.`
+                : result.rows!.length > 1
+                  ? `The condition is true for every row, so the query returned all ${result.rows!.length} users. The application takes the first and logs the attacker in as ${result.rows![0][1]}, with no password.`
+                  : `Logged in as ${result.rows![0][1]}, with role ${result.rows![0][2]}, without the password. The quote closed the string early, and -- turned the rest of the query into a comment.`;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-safe]')) button.setAttribute('aria-pressed', String(button.dataset.safe === String(safe)));
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.safe) safe = data.safe === 'true';
+        if (data.name !== undefined) {
+          field('name').value = data.name;
+          field('password').value = data.password ?? '';
+        }
+        render();
+      });
+    }
+  }
+
+  customElements.define('injection-demo', InjectionDemo);
+</script>

@@ -3362,3 +3362,114 @@ main {
 .partition-demo .lsm-levels > div:first-child {
   border-style: solid;
 }
+
+/* ---------- Security widgets ---------- */
+
+.digest {
+  margin: 0.4rem 0 0.8rem !important;
+  color: var(--text-2);
+  font: 0.78rem/1.5 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.bit-grid {
+  display: grid;
+  grid-template-columns: repeat(32, 1fr);
+  gap: 2px;
+  max-width: 26rem;
+  margin: 0.4rem 0 0 !important;
+}
+
+.bit-grid i {
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.bit-grid i[data-changed] {
+  background: var(--alt);
+}
+
+.blocks {
+  margin-bottom: 0.8rem !important;
+}
+
+.blocks i {
+  white-space: pre;
+}
+
+.block-mode h4,
+.password-demo h4,
+.injection-demo h4 {
+  margin-top: 0.9rem;
+}
+
+.rsa-demo .readouts dt,
+.diffie-hellman > .readouts dt,
+.token-demo .readouts dt,
+.password-demo .readouts dt {
+  min-width: 15rem;
+}
+
+.rsa-demo label,
+.token-demo .tries {
+  margin-top: 0.7rem;
+}
+
+.diffie-hellman .env label {
+  margin-bottom: 0.6rem;
+}
+
+.diffie-hellman .env .readouts dt {
+  min-width: 4.5rem;
+}
+
+.stack-frame {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 0.9rem;
+}
+
+.stack-frame i,
+.overflow-demo .legend i {
+  width: 2rem;
+  height: 2.1rem;
+  border-radius: 3px;
+  box-shadow: inset 0 -3px var(--viz-stroke);
+  background: var(--viz-fill);
+  font: 600 0.82rem/2rem var(--mono);
+  text-align: center;
+}
+
+.overflow-demo [data-region='buffer'] { box-shadow: inset 0 -3px var(--series-1); }
+.overflow-demo [data-region='canary'] { box-shadow: inset 0 -3px var(--series-4); }
+.overflow-demo [data-region='flag'] { box-shadow: inset 0 -3px var(--series-3); }
+.overflow-demo [data-region='return'] { box-shadow: inset 0 -3px var(--series-5); }
+
+.stack-frame i.smashed {
+  background: var(--alt-soft);
+  color: var(--alt);
+}
+
+.overflow-demo .legend i {
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-left: 0.7rem;
+}
+
+.overflow-demo .legend i:first-child {
+  margin-left: 0;
+}
+
+.injection-demo pre {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--bg);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
