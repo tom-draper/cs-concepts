@@ -8,6 +8,11 @@ import OverflowDemo from './OverflowDemo.astro';
 import PasswordDemo from './PasswordDemo.astro';
 import RsaDemo from './RsaDemo.astro';
 import TokenDemo from './TokenDemo.astro';
+import EntropyDemo from './EntropyDemo.astro';
+import HuffmanDemo from './HuffmanDemo.astro';
+import LzDemo from './LzDemo.astro';
+import ChecksumDemo from './ChecksumDemo.astro';
+import HammingDemo from './HammingDemo.astro';
 import CapDemo from './CapDemo.astro';
 import ClockDemo from './ClockDemo.astro';
 import CrdtDemo from './CrdtDemo.astro';
@@ -107,6 +112,11 @@ export const components = {
   PasswordDemo,
   RsaDemo,
   TokenDemo,
+  EntropyDemo,
+  HuffmanDemo,
+  LzDemo,
+  ChecksumDemo,
+  HammingDemo,
   CapDemo,
   ClockDemo,
   CrdtDemo,
