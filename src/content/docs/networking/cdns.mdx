@@ -1,0 +1,139 @@
+---
+description: A content delivery network is a fleet of servers spread around the world that keeps copies of a site's content close to its users. It cuts latency by shortening the distance data travels, and takes most of the load off the origin server.
+difficulty: intermediate
+---
+
+A signal in an optical fibre travels at about 200,000 kilometres per second, two thirds of the speed of light in a vacuum. That is fast, and it is also a hard limit. Sydney to Virginia and back is over 30,000 kilometres of cable, and the round trip cannot take less than about 160 milliseconds, however good the hardware.
+
+Fetching one file over a new connection needs several round trips: one for [TCP](/networking/tcp/), one for [TLS](/networking/tls/) and one for the request itself. For a distant user that adds up to more than half a second before the first byte arrives.
+
+You cannot make light faster. You can move the content closer. A **content delivery network**, or CDN, is a set of servers in hundreds of locations that hold copies of a site's content and answer on its behalf from wherever is nearest the user.
+
+## Near and far
+
+The **origin** is the site's own server. Here it is in Virginia. The CDN has an **edge** server in each of these cities. Choose where the user is, and request the file twice.
+
+<CdnDemo />
+
+The first request to an edge is a **cache miss**. The edge does not have the file, so it fetches it from the origin, passes it on and keeps a copy. Every later request in that city is a **cache hit**, answered by the edge alone.
+
+Two things stand out.
+
+**A hit is fast for everyone.** From Sydney the direct fetch takes 600 ms and a hit takes 15 ms. The user's distance from the origin has stopped mattering.
+
+**Even a miss is faster than going direct.** The user's three round trips are to a nearby edge and are short. The edge already holds an open, secured connection to the origin, so its own fetch costs a single long round trip instead of three.
+
+## How a user reaches the nearest edge
+
+The user typed the site's name, not the address of an edge. Two techniques direct them.
+
+| Technique | How it works |
+| --- | --- |
+| [DNS](/networking/dns/) | the site's name is an alias for a name run by the CDN, whose name servers answer with the address of an edge near the asker |
+| Anycast | the same [IP address](/networking/ip-addressing/) is announced from every location, and ordinary internet routing delivers each packet to the closest one |
+
+Either way, the choice can take more into account than geography: which locations are healthy, how busy each is, and how congested the paths to them are.
+
+## What gets cached
+
+An edge is a shared [HTTP](/networking/http/) cache, and it follows the caching headers the origin sends.
+
+| Header from the origin | Effect at the edge |
+| --- | --- |
+| `Cache-Control: public, max-age=86400` | keep and reuse for a day |
+| `Cache-Control: s-maxage=600` | shared caches may keep it for ten minutes, whatever browsers are told |
+| `Cache-Control: private` | personal to one user, so do not store it |
+| `Cache-Control: no-store` | never store |
+| `Vary: Accept-Encoding` | keep a separate copy for each value of this request header |
+
+The edge files each response under a **cache key**, by default the host and the full URL. Two requests with the same key get the same stored response.
+
+That makes the key a matter of correctness. If a response depends on something that is not in the key, such as a cookie or the user's language, one user's version will be served to another. Caching a page containing somebody's account details under a shared key is a well-known way to cause a data leak.
+
+| Content | Cacheable? |
+| --- | --- |
+| Images, video, fonts, stylesheets, scripts | yes, for a long time |
+| Public pages such as articles and product listings | yes, for a short time |
+| Responses from a public API that change slowly | yes, with care |
+| Anything specific to a logged-in user | not in a shared cache |
+
+## Keeping copies fresh
+
+The hard part of any cache is knowing when a copy is out of date.
+
+**Expiry.** Each cached response has a lifetime. A long one gives more hits and staler content, and a short one the reverse.
+
+**Revalidation.** When a copy expires, the edge need not download it again. It asks the origin whether its version is still current, and a `304 Not Modified` extends the copy's life at the cost of a tiny exchange.
+
+**Purging.** The site tells the CDN to drop specific URLs or groups of content immediately. Press "Purge the caches" in the widget and the next request in every city is a miss.
+
+**Versioned names.** The most reliable method avoids the question altogether. Give each file a name containing a fingerprint of its contents, such as `app.3f9a2c.js`, and cache it for a year. When the file changes, its name changes, and the page simply refers to a new URL. The old copy is never wrong, only unused.
+
+A useful variation is **stale-while-revalidate**: serve the expired copy at once, and refresh it in the background for the next visitor.
+
+## The hit ratio
+
+The figure that sums up a CDN's effect is the **cache hit ratio**, the share of requests answered without contacting the origin.
+
+At a ratio of 95 percent, the origin handles one request in twenty. That is why a small origin can serve an enormous audience, and why a sudden rush of visitors to one page, most of whom want identical content, is absorbed almost entirely at the edge.
+
+A low ratio usually has one of a few causes.
+
+- Lifetimes that are too short.
+- Cache keys that vary needlessly, for instance by including tracking parameters in the URL, so that identical content is stored under thousands of keys.
+- Cookies on requests for static files, which stop many caches storing the response.
+- Many edge locations each seeing little traffic, so each misses separately.
+
+For the last, CDNs add a second level. Edges that miss ask a larger regional cache before they ask the origin, so the origin is consulted once per region instead of once per city.
+
+## Faster even when nothing is cached
+
+Much of a CDN's benefit applies to content that cannot be stored at all.
+
+**Connection set-up near the user.** The TCP and TLS handshakes, which cost round trips, happen with a nearby edge.
+
+**Warm connections to the origin.** The edge reuses connections it already has, with their [congestion windows](/networking/tcp/#congestion-control) already opened.
+
+**Better routes.** A large CDN runs its own network between locations and can avoid congested parts of the public internet.
+
+**Newer protocols.** The edge can offer HTTP/3 and modern compression to users whatever the origin supports.
+
+## More than speed
+
+Because it stands between the internet and the origin, a CDN has become the place to do several other jobs.
+
+| Job | How |
+| --- | --- |
+| Absorbing attacks | a flood of traffic is spread over hundreds of locations with vast capacity, and never reaches the origin |
+| Filtering | a web application firewall blocks malicious requests at the edge |
+| Staying up | if the origin is briefly down, edges can keep serving stored copies |
+| TLS | certificates are issued and renewed by the CDN |
+| Image and video handling | resizing and re-encoding for the device that asked |
+| Running code | small programs executed at the edge to customise responses, known as edge computing |
+
+## The costs
+
+**Stale content.** Something will be served from a cache after it has changed. Good practice makes this rare and short.
+
+**Harder debugging.** A user's problem may come from one edge location holding one bad copy. Response headers that report hit or miss and the age of the copy are the main diagnostic tool.
+
+**A dependency.** The CDN sees all traffic, unencrypted, and an outage at a large provider takes down a visible portion of the web at once, as has happened several times.
+
+**Privacy and trust.** Terminating TLS at the edge means the provider can read everything that passes through.
+
+**Money.** Pricing is usually by volume of data, although it is often cheaper than serving the same traffic from the origin.
+
+## Who uses them
+
+Most of the internet's bytes are delivered by CDNs. Video streaming is the largest part, and the big streaming services place their own caches inside internet providers' networks, a few kilometres from the viewer. Software updates, game downloads, app stores and nearly every large web site work the same way.
+
+The idea is the one behind every cache in computing, from a [processor's](/architecture/cpu-caches/) to a browser's: keep a copy of what is likely to be needed, close to where it will be used.
+
+## Key takeaways
+
+- Latency is limited by distance, and each new connection multiplies it by several round trips. A CDN shortens the distance.
+- Edge servers near users cache responses from the origin. A hit is answered locally, and a miss is fetched once and stored.
+- Users are steered to a nearby edge by DNS or by anycast routing.
+- What may be cached, and for how long, is set by HTTP caching headers. The cache key must include everything the response depends on.
+- Freshness is managed with expiry, revalidation, purging and, most reliably, file names that change with the content.
+- A CDN also shields the origin from load and attacks, at the cost of occasional staleness and a significant dependency.
