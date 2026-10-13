@@ -174,6 +174,14 @@ The theory of computation pages use `<AutomatonDemo machine="even-zeros" input="
 takes a machine written out in full: `{ states: { s: [0, 0], f: [1, 0] }, start: 's',
 accept: ['f'], edges: [['s', 'f', 'a'], ['f', 'f', 'a,b']] }`.
 
+The programming languages pages share one small expression language in
+`src/lib/languages.ts`. `<CompilerDemo show="tokens" />` runs what the reader types
+through a stage of a compiler (also `tree`, `types`, `optimise`, `stack` and `all`;
+pass `source` and `tries` to change the examples), and `<VmDemo />` steps the
+resulting stack code. The other widgets are `<GcDemo />`, `<ClosureDemo />`,
+`<JitDemo />` and `<OwnershipDemo script="move" />` (also `shared`, `mutable` and
+`dangling`).
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
