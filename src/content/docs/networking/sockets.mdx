@@ -1,0 +1,197 @@
+---
+description: A socket is the handle a program uses to send and receive data over a network. The socket API, a small set of calls such as connect, listen, accept, send and recv, is how nearly all networked software reaches TCP and UDP.
+difficulty: intermediate
+---
+
+[TCP](/networking/tcp/) and [UDP](/networking/udp/) are implemented inside the operating system. A program that wants to use the network needs a way in.
+
+That way is the **socket**. A socket is one end of a network conversation, as seen by a program. The program asks the kernel to create one, and gets back a small integer, a [file descriptor](/operating-systems/file-systems/), which it then reads from and writes to much as it would a file. The interface was introduced in Berkeley Unix in 1983 and has been copied by every operating system since.
+
+## The calls
+
+A client needs three steps. A server needs a few more, because it has to wait for strangers.
+
+| Call | Used by | What it does |
+| --- | --- | --- |
+| `socket` | both | create a socket, of a chosen type |
+| `bind` | server | attach it to a local address and port |
+| `listen` | server | mark it as accepting incoming connections |
+| `accept` | server | wait for a connection and return a new socket for it |
+| `connect` | client | open a connection to a server |
+| `send`, `recv` | both | write and read bytes |
+| `close` | both | finish |
+
+Here they are in order, for one exchange over TCP.
+
+<SequenceDemo scenario="sockets" />
+
+Notice how little of the network the program sees. `connect` causes the whole three-way handshake, and the handshake is finished by the server's kernel before the server program has called `accept`. Each of these calls is a [system call](/operating-systems/system-calls/) that asks the kernel to do the real work.
+
+## Two kinds of socket on a server
+
+A server has one **listening socket**. It never carries data. Its only purpose is to receive new connections.
+
+Each call to `accept` returns a separate **connected socket**, dedicated to one client. A server with a thousand clients has one listening socket and a thousand connected ones, all on the same local port.
+
+They are told apart by the four values that identify a TCP connection: local address, local port, remote address and remote port. Every client differs in at least the last two, so the kernel can deliver each arriving segment to the right socket.
+
+## Ports
+
+A port is a 16-bit number, so there are 65,536 of them for each transport protocol.
+
+| Range | Use |
+| --- | --- |
+| 0 to 1023 | well-known services. Binding one normally needs administrator rights |
+| 1024 to 49151 | registered for particular applications |
+| 49152 to 65535 | ephemeral, handed out automatically to clients |
+
+| Port | Service |
+| --- | --- |
+| 22 | SSH |
+| 53 | [DNS](/networking/dns/) |
+| 80 | [HTTP](/networking/http/) |
+| 443 | HTTPS |
+| 5432 | PostgreSQL |
+
+A client does not call `bind`. When it connects, the kernel picks a free ephemeral port for it.
+
+Only one socket can listen on a given address and port at a time. Starting a second copy of a server fails with "address already in use".
+
+## A server and a client
+
+An echo server in Python. It accepts one client at a time and sends back whatever it receives.
+
+```python
+import socket
+
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)     # IPv4, TCP
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+server.bind(('0.0.0.0', 8080))
+server.listen()
+
+while True:
+    connection, address = server.accept()       # blocks until a client arrives
+    with connection:
+        while True:
+            data = connection.recv(4096)
+            if not data:                         # empty: the client closed
+                break
+            connection.sendall(data)
+```
+
+And a client.
+
+```python
+import socket
+
+with socket.create_connection(('127.0.0.1', 8080)) as client:
+    client.sendall(b'hello')
+    print(client.recv(4096))                    # b'hello'
+```
+
+Three details in the server come up in every real program.
+
+**`0.0.0.0`** means "every network interface on this machine". Binding to `127.0.0.1` instead would accept connections only from the machine itself.
+
+**`SO_REUSEADDR`** lets the server restart immediately. Without it, the port stays unavailable for a minute or so after the old process exits, while the kernel waits for stray packets from old connections to die out.
+
+**An empty read means the other side closed.** `recv` returning zero bytes is the end of the stream, exactly as with a file.
+
+## A stream has no messages
+
+This is the commonest mistake in network programming. A TCP socket carries a stream of bytes, and the boundaries between `send` calls are not preserved.
+
+If one side sends `hello` and then `world`, the other side's `recv` calls might return any of these.
+
+| First `recv` | Second `recv` | Third `recv` |
+| --- | --- | --- |
+| `hello` | `world` | |
+| `helloworld` | | |
+| `hel` | `lowor` | `ld` |
+
+Code that assumes one `recv` returns one message works on a quiet local network and breaks under load or over a slow link.
+
+An application that wants messages must mark them itself. This is called **framing**.
+
+| Technique | How it works | Used by |
+| --- | --- | --- |
+| Delimiter | a special byte sequence ends each message | text protocols, with a newline |
+| Length prefix | each message begins with its size | most binary protocols |
+| Fixed size | every message is the same length | rare |
+| Self-describing | the format says where it ends | HTTP, with a `Content-Length` header |
+
+With a length prefix, a receiver reads exactly four bytes, decodes the length and then reads exactly that many more. "Exactly" needs a loop, since `recv` may return fewer bytes than asked for.
+
+```python
+def receive_exactly(connection, count):
+    chunks = []
+    while count > 0:
+        chunk = connection.recv(count)
+        if not chunk:
+            raise ConnectionError('closed in the middle of a message')
+        chunks.append(chunk)
+        count -= len(chunk)
+    return b''.join(chunks)
+
+def receive_message(connection):
+    size = int.from_bytes(receive_exactly(connection, 4), 'big')
+    return receive_exactly(connection, size)
+```
+
+The `'big'` is byte order. Protocols traditionally send multi-byte numbers most significant byte first, which is called network byte order. See [endianness](/foundations/endianness/).
+
+`send` has the same subtlety in reverse. It copies bytes into a kernel buffer, and if the buffer is nearly full it may accept only part of what was offered. Python's `sendall` loops until everything is taken.
+
+## Buffers
+
+Every socket has a send buffer and a receive buffer inside the kernel.
+
+`send` returns as soon as the bytes are in the send buffer. It does not mean the other side has them. `recv` takes bytes from the receive buffer, where TCP has been placing them as they arrive.
+
+If the receiving program stops reading, its receive buffer fills, TCP's [flow control](/networking/tcp/#flow-control) tells the sender to stop, the sender's buffer fills, and the sender's `send` blocks. A slow reader slows the writer down automatically.
+
+## Many clients at once
+
+The echo server above ignores everyone else while it serves one client, because `accept` and `recv` **block**: the call does not return until something happens.
+
+| Approach | How it works | Cost |
+| --- | --- | --- |
+| A [thread](/operating-systems/threads/) or process per connection | each blocks independently | memory and scheduling overhead per client |
+| Non-blocking sockets and an [event loop](/concurrency/event-loops/) | one thread asks the kernel which sockets are ready | code is structured around callbacks or [async/await](/concurrency/async-await/) |
+| A pool of threads, each with an event loop | both combined | the most complex |
+
+The kernel interfaces that report many ready sockets at once, `epoll` on Linux and `kqueue` on BSD and macOS, are what let one machine hold hundreds of thousands of connections. This is covered under [blocking and non-blocking I/O](/operating-systems/blocking-and-non-blocking-io/).
+
+## Other kinds of socket
+
+The first two arguments to `socket` choose what kind it is.
+
+| Type | Gives |
+| --- | --- |
+| `AF_INET` with `SOCK_STREAM` | TCP over IPv4 |
+| `AF_INET6` with `SOCK_STREAM` | TCP over IPv6 |
+| `AF_INET` with `SOCK_DGRAM` | UDP: no `listen` or `accept`, and each receive returns one whole datagram |
+| `AF_UNIX` | a connection between two processes on one machine, with no network involved |
+
+Unix domain sockets use a file path as the address. They are faster than going through the network stack and are how many local services, such as databases and container runtimes, are reached.
+
+## Errors to expect
+
+| Error | Cause |
+| --- | --- |
+| Connection refused | the machine answered, but nothing is listening on that port |
+| Connection timed out | no answer at all: wrong address, a firewall, or the machine is down |
+| Connection reset | the other end closed abruptly, or crashed |
+| Broken pipe | writing to a connection the other end has closed |
+| Address already in use | another socket is bound to that port |
+
+A connection can also die silently. If the other machine loses power, no packet announces it, and a program that is only waiting to read will wait for ever. Protocols that keep connections open for a long time send periodic heartbeat messages and give up when they stop.
+
+## Key takeaways
+
+- A socket is a program's handle on a network connection, used through a small set of system calls.
+- A server binds, listens and accepts. A client connects. Both then send and receive.
+- A listening socket only produces new connections. Each accepted connection gets its own socket, identified by the addresses and ports at both ends.
+- A TCP socket is a byte stream with no message boundaries, so applications must frame their own messages.
+- Sends and receives go through kernel buffers and may transfer fewer bytes than requested.
+- Serving many clients needs threads, or non-blocking sockets driven by an event loop.
