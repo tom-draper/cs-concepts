@@ -1,0 +1,133 @@
+---
+description: Two-phase commit is a protocol that makes a transaction spanning several databases commit on all of them or on none. A coordinator first asks every participant to promise it can commit, and only then tells them all to go ahead.
+difficulty: advanced
+---
+
+A [transaction](/databases/acid/) on one database is atomic: it happens completely or not at all. The database's own log sees to it.
+
+Now suppose a transaction touches two databases. An order is recorded in one and a payment taken in another. Or a [partitioned](/distributed-systems/partitioning/) database has to change rows that live on two different machines.
+
+Telling each to commit in turn is not safe. The first might commit and the second fail, through a crash, a broken constraint or a lost message. One half of the transaction is then permanent and the other never happened, and a commit cannot be undone. **Two-phase commit**, or 2PC, is the classic protocol that prevents this.
+
+## The idea
+
+A wedding has the right shape. The officiant asks each person in turn "do you?", and declares them married only after both have said yes. If either says no, nothing has happened.
+
+2PC adds a **coordinator** to the databases, which are the **participants**, and splits committing into two steps.
+
+<SequenceDemo scenario="2pc-commit" />
+
+**Phase one: prepare.** The coordinator asks every participant, "can you commit?". A participant that answers yes must first do everything needed to guarantee it can: write the transaction's changes to its [log](/databases/write-ahead-logging/) on disk and keep holding its locks. It is now in doubt. It has not committed, and it can no longer back out.
+
+**Phase two: commit or abort.** If every participant said yes, the coordinator records the decision to commit and tells them all. If any said no, or did not answer in time, it tells them all to abort.
+
+<SequenceDemo scenario="2pc-abort" />
+
+A single no is enough to abort everything. The participant that had voted yes rolls its changes back.
+
+## Two points of no return
+
+The protocol works because of two promises.
+
+| Point | Who | The promise |
+| --- | --- | --- |
+| Voting yes | a participant | "I will commit if told to, whatever happens to me, including a crash" |
+| Logging the decision | the coordinator | "This outcome is final" |
+
+Before voting yes, a participant may abort on its own initiative. Afterwards it has given up that right, and must wait to be told.
+
+The transaction is decided at the moment the coordinator writes its decision to disk. Everything after that is delivering the news. If a participant crashes after voting yes, it finds the prepared transaction in its log when it restarts, asks the coordinator for the outcome, and completes it.
+
+## The flaw
+
+Follow what happens if the coordinator fails at the worst moment.
+
+<SequenceDemo scenario="2pc-stuck" />
+
+Both participants have voted yes. Neither has been told the outcome.
+
+They cannot abort, because the coordinator may have decided to commit and may already have told somebody else. They cannot commit, because it may have decided to abort. They cannot settle it between themselves, since neither knows what the coordinator decided.
+
+So they wait, holding their locks. Any other transaction that needs those rows waits too. One failed coordinator can stall parts of several databases until it is repaired and restarted.
+
+For that reason 2PC is called a **blocking** protocol. Its failure handling depends on one machine coming back.
+
+| Failure | Result |
+| --- | --- |
+| A participant fails before voting | the coordinator times out and aborts. Safe |
+| A participant fails after voting yes | it finishes the job on restart. Safe, with a delay |
+| The coordinator fails before deciding | participants that have not voted can abort. Those that voted yes are stuck |
+| The coordinator fails after deciding, before telling everyone | uninformed participants are stuck until it returns |
+| The coordinator's disk is lost | prepared transactions may need resolving by hand |
+
+## The cost
+
+<Ops items={[
+  ['Messages', '4 for each participant', 'prepare, vote, decision, acknowledgement'],
+  ['Forced disk writes', '2 for each participant, 1 for the coordinator', 'each waits for the disk'],
+  ['Round trips', '2', 'before the client hears the outcome'],
+]} />
+
+Locks are held throughout both phases, including all the network delay between them. A transaction that would hold a lock for a millisecond on one database may hold it for tens of milliseconds across several, which cuts the number of transactions that can run at once.
+
+Availability gets worse, too. The transaction needs every participant and the coordinator to be up. The more systems take part, the more likely it is that one of them is not.
+
+## Fixing the coordinator
+
+The weakness is that the decision lives on one machine. The modern answer is to stop having a single coordinator, and to make the decision with [consensus](/distributed-systems/consensus/) instead.
+
+If the coordinator's state is kept by a [Raft](/distributed-systems/raft/) group, its failure triggers an election, the new leader reads the decision from the replicated log and carries on. Nothing blocks for long. If each participant is also a replicated group, a participant never really disappears either.
+
+That is the design of Spanner, CockroachDB, TiDB and similar distributed databases: two-phase commit to coordinate across partitions, with every party made fault-tolerant by consensus.
+
+An older refinement, three-phase commit, adds a step so that participants can decide for themselves when the coordinator is lost. It relies on bounded message delays and can go wrong under a network partition, so it is rarely used.
+
+## Consensus and atomic commit
+
+The two problems sound alike and differ in an important way.
+
+| | Atomic commit (2PC) | Consensus |
+| --- | --- | --- |
+| Deciding takes | every participant voting yes | a majority |
+| One node failing | blocks or aborts the transaction | is tolerated |
+| The question | can **everyone** do this? | which **one value** do we choose? |
+
+Atomic commit needs unanimity because each participant has its own reason it might be unable to commit, such as a constraint or a conflict that only it knows of. No majority can overrule that. Consensus is used underneath to make the unanimous decision durable.
+
+## Where it appears
+
+**Inside distributed databases.** A transaction that spans partitions is committed with 2PC, usually invisibly.
+
+**Between different systems.** The **XA** standard defines 2PC across databases and message queues from different vendors. A transaction manager acts as coordinator. It lets, for instance, a message be consumed from a queue and a row written to a database as one atomic act.
+
+XA transactions are slow, and the coordinator is often a library inside an application server. If that server dies with transactions in doubt, the databases hold locks until someone steps in. Many teams avoid it.
+
+## Avoiding it
+
+Because 2PC is costly and fragile across independent systems, a great deal of system design aims to do without it.
+
+**Keep related data together.** Choose a partition key so that things changed together share a partition, and the transaction needs no coordination.
+
+**Sagas.** Break the work into a chain of local transactions, each with a **compensating action** that undoes it. If a step fails, the compensations for the earlier steps are run. Book the flight, book the hotel, and if the hotel fails, cancel the flight. There is no global lock and no blocking. There is also no isolation: other parties can see the half-finished state, and a compensation may itself fail.
+
+**The outbox pattern.** To change a database and send a message reliably, write the message into a table in the **same** local transaction as the change. A separate process reads that table and sends the messages, retrying until each is delivered.
+
+**Idempotent operations.** Design each step so that repeating it is harmless, usually by attaching a unique key to each request. Then the remedy for any doubt is to try again.
+
+| | Two-phase commit | Saga |
+| --- | --- | --- |
+| Atomic | yes | eventually, through compensation |
+| Isolated | yes, with locks held | no, intermediate states are visible |
+| Blocks on failure | yes | no |
+| Suits | short transactions inside one database system | long processes across separate services |
+
+The saga approach accepts [eventual consistency](/distributed-systems/consistency-models/#eventual-consistency) in exchange for availability, which is the usual bargain between services owned by different teams.
+
+## Key takeaways
+
+- Two-phase commit makes a transaction across several databases atomic: all commit, or all abort.
+- In the first phase each participant durably prepares and votes. In the second the coordinator announces the outcome.
+- A participant that has voted yes has given up the right to abort and must wait for the decision.
+- If the coordinator fails after the votes, participants are stuck holding locks until it returns. The protocol blocks.
+- Distributed databases remove that weakness by replicating the coordinator and the participants with consensus.
+- Across independent services, sagas, outboxes and idempotent retries are generally preferred to distributed transactions.
