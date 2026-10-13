@@ -1,0 +1,157 @@
+---
+description: Parsing turns a flat sequence of tokens into a tree that shows how the program is structured. It is where precedence, grouping and nesting are worked out, and where syntax errors are found.
+difficulty: intermediate
+---
+
+After [lexing](/languages/lexing/), a program is a list of tokens: `1`, `+`, `2`, `*`, `3`. The list says nothing about which operation happens first. Is this 9 or 7?
+
+**Parsing** answers that. It checks that the tokens are arranged according to the rules of the language, and builds a tree that records the structure it found. Everything later in a compiler works from the tree.
+
+## From tokens to a tree
+
+Type an expression and see how it is grouped.
+
+<CompilerDemo show="tree" />
+
+The tree settles every question about order. An operator's children are the things it applies to, so lower nodes are computed first. In `1 + 2 * 3` the `*` sits below the `+`, so the multiplication is done first and its result becomes one side of the addition.
+
+Brackets do not appear in the tree. They are instructions to the parser about shape, and once the shape is built they have done their job. Compare `1 + 2 * 3` with `(1 + 2) * 3`: same tokens apart from the brackets, different trees.
+
+## The grammar
+
+The rules a parser follows are written as a [context-free grammar](/theory/context-free-grammars/). Here is one for arithmetic.
+
+```
+expr    → term   ( ( "+" | "-" ) term )*
+term    → factor ( ( "*" | "/" ) factor )*
+factor  → NUMBER | NAME | "(" expr ")"
+```
+
+Read `( ... )*` as "repeated zero or more times". An expression is one or more terms joined by `+` or `-`. A term is one or more factors joined by `*` or `/`. A factor is a number, a name or a whole expression in brackets.
+
+Two properties of the language are encoded in the layout of these rules.
+
+**Precedence** comes from layering. Because a `term` is built entirely before an `expr` can use it, `*` and `/` bind tighter than `+` and `-`. Adding another level of precedence means adding another rule to the ladder.
+
+**Associativity** is how a chain of the same operator groups. Try `8 - 3 - 2`. It should mean `(8 - 3) - 2`, which is 3, and not `8 - (3 - 2)`, which is 7. The tree leans to the left, because the rule collects terms from left to right.
+
+| Operator | Associates | So `a ∘ b ∘ c` means |
+| --- | --- | --- |
+| `-`, `/` | left | `(a ∘ b) ∘ c` |
+| `**` exponent, in most languages | right | `a ∘ (b ∘ c)` |
+| `=` assignment | right | `a = (b = c)` |
+| `<` comparison, in some languages | not at all | an error |
+
+## Recursive descent
+
+The most direct way to write a parser is to turn each grammar rule into a function. The function for a rule consumes the tokens that rule describes and returns the tree for them. Where the rule mentions another rule, the function calls that rule's function.
+
+```python
+def parse(tokens):
+    position = 0
+
+    def peek():
+        return tokens[position] if position < len(tokens) else None
+
+    def advance():
+        nonlocal position
+        position += 1
+        return tokens[position - 1]
+
+    def expr():                                  # term (("+" | "-") term)*
+        left = term()
+        while peek() in ('+', '-'):
+            operator = advance()
+            left = (operator, left, term())      # the tree grows to the left
+        return left
+
+    def term():                                  # factor (("*" | "/") factor)*
+        left = factor()
+        while peek() in ('*', '/'):
+            operator = advance()
+            left = (operator, left, factor())
+        return left
+
+    def factor():                                # NUMBER | "(" expr ")"
+        token = advance()
+        if token == '(':
+            inside = expr()
+            if advance() != ')':
+                raise SyntaxError('expected )')
+            return inside
+        return int(token)
+
+    tree = expr()
+    if peek() is not None:
+        raise SyntaxError(f'unexpected {peek()}')
+    return tree
+
+parse(['1', '+', '2', '*', '3'])       # ('+', 1, ('*', 2, 3))
+parse(['8', '-', '3', '-', '2'])       # ('-', ('-', 8, 3), 2)
+```
+
+This is **recursive descent**. It is "descent" because it starts from the top rule and works down, and "recursive" because `factor` calls `expr`, which is how brackets nest to any depth. The program's own [call stack](/foundations/stack-and-heap/) is doing the job of the stack in a [pushdown automaton](/theory/pushdown-automata/).
+
+The parser decides what to do by looking at the next token, without consuming it. That is the `peek`. A grammar that can always be parsed by peeking at one token is called **LL(1)**, and language designers go out of their way to keep their grammars close to that.
+
+## Two families of parser
+
+| | Top-down (LL) | Bottom-up (LR) |
+| --- | --- | --- |
+| Builds the tree | from the root towards the leaves | from the leaves towards the root |
+| Decides which rule applies | at the start of the phrase | at the end, once it has seen all of it |
+| Usual form | hand-written recursive descent | tables produced by a generator |
+| Handles left-recursive rules | no | yes |
+| Error messages | easy to make good | harder |
+| Examples | GCC, Clang, Go, Rust, V8 | parsers generated by Yacc and Bison |
+
+A bottom-up parser shifts tokens onto a stack until the top of the stack matches the right side of some rule, and then replaces those items with the rule's left side. It can handle a larger class of grammars, since it commits later.
+
+A third technique, **precedence climbing** or Pratt parsing, handles expressions with a table of operator precedences instead of one function per level. It is a common choice for the expression part of a hand-written parser, and it makes adding an operator a one-line change.
+
+Most widely used compilers today have hand-written recursive descent parsers. Generators are convenient, but hand-written code gives better error messages, and that turns out to matter more.
+
+## Errors
+
+A syntax error is a point where the next token cannot continue any rule. Try `(1 + 2` in the widget.
+
+The parser knows exactly what it was in the middle of, which is what makes a useful message possible: "expected `)` to close the bracket opened at column 1".
+
+Finding the first error is easy. The harder problem is carrying on. A compiler that stopped at the first mistake would be tiresome to use, so parsers attempt **error recovery**: they skip ahead to a safe landmark such as the next semicolon or closing brace, and resume. Done badly, this is the cause of one real mistake being followed by a page of meaningless ones.
+
+Editors make the demand stronger. A program being typed is syntactically wrong most of the time, and the editor still needs a tree for highlighting and completion. Parsers built for editors are designed to produce a usable tree from broken input, and to re-parse only the part that changed.
+
+## Costs
+
+<Ops items={[
+  ['Parse with an LL or LR parser', 'O(n)', 'one pass over the tokens'],
+  ['Parse any context-free grammar', 'O(n³)', 'general algorithms'],
+  ['Memory for the stack', 'O(depth)', 'depth of nesting'],
+]} />
+
+Programming languages are designed so that the linear-time methods apply. The stack depth is why very deeply nested input, such as ten thousand opening brackets, can crash a recursive descent parser. Robust parsers set a nesting limit.
+
+## What parsing cannot check
+
+A parser checks form. The following are all grammatical and all wrong.
+
+```
+x = y + 1          y was never declared
+"hello" * true     the types make no sense
+return 5           but this is not inside a function
+```
+
+These depend on context: on what has been declared, and where. They are checked in later passes over the tree, using a symbol table and a [type checker](/languages/type-systems/).
+
+## Parsing is everywhere
+
+Compilers are one user. The same techniques read JSON, XML, HTML and YAML, parse SQL queries in a database, interpret URLs and email addresses, decode network protocol messages, and understand command lines. Any program that accepts structured text contains a parser, and many security bugs come from parsers that were written carelessly or that disagree with each other about the same input.
+
+## Key takeaways
+
+- Parsing turns a sequence of tokens into a tree showing the program's structure, and rejects sequences that break the grammar.
+- Precedence is encoded by layering grammar rules, and associativity by the direction in which a rule repeats.
+- Recursive descent uses one function per rule and is the most common technique in production compilers.
+- Top-down parsers pick a rule before reading the phrase. Bottom-up parsers pick it afterwards and accept more grammars.
+- Good error messages and recovery from errors take more engineering effort than the parsing itself.
+- A parser checks only form. Meaning is checked by later stages.
