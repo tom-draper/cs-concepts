@@ -1,0 +1,152 @@
+---
+description: A cryptographic hash function turns any input into a short fixed-size digest that cannot be reversed and cannot be made to collide on purpose. It is the building block under signatures, password storage, content addressing and message authentication.
+difficulty: intermediate
+---
+
+You download a 4 GB disk image from a mirror you have never heard of. The project's own website lists a line of 64 hexadecimal characters next to the download. If the same 64 characters come out when you hash your copy, you have the right file, every bit of it.
+
+That only works if nobody can build a different file with the same 64 characters. An ordinary [hash function](/data-structures/hash-functions/) makes no such promise. A **cryptographic hash function** does: its output, called a **digest**, behaves like a fingerprint of the input that cannot be forged.
+
+## Try it
+
+The widget computes SHA-256, the most widely used hash function, on two inputs. They differ by one letter.
+
+<HashDemo />
+
+Changing `o` to `a` flips one bit pattern in the input and 114 of the 256 bits in the digest, close to half. This is the **avalanche effect**. Nothing about the first digest helps you predict the second, and that is the property everything else rests on. If similar inputs gave similar digests, an attacker could creep towards a target digest one small edit at a time.
+
+The digest is also always the same size. One character or one terabyte, SHA-256 returns 32 bytes.
+
+## Three promises
+
+A hash function is cryptographic if three tasks are infeasible, meaning no method is known that beats blind guessing by enough to matter.
+
+| Property | The attacker is given | And cannot find |
+| --- | --- | --- |
+| Preimage resistance | a digest | any input that produces it |
+| Second preimage resistance | an input | a different input with the same digest |
+| Collision resistance | nothing | any two inputs with the same digest |
+
+Collisions must exist. There are more possible inputs than digests, so by the pigeonhole principle some inputs share one. The promise is that nobody can find such a pair.
+
+Collision resistance is the hardest of the three to provide, because the attacker chooses both inputs. With a digest of n bits, a preimage takes about 2ⁿ guesses. A collision takes only about 2ⁿ⸍², by the [birthday paradox](/foundations/probability/): among enough random digests, some pair matches long before any particular digest is hit.
+
+| Digest size | Guesses for a preimage | Guesses for a collision |
+| --- | --- | --- |
+| 64 bits | 2⁶⁴ | 2³², a few seconds |
+| 128 bits | 2¹²⁸ | 2⁶⁴, within reach of a large budget |
+| 256 bits | 2²⁵⁶ | 2¹²⁸, out of reach |
+
+This is why digests are twice as long as the security level they give. SHA-256 offers 128 bits of collision resistance.
+
+## How SHA-256 works
+
+The input is padded to a multiple of 64 bytes, with its length written into the padding. Then it is processed one 64-byte block at a time.
+
+The function keeps a 256-bit state, which starts at a fixed constant. A **compression function** mixes one block into the state, and the result becomes the state for the next block. The state after the last block is the digest.
+
+```
+state = fixed starting value
+for each 64-byte block of the padded input:
+    state = compress(state, block)
+digest = state
+```
+
+Inside `compress` are 64 rounds. Each round rotates, shifts, XORs and adds 32-bit words, using the [bitwise operations](/foundations/bitwise-operations/) every processor has. No single round is hard to undo. Sixty-four of them, each feeding the next, spread every input bit across the whole state.
+
+This chain-of-blocks design is called the **Merkle-Damgård construction**. SHA-3 and BLAKE3 use different designs, described below.
+
+## Broken and unbroken
+
+A hash function is broken when someone finds a shortcut for one of the three promises. It does not need to be practical at first. Attacks only get better.
+
+| Function | Digest | Status |
+| --- | --- | --- |
+| MD5 | 128 bits | Collisions in seconds on a laptop. Do not use. |
+| SHA-1 | 160 bits | Collision published in 2017, at a cost of about 2⁶³ operations. Do not use. |
+| SHA-256, SHA-512 | 256, 512 bits | No known weakness. The default choice. |
+| SHA-3 | 224 to 512 bits | No known weakness. A different design, kept as an alternative. |
+| BLAKE2, BLAKE3 | 256 bits and up | No known weakness. Faster than SHA-256 in software. |
+
+MD5 collisions were used in 2008 to forge a certificate authority, and in 2012 by the Flame malware to forge a Microsoft code signature. In both cases the attackers got a harmless document signed and then swapped in a harmful one with the same digest.
+
+<Aside title="Preimages have lasted longer">
+
+Nobody can yet find an input for a given MD5 digest. The collision attacks let an attacker build two colliding files together. They do not help with a file that already exists. That is no reason to keep using MD5, but it explains why old checksums have not all turned into disasters.
+
+</Aside>
+
+## Hashing with a key
+
+A digest proves that a file matches a digest. It does not prove where either came from. An attacker who can change the file can usually change the digest next to it.
+
+A **message authentication code**, or MAC, fixes that by mixing in a secret key. Only someone with the key can compute the tag, and only someone with the key can check it.
+
+The obvious construction, `hash(key + message)`, is unsafe with SHA-256. The digest is the internal state after the last block, so anyone who knows the digest can carry on from there and compute a valid tag for the message with extra data appended. They never need the key. This is a **length extension attack**.
+
+**HMAC** avoids it by hashing twice.
+
+```
+HMAC(key, message) = hash(key₂ + hash(key₁ + message))
+```
+
+`key₁` and `key₂` are the key XORed with two different constants. The outer hash hides the inner state. HMAC signs session cookies and API requests, and it is the basis of the tokens on the [authentication](/security/authentication/) page.
+
+## Costs
+
+<Ops items={[
+  ['Hash n bytes', 'O(n)', 'one pass, constant memory'],
+  ['Find a preimage', '2²⁵⁶', 'for SHA-256'],
+  ['Find a collision', '2¹²⁸', 'for SHA-256'],
+  ['Speed', '~1 GB/s', 'per core, with hardware support'],
+]} />
+
+Fast is the goal for almost every use. The exception is [passwords](/security/password-hashing/), where the inputs are guessable and speed helps the attacker.
+
+## Implementation
+
+Never write your own for real use. Every language ships a tested one.
+
+```python
+import hashlib, hmac
+
+hashlib.sha256(b'hello').hexdigest()
+# '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
+
+# A large file, without loading it into memory.
+def file_digest(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as file:
+        while chunk := file.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+# A keyed tag, and the safe way to check one.
+tag = hmac.new(b'secret key', b'amount=10', hashlib.sha256).digest()
+hmac.compare_digest(tag, tag)      # True, in time that does not depend on the data
+```
+
+`compare_digest` matters. An ordinary `==` stops at the first byte that differs, and the time it takes tells an attacker how many leading bytes of a forged tag were right.
+
+## Where they are used
+
+**Integrity.** Package managers, container images and firmware updates all record a digest and check it after download.
+
+**Content addressing.** Git names every file, directory and commit by its hash. Two identical files are stored once, and any change to history changes every later commit's name. [Merkle trees](/data-structures/merkle-trees/) extend the idea so that one digest covers a whole collection.
+
+**Signatures.** A [digital signature](/security/digital-signatures/) signs the digest of a message, never the message.
+
+**Commitments.** Publish the digest of a prediction now and reveal the text later. The digest proves you did not change your mind.
+
+**Proof of work.** Bitcoin miners search for an input whose SHA-256 digest starts with many zero bits. No shortcut is known, so the only method is to try inputs, and the number of zeros sets how many tries it takes.
+
+**Deriving keys.** A key exchange produces a shared number, and a hash-based function turns it into keys of the right size.
+
+## Key takeaways
+
+- A cryptographic hash function maps any input to a fixed-size digest, and a one-bit change to the input changes about half the digest.
+- It is infeasible to reverse a digest, to match a given input's digest, or to find any two inputs that collide.
+- Collisions take the square root of the effort of preimages, so a 256-bit digest gives 128 bits of security.
+- MD5 and SHA-1 are broken for collisions. Use SHA-256, SHA-3 or BLAKE2.
+- A plain digest proves nothing about who produced it. Use HMAC when that matters.
+- Fast hashes are the wrong tool for storing passwords.
