@@ -1,0 +1,63 @@
+---
+// SHA-256 of two inputs side by side, with the bits that differ marked, to
+// show that a tiny change in the input scrambles the whole digest.
+import { bits, hex, sha256 } from '../lib/security';
+
+interface Props {
+  first?: string;
+  second?: string;
+}
+
+const { first = 'The quick brown fox', second = 'The quick brown fax' } = Astro.props;
+const a = sha256(first);
+const b = sha256(second);
+const bitsB = bits(b);
+const differ = bits(a).map((bit, i) => bit !== bitsB[i]);
+---
+
+<hash-demo class="playground hash-demo">
+  <label>First <input data-in="a" value={first} maxlength="60" spellcheck="false" autocomplete="off" /></label>
+  <p class="digest" data-out="a">{hex(a)}</p>
+  <label>Second <input data-in="b" value={second} maxlength="60" spellcheck="false" autocomplete="off" /></label>
+  <p class="digest" data-out="b">{hex(b)}</p>
+  <p class="bit-grid" data-out="grid" aria-label="The 256 bits of the digest, with differing bits marked">
+    {differ.map((changed) => <i data-changed={changed ? '' : undefined}></i>)}
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Bits that differ</dt><dd data-out="count">{differ.filter(Boolean).length} of 256</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Each square is one bit of the digest, orange where the two digests disagree. Change a single character.</p>
+</hash-demo>
+
+<script>
+  import { bits, hex, sha256 } from '../lib/security';
+
+  class HashDemo extends HTMLElement {
+    connectedCallback() {
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const field = (name: string) => this.querySelector<HTMLInputElement>(`[data-in="${name}"]`)!;
+      const render = () => {
+        const a = sha256(field('a').value);
+        const b = sha256(field('b').value);
+        const bitsA = bits(a);
+        const bitsB = bits(b);
+        let count = 0;
+        [...out('grid').children].forEach((cell, i) => {
+          const changed = bitsA[i] !== bitsB[i];
+          cell.toggleAttribute('data-changed', changed);
+          count += Number(changed);
+        });
+        out('a').textContent = hex(a);
+        out('b').textContent = hex(b);
+        out('count').textContent = `${count} of 256`;
+        out('status').textContent =
+          count === 0
+            ? 'Identical inputs always give identical digests. A hash function has no randomness in it.'
+            : `About half the bits changed, which is what two unrelated random values would show. Nothing about the digests reveals how similar the inputs were.`;
+      };
+      this.addEventListener('input', render);
+    }
+  }
+
+  customElements.define('hash-demo', HashDemo);
+</script>

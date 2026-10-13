@@ -1,0 +1,71 @@
+---
+// A message encrypted block by block in two modes, to show that encrypting
+// each block separately leaks which blocks are equal.
+import { encryptBlocks } from '../lib/security';
+
+const message = 'YES YES YES NO  YES NO  ';
+const first = encryptBlocks(message, 'secret', 'ECB', 0x1234abcd);
+---
+
+<block-mode class="playground block-mode">
+  <label>Message <input value={message} maxlength="40" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries" role="group" aria-label="Mode">
+    Mode:
+    <button type="button" data-mode="ECB" aria-pressed="true">ECB, each block alone</button>
+    <button type="button" data-mode="CBC" aria-pressed="false">CBC, blocks chained</button>
+    <button type="button" data-act="iv">New random IV</button>
+  </p>
+  <h4>Plaintext, four characters to a block</h4>
+  <p class="slots blocks" data-out="plain">{first.plain.map((block) => <i>{block}</i>)}</p>
+  <h4>Ciphertext</h4>
+  <p class="slots blocks" data-out="cipher">{first.cipher.map((block) => <i>{block}</i>)}</p>
+  <p class="hint" data-out="status" aria-live="polite">Ciphertext blocks that are equal to an earlier one are marked in orange.</p>
+</block-mode>
+
+<script>
+  import { encryptBlocks, type BlockMode } from '../lib/security';
+
+  class BlockModeDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      let mode: BlockMode = 'ECB';
+      let iv = 0x1234abcd;
+      const fill = (name: string, blocks: string[], repeated: boolean[]) =>
+        out(name).replaceChildren(
+          ...blocks.map((block, i) => {
+            const cell = document.createElement('i');
+            cell.textContent = block;
+            if (repeated[i]) cell.className = 'blocked';
+            return cell;
+          }),
+        );
+      const render = () => {
+        const { plain, cipher } = encryptBlocks(field.value, 'secret', mode, iv);
+        const repeated = cipher.map((block, i) => cipher.indexOf(block) < i || cipher.lastIndexOf(block) > i);
+        fill('plain', plain, plain.map(() => false));
+        fill('cipher', cipher, repeated);
+        const count = repeated.filter(Boolean).length;
+        out('status').textContent =
+          mode === 'ECB'
+            ? count
+              ? `${count} ciphertext blocks are repeats, in orange. Without the key, an eavesdropper can see exactly which blocks of the message are the same, and here that gives the whole message away.`
+              : 'No two plaintext blocks are equal here, so nothing shows. Repeat a block to see the leak.'
+            : 'Each block was mixed with the previous ciphertext block before being encrypted, so equal plaintext blocks give unrelated ciphertext. A new IV changes every block.';
+        for (const button of this.querySelectorAll<HTMLElement>('[data-mode]')) button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+        this.querySelector<HTMLButtonElement>('[data-act="iv"]')!.disabled = mode === 'ECB';
+      };
+      field.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.mode) mode = data.mode as BlockMode;
+        else iv = crypto.getRandomValues(new Uint32Array(1))[0];
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('block-mode', BlockModeDemo);
+</script>

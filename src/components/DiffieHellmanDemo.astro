@@ -1,0 +1,83 @@
+---
+// Diffie-Hellman key exchange with small numbers: two secrets, two public
+// values, one shared key, and what an eavesdropper is left with.
+import { dhGroups } from '../lib/security';
+---
+
+<diffie-hellman class="playground diffie-hellman">
+  <p class="tries" role="group" aria-label="Public parameters">
+    Public prime p and base g:
+    {dhGroups.map(([p, g], i) => <button type="button" data-group={`${p},${g}`} aria-pressed={i === 0 ? 'true' : 'false'}>p = {p}, g = {g}</button>)}
+  </p>
+  <div class="columns cap-nodes">
+    <div class="env">
+      <h4>Alice</h4>
+      <label>Secret a <input data-in="a" type="number" value="6" min="1" /></label>
+      <dl class="readouts stacked">
+        <div><dt>Sends A</dt><dd data-out="A">-</dd></div>
+        <div><dt>Computes</dt><dd data-out="sa">-</dd></div>
+      </dl>
+    </div>
+    <div class="env">
+      <h4>Bob</h4>
+      <label>Secret b <input data-in="b" type="number" value="15" min="1" /></label>
+      <dl class="readouts stacked">
+        <div><dt>Sends B</dt><dd data-out="B">-</dd></div>
+        <div><dt>Computes</dt><dd data-out="sb">-</dd></div>
+      </dl>
+    </div>
+  </div>
+  <dl class="readouts stacked" aria-live="polite">
+    <div><dt>An eavesdropper sees</dt><dd data-out="seen">-</dd></div>
+  </dl>
+  <p class="tries"><button type="button" data-act="attack">Attack: search for Alice's secret</button></p>
+  <p class="hint" data-out="status" aria-live="polite">Change either secret. Both sides always arrive at the same key.</p>
+</diffie-hellman>
+
+<script>
+  import { discreteLog, modPow } from '../lib/security';
+
+  class DiffieHellman extends HTMLElement {
+    connectedCallback() {
+      let p = 23;
+      let g = 5;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const secret = (name: string) => {
+        const value = Number(this.querySelector<HTMLInputElement>(`[data-in="${name}"]`)!.value);
+        return BigInt(Math.max(1, Math.min(p - 2, Number.isFinite(value) ? Math.floor(value) : 1)));
+      };
+      const render = (attack?: string) => {
+        const a = secret('a');
+        const b = secret('b');
+        const A = modPow(BigInt(g), a, BigInt(p));
+        const B = modPow(BigInt(g), b, BigInt(p));
+        const shared = modPow(B, a, BigInt(p));
+        out('A').textContent = `${g}^${a} mod ${p} = ${A}`;
+        out('B').textContent = `${g}^${b} mod ${p} = ${B}`;
+        out('sa').textContent = `B^a = ${B}^${a} mod ${p} = ${shared}`;
+        out('sb').textContent = `A^b = ${A}^${b} mod ${p} = ${modPow(A, b, BigInt(p))}`;
+        out('seen').textContent = `p = ${p}, g = ${g}, A = ${A}, B = ${B}`;
+        out('status').textContent =
+          attack ??
+          `Both computed ${shared}, which is g to the power a × b, though neither sent it and neither knows the other's secret. Secrets are limited to 1 to ${p - 2} here.`;
+        for (const button of this.querySelectorAll<HTMLElement>('[data-group]')) button.setAttribute('aria-pressed', String(button.dataset.group === `${p},${g}`));
+      };
+      this.addEventListener('input', () => render());
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!data) return;
+        if (data.group) {
+          [p, g] = data.group.split(',').map(Number);
+          render();
+        } else {
+          const A = modPow(BigInt(g), secret('a'), BigInt(p));
+          const { x, tries } = discreteLog(g, A, p);
+          render(`Trying every exponent in turn found a = ${x} after ${tries.toLocaleString('en')} attempts, since ${g}^${x} mod ${p} = ${A}. With p this small the search is instant. A real p has over 600 digits, and no known method finishes in the lifetime of the universe.`);
+        }
+      });
+      render();
+    }
+  }
+
+  customElements.define('diffie-hellman', DiffieHellman);
+</script>
