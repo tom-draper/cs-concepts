@@ -1,0 +1,155 @@
+---
+description: Logical clocks order events in a distributed system without relying on the time of day. They count events instead of seconds, so that if one event could have caused another, the clocks agree it came first.
+difficulty: advanced
+---
+
+On one machine, putting events in order is easy: read the clock. Across several machines it does not work, because their clocks disagree.
+
+A computer's clock is a quartz crystal that drifts, typically by around a second a day. Machines correct themselves over the network using a time protocol, and are still commonly tens of milliseconds apart, sometimes far more. A correction can even move a clock backwards.
+
+So if machine A stamps an event 10:00:00.050 and machine B stamps another 10:00:00.020, that does not show B's happened first. In a system doing thousands of operations a second, a few milliseconds of error reorders them freely. A database that resolves conflicts by keeping "the latest write" by timestamp will silently discard newer data whenever a clock runs fast.
+
+In 1978 Leslie Lamport pointed out that for most purposes the time of day is not what is wanted. What matters is **order**, and in particular which events could have affected which.
+
+## Happened before
+
+Lamport defined a relation between events called **happened before**, written →. It holds in three cases.
+
+1. If two events are on the same process, the earlier one happened before the later.
+2. Sending a message happened before receiving it.
+3. If a → b and b → c, then a → c.
+
+If neither a → b nor b → a, the events are **concurrent**. Nothing connects them. No information could have travelled from one to the other, so neither could have influenced the other, and asking which was "really" first has no meaningful answer.
+
+This is a [partial order](/foundations/sets-and-relations/): some pairs of events are ordered and some are not.
+
+## Lamport clocks
+
+A **Lamport clock** is a counter kept by each process, following two rules.
+
+- Before each event, add one to the counter.
+- Attach the counter to every message sent. On receiving a message, set the counter to the larger of its own value and the one received, then add one.
+
+Add events and messages, and watch the numbers.
+
+<ClockDemo />
+
+The second rule is what does the work. A receiver's clock jumps ahead of the sender's, so a receive is always numbered after its send.
+
+The guarantee is this.
+
+> If a → b, then the clock of a is less than the clock of b.
+
+Causes always get smaller numbers than their effects. Lamport clocks can be made into a total order of all events, by breaking ties with a process identifier. That gives every node the same agreed sequence, which is enough to build things like distributed locks.
+
+```python
+class LamportClock:
+    def __init__(self):
+        self.time = 0
+
+    def tick(self):                    # a local event, or sending
+        self.time += 1
+        return self.time
+
+    def receive(self, message_time):
+        self.time = max(self.time, message_time) + 1
+        return self.time
+```
+
+## What Lamport clocks cannot tell you
+
+The guarantee runs in one direction only. A smaller number does **not** mean an event happened before.
+
+In the widget, click an event on P3 that has not received any message, and then an event on P1 with a higher number. They are concurrent, and their Lamport clocks still put one ahead of the other. The numbers invent an order for events that have none.
+
+That matters whenever a system needs to tell "this update came after that one, so it replaces it" from "these two updates were made independently and conflict". A Lamport clock gives the same kind of answer in both cases.
+
+## Vector clocks
+
+A **vector clock** keeps more. Each process holds a list of counters, one for every process in the system. Entry i is how many events of process i this process knows about.
+
+- Before each event, a process adds one to its own entry.
+- Messages carry the whole vector. On receiving one, take the larger value in each position, then add one to your own entry.
+
+Switch the widget to vector clocks and click pairs of events.
+
+Two vectors are compared position by position.
+
+| Comparison | Meaning |
+| --- | --- |
+| Every entry of a is ≤ the matching entry of b, and at least one is smaller | a happened before b |
+| The reverse | b happened before a |
+| a is larger in some position and b in another | concurrent |
+
+Now the guarantee runs both ways: a → b **exactly when** a's vector is less than b's. Vector clocks capture the happened-before relation completely.
+
+```python
+def merge(mine, theirs, me):
+    merged = [max(a, b) for a, b in zip(mine, theirs)]
+    merged[me] += 1
+    return merged
+
+def compare(a, b):
+    a_behind = any(x < y for x, y in zip(a, b))
+    b_behind = any(x > y for x, y in zip(a, b))
+    if a_behind and b_behind:
+        return 'concurrent'
+    return 'before' if a_behind else 'after' if b_behind else 'equal'
+```
+
+| | Lamport clock | Vector clock |
+| --- | --- | --- |
+| Size | one number | one number for each process |
+| If a → b | clock(a) < clock(b) | vector(a) < vector(b) |
+| If clock(a) < clock(b) | nothing can be concluded | a → b |
+| Detects concurrency | no | yes |
+
+The cost is size. A vector grows with the number of processes, which is awkward when there are thousands, or when clients come and go. Practical systems keep one entry for each replica instead of each client, which is the idea behind **version vectors**, and prune entries that have not changed for a long time.
+
+## Detecting conflicts
+
+The main use of vector clocks is in databases that accept writes at more than one replica.
+
+Suppose two replicas hold versions of a shopping basket.
+
+| Replica A's version | Replica B's version | Verdict |
+| --- | --- | --- |
+| `[2, 1]` | `[2, 3]` | B's is newer and descends from A's. Keep B's |
+| `[3, 1]` | `[2, 3]` | concurrent. Neither saw the other's change. A conflict |
+
+In the first case one version is simply out of date and can be dropped safely. In the second, both contain changes the other lacks, and dropping either loses data. The system must keep both and merge them, either by asking the application or by using a data type that merges automatically, a [CRDT](/distributed-systems/crdts/).
+
+A scheme based on wall-clock timestamps cannot tell these cases apart. It always keeps one and discards the other.
+
+## Physical time still matters
+
+Logical clocks say nothing about how much real time has passed. Some questions need that: has this lease expired, which data is older than thirty days, what did the database contain at noon?
+
+**Hybrid logical clocks** combine the two. A timestamp is a physical time and a small counter. It stays close to the real time, never goes backwards, and still respects cause and effect. Several distributed databases use them to order transactions.
+
+Google's Spanner takes a different route. Its machines have atomic clocks and satellite receivers, so the error in each clock reading is known and small, a few milliseconds. Before confirming a transaction, the database waits out that uncertainty. After the wait, the order of timestamps is guaranteed to match the real order of events everywhere in the world.
+
+| Approach | Orders events by | Needs |
+| --- | --- | --- |
+| Wall-clock timestamps | time of day | trust in clocks that drift |
+| Lamport clocks | a counter | nothing extra |
+| Vector clocks | a counter for each process | space that grows with the number of processes |
+| Hybrid logical clocks | time of day plus a counter | loosely synchronised clocks |
+| Bounded clock error | time of day, after waiting out the error | special hardware |
+
+## Where they are used
+
+- **Conflict detection** in replicated databases, with version vectors.
+- **[Causal consistency](/distributed-systems/consistency-models/#causal-consistency)**, where an update is held back until everything it depends on has arrived.
+- **Ordering in [consensus](/distributed-systems/raft/)**, where term and index numbers act as logical clocks.
+- **[MVCC](/databases/mvcc/) across machines**, where a snapshot is "everything before this timestamp".
+- **Debugging and tracing**, to reconstruct what could have caused what from logs gathered on many machines.
+
+## Key takeaways
+
+- Clocks on different machines disagree, so wall-clock timestamps cannot reliably order events across them.
+- The happened-before relation orders events by possible cause and effect. Events not related by it are concurrent.
+- A Lamport clock is a counter, raised past any value received in a message. If one event happened before another, its number is smaller.
+- A smaller Lamport number does not prove an event came first. Vector clocks, with one counter for each process, capture the order exactly.
+- Comparing vector clocks distinguishes an outdated version from a genuine conflict.
+- Hybrid clocks add physical time back for questions that need it.
