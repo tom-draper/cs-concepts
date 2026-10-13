@@ -1,0 +1,165 @@
+---
+description: Ownership is a set of compile-time rules that gives every value exactly one owner and frees it when that owner goes away. With borrowing, it lets Rust guarantee memory safety without a garbage collector.
+difficulty: advanced
+---
+
+There have long been two ways to manage memory. Do it by hand, as in C, and get speed along with use-after-free bugs, double frees and data races. Or use a [garbage collector](/languages/garbage-collection/), and get safety along with run-time overhead and pauses.
+
+**Ownership** is a third way. The compiler tracks, in the type system, which part of the program is responsible for each value. From that it works out exactly where every value should be freed and inserts the code to do it. Nothing is tracked while the program runs. A program that would misuse memory does not compile.
+
+Rust is the language built around the idea, and the examples here are in Rust.
+
+## Three rules
+
+1. Every value has one variable that is its **owner**.
+2. There is only one owner at a time.
+3. When the owner goes out of scope, the value is **dropped**, and its memory is freed.
+
+```rust
+{
+    let a = String::from("hi");     // a owns the string
+    println!("{}", a);
+}                                   // a goes out of scope: the string is freed here
+```
+
+No `free`, and no collector. The compiler knows the string's lifetime from the braces. C++ programmers will recognise this as RAII, the pattern in which a destructor runs at the end of a scope. Rust adds the rule that makes it safe: one owner at a time.
+
+## Moving
+
+What should `let b = a;` mean when `a` owns a string on the heap?
+
+Copying the heap data would be slow, and usually unwanted. Copying only the pointer would leave two owners, and both would try to free the same memory. Rust does neither. Assignment **moves** ownership.
+
+<OwnershipDemo script="move" />
+
+After the move, `a` is still in the source code but the compiler treats it as empty. Using it is a compile-time error. No check happens at run time, and no flag is stored. It is purely a matter of what the compiler will accept.
+
+Passing a value to a function moves it in the same way, and returning one moves it out.
+
+```rust
+fn consume(text: String) { /* text is dropped at the end of this function */ }
+
+let a = String::from("hi");
+consume(a);
+// a cannot be used here
+```
+
+Simple values that live entirely on the stack, such as integers, are copied instead of moved, since copying them is as cheap as moving them. To duplicate heap data deliberately, call `.clone()`. The cost is then visible in the code.
+
+## Borrowing
+
+If every use of a value moved it, functions would have to hand back everything they were given. Instead a function can **borrow** a value by taking a **reference** to it. The owner stays the owner.
+
+```rust
+fn length(text: &String) -> usize {       // borrows, does not own
+    text.len()
+}
+
+let a = String::from("hi");
+let n = length(&a);
+println!("{} {}", a, n);                  // a is still usable
+```
+
+A reference is a [pointer](/foundations/pointers-and-references/) that the compiler has proved is valid. There are two kinds.
+
+| Reference | Written | Allows | How many at once |
+| --- | --- | --- | --- |
+| Shared | `&T` | reading | any number |
+| Mutable | `&mut T` | reading and writing | exactly one, and no shared ones |
+
+Any number of readers may look at a value together.
+
+<OwnershipDemo script="shared" />
+
+But a value cannot be changed while anyone else is looking at it.
+
+<OwnershipDemo script="mutable" />
+
+This rule, **shared or mutable but never both**, is the centre of the whole system. It looks restrictive. The reason for it is that almost every memory bug needs two things at once: two ways of reaching the same data, called **aliasing**, and a change through one of them, called **mutation**.
+
+In the example, `push` might need to grow the string. Growing can mean allocating a bigger block, copying the contents and freeing the old one. The reference `r` would then point into freed memory. C++ calls the same problem iterator invalidation, and there it is a run-time bug that may or may not show itself.
+
+## Lifetimes
+
+A reference must never outlive the value it points at. A reference that does is a **dangling pointer**.
+
+<OwnershipDemo script="dangling" />
+
+The compiler assigns every reference a **lifetime**, the stretch of code over which it is used, and checks that the value it borrows lives at least that long. The part of the compiler that does this is the **borrow checker**.
+
+Mostly this is invisible. Occasionally a function signature leaves the relationship unclear, and has to state it.
+
+```rust
+fn longest<'a>(x: &'a str, y: &'a str) -> &'a str {
+    if x.len() > y.len() { x } else { y }
+}
+```
+
+The annotation `'a` does not change how long anything lives. It tells the compiler that the result borrows from the arguments and so must not be used after either of them is gone. It is a constraint written down for checking, like a [type](/languages/type-systems/).
+
+## What the rules rule out
+
+| Bug | Why it cannot happen |
+| --- | --- |
+| Use after free | a value is freed when its owner dies, and no reference may outlive the owner |
+| Double free | there is one owner, so one drop |
+| Dangling pointer | lifetimes are checked |
+| Invalidated iterator | the collection cannot be modified while a reference into it exists |
+| Null pointer dereference | references are never null, and absence is an `Option` |
+| Memory leak, mostly | everything is dropped at the end of its scope |
+| [Data race](/concurrency/race-conditions/) | see below |
+
+Microsoft and Google have each reported that around 70 percent of the serious security vulnerabilities in their large C and C++ codebases are memory safety bugs of these kinds.
+
+## Fearless concurrency
+
+A data race needs two threads accessing the same memory at the same time, with at least one writing. That is aliasing plus mutation, the thing the borrowing rule already forbids.
+
+So the rule that prevents dangling pointers within one thread also prevents data races between threads. To share data that changes, a program must wrap it in something that enforces exclusive access at run time, such as a [mutex](/concurrency/mutexes/). Rust's mutex owns the data it protects, so the data cannot be reached without locking, and the compiler rejects any attempt.
+
+This is a guarantee against data races specifically. [Deadlocks](/concurrency/deadlock/) and logic errors are still possible.
+
+## The escape hatches
+
+A single owner and tree-shaped borrowing cannot express every program. A [graph](/data-structures/graph-representations/) has nodes with many incoming edges. A doubly [linked list](/data-structures/linked-lists/) has two pointers to every node. A cache is shared by many users.
+
+| Tool | Provides | Cost |
+| --- | --- | --- |
+| `Box<T>` | a single owner of heap data | none |
+| `Rc<T>`, `Arc<T>` | shared ownership by reference counting | a counter, and cycles can leak |
+| `RefCell<T>`, `Mutex<T>` | mutation through a shared reference | the borrowing rule checked at run time |
+| Indices into a `Vec` | graph-like links without references | a bounds check, and stale indices are possible |
+| `unsafe` | raw pointers and unchecked operations | the programmer takes on the proof |
+
+`unsafe` does not switch the checker off. It permits a few extra operations inside a marked block, where the programmer promises that the rules hold. The standard library is built from small `unsafe` cores wrapped in safe interfaces. If memory is ever corrupted, the search starts and ends in those blocks.
+
+## The cost
+
+The cost is paid by the programmer, at compile time.
+
+- There is a learning curve. Designs that are natural in other languages, especially ones with objects pointing freely at each other, have to be restructured.
+- The checker is conservative. Like any static analysis it rejects some programs that would have been safe, for the reasons given under the [halting problem](/theory/the-halting-problem/).
+- Compilation is slower.
+
+In exchange there is no garbage collector, no pauses and no run-time bookkeeping, with performance comparable to C and C++.
+
+| | Manual (C) | Garbage collected | Ownership (Rust) |
+| --- | --- | --- | --- |
+| Memory safe | no | yes | yes |
+| Run-time cost | none | collector time and pauses | none |
+| Extra memory | none | headroom for the collector | none |
+| Prevents data races | no | no | yes |
+| Burden on the programmer | getting it right, with no help | little | satisfying the compiler |
+
+## Beyond Rust
+
+The ideas are older than Rust and are spreading. C++ gained move semantics and `unique_ptr`, which express single ownership but do not stop a moved-from value being used. Swift has added ownership features alongside its reference counting. Several newer languages are experimenting with borrow checking, and research languages use related **linear types**, in which a value must be used exactly once.
+
+## Key takeaways
+
+- Every value has exactly one owner, and is freed when the owner goes out of scope.
+- Assigning or passing a value moves ownership, and the old name can no longer be used.
+- A reference borrows a value without owning it. There may be many shared references or one mutable reference, never both.
+- The borrow checker verifies at compile time that no reference outlives the value it points to.
+- These rules eliminate use-after-free, double free, dangling pointers and data races without any run-time cost.
+- Shared ownership and interior mutation are available as explicit library types when the basic rules are too strict.
