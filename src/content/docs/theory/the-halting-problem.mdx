@@ -1,0 +1,142 @@
+---
+description: The halting problem asks whether a given program will eventually stop or run for ever. No program can answer that correctly for every case, which sets a hard limit on what software can know about other software.
+difficulty: intermediate
+---
+
+It would be useful to have a tool that reads a program and says, before running it, whether it will finish or hang. Compilers could reject infinite loops. Servers could refuse requests that would never complete.
+
+In 1936 Alan Turing proved that no such tool can exist. The proof does not say it would be slow, or that nobody has been clever enough yet. It says that the tool is a logical impossibility, however much time and memory it is given.
+
+## Watching is not enough
+
+This [Turing machine](/theory/turing-machines/) walks right over `0`s, and steps back left whenever it sees a `1`. On a blank it stops.
+
+<TuringDemo machine="bounce" />
+
+On `000` it halts after four steps. On `0010` it reaches the `1`, steps back onto a `0`, moves right onto the `1` again, and bounces between the two cells for ever. The widget gives up after 200 steps.
+
+That is the difficulty in miniature. Running a program tells you it halts, if it does. If it has not halted yet, you have learned nothing. Perhaps it is looping. Perhaps it needs one more step, or another hour.
+
+For this machine you can settle the matter by reading the rules: it loops exactly when the input starts with a `0` and has a `1` somewhere after it. The question is whether there is a method that settles it for every program.
+
+## Some loops are hard to read
+
+Here is a short program whose behaviour nobody understands.
+
+```python
+def collatz(n):
+    while n != 1:
+        if n % 2 == 0:
+            n = n // 2
+        else:
+            n = 3 * n + 1
+```
+
+Starting from 6, the values are 6, 3, 10, 5, 16, 8, 4, 2, 1 and the loop ends. Starting from 27 it takes 111 steps and climbs as high as 9232 on the way. Every starting value ever tried, far beyond a billion billion, has reached 1 in the end.
+
+Whether it does so for **every** positive whole number is the Collatz conjecture, open since 1937. A general halting checker would answer it at once, along with a long list of other famous questions that can be phrased as "does this search ever stop?". That is a hint that such a checker is asking for too much.
+
+## The proof
+
+The argument is a [proof by contradiction](/foundations/proof-techniques/). Assume the checker exists and derive something absurd.
+
+<Steps>
+<Step title="Suppose there is a checker">
+
+Assume someone has written a function `halts(program, data)`. It takes the source code of any program and an input for it. It always returns, and its answer is always right: `True` if that program would eventually stop on that input, `False` if it would run for ever.
+
+</Step>
+<Step title="Build a contrary program">
+
+Using `halts`, write this.
+
+```python
+def contrary(program):
+    if halts(program, program):
+        while True:          # loop for ever
+            pass
+    else:
+        return               # stop at once
+```
+
+`contrary` asks what a program would do when given its own source code as input, and then does the opposite. There is nothing strange about feeding a program its own text. Compilers that compile themselves do it routinely.
+
+</Step>
+<Step title="Run it on itself">
+
+Now ask what `contrary(contrary)` does. There are only two possibilities.
+
+| If `halts(contrary, contrary)` returns | then `contrary(contrary)` | so the checker was |
+| --- | --- | --- |
+| `True`, meaning "it halts" | loops for ever | wrong |
+| `False`, meaning "it loops" | returns at once | wrong |
+
+</Step>
+<Step title="Conclude">
+
+Either way `halts` gives a wrong answer about one particular program. But it was assumed to be right about all of them. The assumption is false. No such function can be written.
+
+</Step>
+</Steps>
+
+The proof never looks inside `halts`. It does not matter how it works, what language it is in or how long it is allowed to run. Any checker at all can be turned against itself in this way.
+
+<Aside title="The same trick, three times">
+
+The argument is called **diagonalisation**. Georg Cantor used it in 1891 to show there are more real numbers than whole numbers. Kurt Gödel used it in 1931 to show that arithmetic contains true statements with no proof. All three build an object that disagrees with every item on a list, at the point where the item describes itself. "This sentence is false" is the everyday version.
+
+</Aside>
+
+## Decidable and undecidable
+
+A yes or no question is **decidable** if some program answers it correctly for every input and always finishes. The halting problem is **undecidable**.
+
+It is not completely out of reach. A program can run the machine in question and say "yes" if it stops. That gives a correct "yes" whenever the answer is yes, and no answer otherwise. Problems like this are called **semi-decidable**, or recognisable.
+
+| | Answers "yes" correctly | Answers "no" correctly |
+| --- | --- | --- |
+| Decidable | always | always |
+| Semi-decidable | always | may run for ever instead |
+| Neither | not guaranteed | not guaranteed |
+
+## It spreads
+
+Once one problem is known to be undecidable, others follow by [reduction](/theory/reductions/): if a tool for problem B could be used to build a halting checker, then B is undecidable too.
+
+Almost every interesting question about what a program does falls this way.
+
+- Does this program ever print "hello"?
+- Does it ever reach this line?
+- Do these two programs behave identically on every input?
+- Does this program ever access memory it should not?
+- Is this program a virus?
+
+**Rice's theorem** states the general pattern. Any question about the **behaviour** of programs is undecidable, unless the answer is the same for every program. Questions about the **text** of a program are different. "Does this program contain a `while` loop?" is easy.
+
+Problems outside programming are affected as well, such as whether a [context-free grammar](/theory/context-free-grammars/) is ambiguous, and whether an equation in whole numbers has a solution.
+
+## Living with it
+
+The theorem rules out a tool that is always right and always answers. Real tools give up one of those.
+
+| Approach | Gives up | Example |
+| --- | --- | --- |
+| Answer "yes", "no" or "don't know" | completeness | a compiler's warning for unreachable code |
+| Reject some good programs to be safe | accepting everything valid | a [type checker](/languages/type-systems/), a borrow checker |
+| Report possible problems, some false | precision | static analysers and linters |
+| Stop waiting after a while | certainty | timeouts, watchdog timers, fuel limits |
+| Restrict the language | generality | regular expressions, total functional languages, configuration formats |
+
+A type checker is a good illustration. It cannot decide "will this program ever add a number to a string?", since that is a question about behaviour. So it checks a stricter property of the text and rejects anything it cannot verify, including some programs that would in fact run without error.
+
+Restricting the language is the other common route. A [regular expression](/theory/regular-expressions/) run by an automaton always finishes. A database query without recursion always finishes. Systems that run untrusted code, such as packet filters in an operating system kernel, often only accept programs in which every loop has a bound the verifier can check.
+
+And for many individual programs, termination can be proved. The theorem says there is no single method for all of them.
+
+## Key takeaways
+
+- The halting problem asks whether a given program stops on a given input. No program can answer it correctly in every case.
+- The proof assumes a checker exists and builds a program that does the opposite of whatever the checker predicts about it.
+- Running a program can confirm that it halts but can never confirm that it does not.
+- By Rice's theorem, every non-trivial question about what programs do is undecidable.
+- Practical tools cope by answering "don't know", by being conservative, by using time limits or by working on restricted languages.
