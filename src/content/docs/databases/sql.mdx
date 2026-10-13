@@ -1,0 +1,211 @@
+---
+description: SQL is the language for asking questions of a relational database. A query describes the rows wanted, by filtering, joining, grouping and sorting tables, and the database works out how to produce them.
+difficulty: beginner
+---
+
+A [relational database](/databases/relational-model/) holds tables. **SQL**, the Structured Query Language, is how you talk to it. It dates from IBM in the 1970s, was standardised in 1986, and is spoken, with dialects, by nearly every database in use.
+
+SQL is **declarative**. A query describes the result you want. It contains no loops and no instructions about which file to read. Working out how to get the answer is the database's job.
+
+## Asking a question
+
+The tables are small enough to read. Edit the query or try the examples.
+
+<SqlDemo showTables />
+
+The widget understands a useful subset of SQL: `SELECT` with aggregates, `JOIN` and `LEFT JOIN`, `WHERE` with comparisons, `GROUP BY`, `ORDER BY` and `LIMIT`.
+
+The basic shape is three clauses.
+
+```sql
+SELECT name, city          -- which columns
+FROM customers             -- from which table
+WHERE city = 'London';     -- which rows
+```
+
+Keywords are not case-sensitive. Writing them in capitals is a convention that makes queries easier to read. Text values go in single quotes.
+
+## The clauses
+
+A query can have up to seven parts, always written in this order.
+
+| Clause | Purpose |
+| --- | --- |
+| `SELECT` | the columns or calculations to return |
+| `FROM`, `JOIN` | the tables to read, and how to combine them |
+| `WHERE` | a condition each row must satisfy |
+| `GROUP BY` | collapse rows that share a value into one group |
+| `HAVING` | a condition each group must satisfy |
+| `ORDER BY` | sort the result |
+| `LIMIT` | return only the first few rows |
+
+The order in which they are written is not the order in which they logically apply.
+
+1. `FROM` and `JOIN` assemble the rows.
+2. `WHERE` discards rows.
+3. `GROUP BY` forms groups.
+4. `HAVING` discards groups.
+5. `SELECT` computes the output columns.
+6. `ORDER BY` sorts.
+7. `LIMIT` cuts off.
+
+Knowing this explains several rules that otherwise seem arbitrary. A name defined in `SELECT` with `AS` cannot be used in `WHERE`, because `WHERE` runs first. It can be used in `ORDER BY`, which runs after. A condition on a count has to go in `HAVING`, since the counts do not exist until the groups do.
+
+## Filtering
+
+`WHERE` takes a condition built from comparisons joined by `AND`, `OR` and `NOT`.
+
+| Condition | Matches |
+| --- | --- |
+| `amount > 100` | larger than 100 |
+| `city = 'London' OR city = 'Austin'` | either |
+| `city IN ('London', 'Austin')` | the same, more briefly |
+| `amount BETWEEN 50 AND 300` | in the range, inclusive |
+| `name LIKE 'A%'` | text starting with A |
+| `customer_id IS NULL` | has no value |
+
+`AND` binds tighter than `OR`, as multiplication does over addition. When in doubt, add brackets.
+
+## Grouping and aggregates
+
+An **aggregate function** turns many rows into one value.
+
+| Function | Returns |
+| --- | --- |
+| `COUNT(*)` | the number of rows |
+| `COUNT(column)` | the number of rows where the column is not NULL |
+| `SUM`, `AVG` | the total and the mean |
+| `MIN`, `MAX` | the smallest and largest |
+
+Used alone, an aggregate covers the whole table. With `GROUP BY`, the rows are first sorted into groups, and the aggregate is computed for each.
+
+```sql
+SELECT city, COUNT(*) AS people
+FROM customers
+GROUP BY city;
+```
+
+Try "count" in the widget. Five customers become four rows, one for each city.
+
+The rule that trips people up: once you group, every column in `SELECT` must either be in the `GROUP BY` or be inside an aggregate. Asking for `name` in the query above makes no sense, because a group of two Londoners has two names and one output row.
+
+## Combining tables
+
+Data is split across tables, and `JOIN` puts it back together by matching a foreign key to a primary key.
+
+```sql
+SELECT name, item, amount
+FROM customers
+JOIN orders ON customers.id = orders.customer_id;
+```
+
+Try "join" in the widget. The condition after `ON` says which rows belong together. Both tables have a column called `id`, so the table name is given to say which is meant. The different kinds of join, and what happens to rows with no partner, have a page of [their own](/databases/joins/).
+
+Joins and aggregates combine. Paste this in to total each customer's spending.
+
+```sql
+SELECT c.name, SUM(o.amount) AS total
+FROM customers c
+JOIN orders o ON c.id = o.customer_id
+GROUP BY c.name
+ORDER BY total DESC
+```
+
+The `c` and `o` are **aliases**, short names for the tables within this one query.
+
+## NULL
+
+A missing value is NULL, and NULL does not behave like a value. Any comparison involving it is neither true nor false. It is **unknown**, and `WHERE` keeps only rows where the condition is true.
+
+Paste this into the widget.
+
+```sql
+SELECT * FROM orders WHERE customer_id = NULL
+```
+
+It returns nothing, even though one order has a NULL `customer_id`. "Is this unknown value equal to that unknown value?" has no answer. The correct test is `IS NULL`.
+
+| Expression | Result |
+| --- | --- |
+| `NULL = NULL` | unknown |
+| `NULL <> 5` | unknown |
+| `NULL + 1` | NULL |
+| `x IS NULL` | true or false, as expected |
+| `COUNT(column)` | skips NULLs |
+| `NOT IN (1, 2, NULL)` | never true, a classic trap |
+
+This three-valued logic is one of SQL's most criticised features and one that every user has to learn.
+
+## Changing data
+
+`SELECT` reads. Three other statements write.
+
+```sql
+INSERT INTO customers (id, name, city) VALUES (6, 'Barbara', 'Boston');
+
+UPDATE orders SET amount = 90 WHERE id = 1;
+
+DELETE FROM orders WHERE amount < 20;
+```
+
+`UPDATE` and `DELETE` apply to every row matching the `WHERE`. Leave it out and they apply to every row in the table, a mistake that has ended more than one working day early. Running the condition as a `SELECT` first, to see what it matches, is a good habit. So is wrapping the change in a [transaction](/databases/acid/) that can be rolled back.
+
+## Defining tables
+
+A further part of SQL describes the schema.
+
+```sql
+CREATE TABLE orders (
+    id           INTEGER PRIMARY KEY,
+    customer_id  INTEGER REFERENCES customers(id),
+    item         TEXT NOT NULL,
+    amount       NUMERIC CHECK (amount >= 0)
+);
+
+CREATE INDEX orders_by_customer ON orders (customer_id);
+```
+
+The `REFERENCES` clause declares a foreign key. From then on the database refuses an order for a customer that does not exist. The [index](/databases/indexes/) makes lookups by customer fast.
+
+## Declarative has consequences
+
+Because a query says what and not how, the database is free to choose among many ways of running it. Two queries that look different may be executed identically, and the same query may be executed differently tomorrow, when the table has grown or an index has been added. Choosing is the work of the [query planner](/databases/query-planning/).
+
+Usually that is a gift. Occasionally the planner chooses badly and a query that took milliseconds takes minutes. The command `EXPLAIN` shows the plan it picked.
+
+SQL is also built on sets of rows, and it rewards thinking that way. One statement that updates a million rows is far faster than a program that fetches each row and updates it separately, because every separate statement is a round trip over the [network](/networking/tcp/).
+
+## SQL from programs
+
+Applications build queries and send them to the database. The dangerous way is to paste user input into the query text.
+
+```python
+query = "SELECT * FROM customers WHERE name = '" + name + "'"      # never
+```
+
+If `name` contains a quote, the user is writing part of your SQL. This is an [injection attack](/security/injection-attacks/), among the commonest security holes there is. The fix is a **parameterised query**, in which the query text and the values travel separately and the value can never be read as code.
+
+```python
+cursor.execute("SELECT * FROM customers WHERE name = ?", (name,))
+```
+
+## Beyond the basics
+
+| Feature | Use |
+| --- | --- |
+| Subqueries | a query inside another query |
+| Common table expressions, `WITH` | name a subquery and build on it step by step |
+| Window functions | running totals, rankings and comparisons with neighbouring rows, without collapsing them |
+| Recursive queries | walk trees and graphs, such as an organisation chart |
+| Views | a saved query that can be used as if it were a table |
+
+With recursion, SQL is [Turing complete](/theory/turing-machines/#turing-completeness), though that is rarely a reason to use it.
+
+## Key takeaways
+
+- SQL describes the result wanted, and the database decides how to compute it.
+- A query is logically evaluated in the order `FROM`, `WHERE`, `GROUP BY`, `HAVING`, `SELECT`, `ORDER BY`, `LIMIT`, which differs from the order it is written in.
+- Aggregates summarise rows, and `GROUP BY` produces one summary for each group.
+- Joins reassemble data that was split across tables, by matching keys.
+- NULL means "no value", and comparing with it gives unknown. Test with `IS NULL`.
+- Never build queries by pasting in user input. Use parameters.
