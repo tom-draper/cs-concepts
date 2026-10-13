@@ -197,6 +197,12 @@ in `src/lib/databases.ts` handles `SELECT`, `JOIN`, `LEFT JOIN`, `WHERE`, `GROUP
 `<IsolationDemo anomaly="dirty read" />` (also `non-repeatable read`, `phantom`,
 `lost update` and `write skew`).
 
+The distributed systems pages use `<CapDemo />`, `<QuorumDemo />`, `<ClockDemo />`,
+`<HeartbeatDemo />`, `<ReplicationDemo />`, `<PartitionDemo />`, `<HashRingDemo />`,
+`<RaftDemo />`, `<CrdtDemo />` and `<GossipDemo />`, backed by `src/lib/distributed.ts`.
+That file also adds the `2pc-commit`, `2pc-abort`, `2pc-stuck` and `paxos` scenarios
+to `<SequenceDemo>`.
+
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
 value), `<BitwiseDemo />`, `<FloatDemo />` and `<Utf8Demo />`.
