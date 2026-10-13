@@ -1,0 +1,117 @@
+---
+description: Failure detection is how nodes in a distributed system decide that another node has stopped. Because a slow node and a dead node look identical from outside, every detector is a guess, trading speed of detection against the risk of being wrong.
+difficulty: intermediate
+---
+
+When a machine in a cluster fails, the others have to notice. Requests need to be sent elsewhere. A new leader may need choosing. Its data must be copied again from the survivors.
+
+The trouble is how one machine learns about another. It sends a message and waits for a reply. If none comes, there are several explanations, and from where it sits they all look the same.
+
+| What happened | What the waiting node sees |
+| --- | --- |
+| The other node crashed | no reply |
+| The request was lost on the way | no reply |
+| The reply was lost on the way back | no reply |
+| The network is slow | no reply, yet |
+| The other node is alive but overloaded, or paused | no reply, yet |
+
+There is no way to tell these apart. A node cannot observe another's state directly. It can only observe messages arriving, or not arriving. That uncertainty sits at the bottom of nearly everything difficult about distributed systems.
+
+## Heartbeats and timeouts
+
+The standard technique is simple. Each node sends a small message, a **heartbeat**, at a regular interval, to say "I am alive". A monitor that hears nothing for longer than a **timeout** declares the node suspect.
+
+Choose what happens to the node, and how patient the monitor is.
+
+<HeartbeatDemo />
+
+Try the freeze with a short timeout. The node was never dead. It stopped for three seconds and then carried on, and the monitor declared it failed. Then try the crash with a long timeout. The node really is gone, and for several seconds nobody knows.
+
+Every timeout is a compromise between two kinds of mistake.
+
+| Timeout | Detects real failures | Mistakes slow nodes for dead ones |
+| --- | --- | --- |
+| Short | quickly | often |
+| Long | slowly | rarely |
+
+There is no correct value. A node that takes a long time to answer and a node that will never answer are distinguishable only by waiting, and nobody can wait for ever.
+
+## Why nodes go quiet without dying
+
+Pauses of seconds, on a healthy machine, are more common than they sound.
+
+| Cause | Typical length |
+| --- | --- |
+| [Garbage collection](/languages/garbage-collection/) stopping the program | milliseconds to many seconds |
+| The virtual machine being suspended or moved by the host | seconds |
+| Waiting on a slow or failing disk | seconds |
+| The operating system [swapping memory](/operating-systems/virtual-memory/) to disk | seconds |
+| An overloaded processor not scheduling the program | variable |
+| A congested network delaying or dropping packets | variable |
+
+A paused program does not know it was paused. From its point of view no time passed. It wakes and carries on with whatever it was doing, possibly minutes out of date.
+
+## The cost of a wrong guess
+
+**A missed failure** costs availability. Requests keep being sent to a node that will never answer, until the timeout runs out.
+
+**A false alarm** is usually worse. Suppose the monitor decides the leader of a database is dead and promotes a follower. The old leader was only paused. It wakes, still believing it is the leader, and now two nodes are accepting writes. This is **split brain**, and it corrupts data.
+
+False alarms can also feed on themselves. A cluster under heavy load responds slowly. Slow nodes are declared dead. Their work moves to the remaining nodes, which become more heavily loaded and slower still, and are declared dead in turn. A cluster can take itself apart this way with no real failure anywhere.
+
+## Fencing
+
+Since false alarms cannot be eliminated, systems are built so that a node wrongly declared dead can do no harm when it returns.
+
+The technique is a **fencing token**. Every time a new leader is chosen, or a lock is granted, it comes with a number that only ever goes up. The leader includes its number with every request it makes to storage. The storage service remembers the highest number it has seen and rejects anything lower.
+
+| Event | Token |
+| --- | --- |
+| Node 1 becomes leader | 33 |
+| Node 1 pauses. Node 2 is elected | 34 |
+| Node 2 writes with token 34 | accepted |
+| Node 1 wakes and writes with token 33 | rejected: 33 is less than 34 |
+
+The old leader does not need to realise it has been replaced. The resource it tries to use refuses it. The term numbers in [Raft](/distributed-systems/raft/) do exactly this job.
+
+A blunter method is to make sure the old node is truly stopped before the new one starts, by cutting its power or network access through a separate control channel.
+
+## Better detectors
+
+**Adaptive timeouts.** A fixed timeout suits one network and is wrong for another. An adaptive detector measures how long heartbeats actually take to arrive and how much that varies, and sets its expectations to match, in the way [TCP](/networking/tcp/#recovering-from-loss) sets its retransmission timer.
+
+**Suspicion levels.** The **phi accrual** detector, used by Cassandra and Akka, does not answer "dead or alive". It outputs a number expressing how unlikely the current silence is, given the history of arrival times. A short gap gives a low value. A gap far beyond anything seen before gives a high one. Each consumer picks its own threshold: a low one for cheap actions such as trying another replica, and a high one for drastic actions such as failover.
+
+**Asking others.** A single monitor might be the one with the network problem. In the **SWIM** protocol, a node that gets no reply asks a few other nodes to try. Only if none of them can reach the target is it suspected. That separates "that node is down" from "my link to that node is down". Suspicions and confirmations are then spread by [gossip](/distributed-systems/gossip-protocols/).
+
+**Leases.** Instead of others deciding that a leader is dead, the leader holds a **lease**, the right to act as leader until a certain time. It must renew the lease before it runs out, and must stop acting as leader if it cannot. Followers wait for the lease to expire before electing a replacement. This depends on the nodes' clocks running at similar rates, and a paused node can still wake believing its lease is valid, which is why leases are paired with fencing.
+
+## A limit that cannot be engineered away
+
+A famous result from 1985, known as **FLP** after its authors Fischer, Lynch and Paterson, shows that in a system with no bound on how long messages may take, no algorithm can guarantee that the nodes reach agreement if even one of them might crash.
+
+The proof rests on the same indistinguishability. An algorithm that waits for a slow node might wait for ever, and one that gives up might be giving up on a node that was about to answer.
+
+Real systems get round it by making assumptions about timing that usually hold. [Consensus](/distributed-systems/consensus/) protocols are designed to be always **safe**, never producing a wrong result however badly timing behaves, and **live**, making progress, only when the network behaves well enough for timeouts to mean something. A bad detector can stall such a system. It cannot make it give a wrong answer.
+
+## Kinds of failure
+
+Detectors of the kind described here assume the simplest failure.
+
+| Model | The node | Handled by |
+| --- | --- | --- |
+| Crash-stop | stops and never returns | heartbeats and timeouts |
+| Crash-recovery | stops and later restarts, perhaps having lost memory | the above, with state kept on disk |
+| Omission | drops some messages | retries |
+| Byzantine | behaves arbitrarily, perhaps maliciously, and may lie | special protocols needing more than two thirds of nodes to be honest |
+
+The hardest to detect in practice is a **partial failure**: a node that answers heartbeats promptly while its disk is failing and every real request takes thirty seconds. A heartbeat shows the process is running. It does not show the node can do its job. Good health checks exercise the real path, as discussed under [load balancing](/networking/load-balancing/#health-checks).
+
+## Key takeaways
+
+- A node can only learn about another through messages, and a missing reply does not reveal whether the other node is dead, slow or unreachable.
+- Heartbeats with a timeout are the standard detector. A short timeout gives fast detection and more false alarms. A long one gives the reverse.
+- Healthy nodes pause for seconds through garbage collection, virtualisation and overload, and do not know they were paused.
+- A false alarm can produce two leaders at once. Fencing tokens make a stale node's actions harmless.
+- Adaptive and accrual detectors, and checking through other nodes, reduce errors without removing them.
+- Perfect failure detection is impossible, so correct systems are designed to stay safe when the detector is wrong.
