@@ -1,0 +1,197 @@
+---
+description: A context-free grammar is a set of rewriting rules that can refer to themselves, which lets it describe nested structure such as brackets, expressions and blocks. It is how the syntax of nearly every programming language is defined.
+difficulty: intermediate
+---
+
+A [regular expression](/theory/regular-expressions/) cannot describe brackets nested to any depth, because the machine behind it cannot count. Yet nesting is everywhere: expressions inside expressions, blocks inside blocks, lists inside lists.
+
+A **context-free grammar** describes nesting directly. It is a set of rules, each saying how a named thing is built from smaller things, and a rule is allowed to mention the thing it is defining.
+
+## Rules that refer to themselves
+
+Here is a grammar for balanced round brackets. It has one name, `S`, and two rules for it.
+
+```
+S → ( S ) S
+S → ε
+```
+
+Read `→` as "can be replaced by" and `ε` as "nothing". The first rule says a balanced string can be an opening bracket, a balanced string, a closing bracket, and then another balanced string. The second says the empty string is balanced.
+
+The parts of a grammar have names.
+
+| Part | Here | Meaning |
+| --- | --- | --- |
+| Terminals | `(` and `)` | symbols that appear in the final string |
+| Nonterminals | `S` | names that stand for a kind of phrase |
+| Productions | the two rules | ways to replace a nonterminal |
+| Start symbol | `S` | where every derivation begins |
+
+A grammar is **context-free** because the left side of each rule is a single nonterminal. `S` can be replaced wherever it appears, whatever is around it.
+
+## Deriving a string
+
+To produce a string, start with the start symbol and keep replacing a nonterminal with the right side of one of its rules until none are left. Each line below replaces the leftmost `S`.
+
+```
+S
+( S ) S          first rule
+( ( S ) S ) S    first rule
+( ( ) S ) S      second rule: S becomes nothing
+( ( ) ) S        second rule
+( ( ) )          second rule
+```
+
+This is a **derivation** of `(())`. The **language** of a grammar is every string of terminals that can be derived from the start symbol. A string such as `())(` has no derivation, so it is not in the language.
+
+## Parse trees
+
+A derivation is easier to read as a tree. Each nonterminal is a node, and its children are the symbols that replaced it. The leaves, read left to right, spell the string.
+
+Here is a grammar for arithmetic.
+
+```
+E → E + E
+E → E * E
+E → ( E )
+E → number
+```
+
+And a parse tree for `1 + 2 * 3`.
+
+<Tree
+  root={{ k: 'E', c: [{ k: 'E', c: ['1'] }, '+', { k: 'E', c: [{ k: 'E', c: ['2'] }, '*', { k: 'E', c: ['3'] }] }] }}
+  caption="The multiplication is lower in the tree, so it is a single unit by the time the addition sees it. This tree means 1 + (2 × 3)."
+/>
+
+The tree is the point of the exercise. A string is flat, and the tree shows its structure: which operator applies to what. A [parser](/languages/parsing/) is a program that takes the string and finds the tree, and the rest of a compiler works on the tree.
+
+## Ambiguity
+
+The same grammar gives the same string a second tree.
+
+<Tree
+  root={{ k: 'E', c: [{ k: 'E', c: [{ k: 'E', c: ['1'] }, '+', { k: 'E', c: ['2'] }] }, '*', { k: 'E', c: ['3'] }] }}
+  caption="Also a valid parse of 1 + 2 * 3 under the grammar above. This tree means (1 + 2) × 3."
+/>
+
+A grammar is **ambiguous** if some string has more than one parse tree. For a programming language that is a defect, because the two trees compute different answers: 7 and 9.
+
+The usual cure is to rewrite the grammar with one nonterminal for each level of precedence.
+
+```
+Expr   → Expr + Term   | Term
+Term   → Term * Factor | Factor
+Factor → ( Expr )      | number
+```
+
+The `|` separates alternatives for the same nonterminal. An `Expr` is a sum of `Term`s, and a `Term` is a product of `Factor`s. A `+` can no longer appear underneath a `*` without brackets, since a `Factor` only contains an `Expr` when it is wrapped in them.
+
+<Tree
+  root={{ k: 'Expr', c: [{ k: 'Expr', c: [{ k: 'Term', c: [{ k: 'Factor', c: ['1'] }] }] }, '+', { k: 'Term', c: [{ k: 'Term', c: [{ k: 'Factor', c: ['2'] }] }, '*', { k: 'Factor', c: ['3'] }] }] }}
+  caption="The only parse of 1 + 2 * 3 under the layered grammar."
+/>
+
+The shape of the rules also fixes the grouping of repeated operators. `Expr → Expr + Term` recurses on the left, so `1 + 2 + 3` groups as `(1 + 2) + 3`. That makes no difference for addition, but a subtraction rule of the same shape gives `1 - 2 - 3` the grouping `(1 - 2) - 3`, as arithmetic expects.
+
+<Aside title="The dangling else">
+
+The best known ambiguity in real languages is `if a then if b then x else y`. The `else` could belong to either `if`. Languages settle it with a rule outside the grammar, that an `else` belongs to the nearest `if`, or avoid it by requiring braces or an `end` keyword.
+
+</Aside>
+
+## Writing grammars down
+
+Language specifications use a notation called **BNF**, Backus-Naur form, or an extended version of it. It is the same idea with different punctuation.
+
+```
+<statement> ::= <name> "=" <expr> ";"
+              | "if" "(" <expr> ")" <block>
+              | "while" "(" <expr> ")" <block>
+
+<block>     ::= "{" <statement>* "}"
+```
+
+Extended BNF borrows `*`, `+` and `?` from regular expressions for repetition and optional parts. They are a convenience, since repetition can always be written as a rule that refers to itself.
+
+The grammar of JSON fits on a page. The grammars of Python, Go and SQL are published in this form and are what their parsers are built from.
+
+## What a grammar cannot say
+
+Context-free grammars match things in nested pairs, and that is their limit.
+
+| Language | Context-free? | Why |
+| --- | --- | --- |
+| n 0s then n 1s | yes | `S → 0 S 1 \| ε` |
+| Balanced brackets | yes | the grammar above |
+| Palindromes | yes | `S → a S a \| b S b \| a \| b \| ε` |
+| n 0s, n 1s, then n 2s | no | needs two counts kept in step |
+| Some text, then the same text again | no | needs to compare in the same order, not mirrored |
+
+In practice this means a grammar cannot check that a variable was declared before it is used, or that a function is called with the right number of arguments. Both are "the same text again" in disguise. Compilers handle them in a later pass over the tree, with a symbol table and a [type checker](/languages/type-systems/).
+
+## The hierarchy of languages
+
+Noam Chomsky sorted grammars into four levels by how restricted their rules are. Each level matches a kind of machine.
+
+| Grammar | Rules look like | Machine that recognises it |
+| --- | --- | --- |
+| Regular | `A → a B` or `A → a` | [finite automaton](/theory/finite-automata/) |
+| Context-free | `A →` anything | [pushdown automaton](/theory/pushdown-automata/) |
+| Context-sensitive | `x A y → x` anything `y` | Turing machine with tape limited to the input length |
+| Unrestricted | anything `→` anything | [Turing machine](/theory/turing-machines/) |
+
+Each level contains the ones above it. Every regular language is context-free, but not the reverse.
+
+## Costs
+
+<Ops items={[
+  ['Parse, any grammar', 'O(n³)', 'CYK or Earley'],
+  ['Parse, LL or LR grammar', 'O(n)', 'what compilers use'],
+  ['Is the grammar ambiguous?', 'undecidable', 'no algorithm exists'],
+]} />
+
+General parsing algorithms work for every context-free grammar but take cubic time. Programming languages are designed so that their grammars fall into restricted families, called LL and LR, which can be parsed in one left-to-right pass.
+
+The last tile is a real limit. There is no program that takes a grammar and always tells you whether it is ambiguous. It is one of many questions ruled out by the [halting problem](/theory/the-halting-problem/).
+
+## Implementation
+
+A **recursive descent** parser has one function per nonterminal, and each function follows its rule. The self-reference in the grammar becomes [recursion](/algorithms/recursion/) in the code. The left-recursive rules become loops, since a function that began by calling itself would never return.
+
+```python
+def parse_expr(tokens):                 # Expr → Term (+ Term)*
+    value = parse_term(tokens)
+    while tokens and tokens[0] == '+':
+        tokens.pop(0)
+        value += parse_term(tokens)
+    return value
+
+def parse_term(tokens):                 # Term → Factor (* Factor)*
+    value = parse_factor(tokens)
+    while tokens and tokens[0] == '*':
+        tokens.pop(0)
+        value *= parse_factor(tokens)
+    return value
+
+def parse_factor(tokens):               # Factor → ( Expr ) | number
+    token = tokens.pop(0)
+    if token == '(':
+        value = parse_expr(tokens)
+        tokens.pop(0)                   # the closing bracket
+        return value
+    return int(token)
+
+parse_expr(['1', '+', '2', '*', '3'])   # 7
+```
+
+This version computes the answer as it goes. A compiler would build a [syntax tree](/languages/abstract-syntax-trees/) node at each step instead.
+
+## Key takeaways
+
+- A context-free grammar is a set of rules for replacing a named phrase with smaller parts. Rules may refer to themselves, which is what allows nesting.
+- A parse tree shows the structure a grammar gives to a string.
+- A grammar is ambiguous if a string has two parse trees. Precedence is usually fixed by using one nonterminal per level.
+- Context-free grammars define the syntax of programming languages and data formats.
+- They cannot express rules that tie together distant parts of a program, such as declaring a name before using it.
+- Grammars designed for it can be parsed in linear time.
