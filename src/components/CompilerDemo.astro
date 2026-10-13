@@ -1,0 +1,165 @@
+---
+// Runs one expression through the stages of a compiler as the reader types:
+// tokens, syntax tree, types, three-address code and stack code.
+interface Props {
+  source?: string;
+  /** Which stage to show. `all` shows tokens, the tree and stack code together. */
+  show?: 'tokens' | 'tree' | 'types' | 'optimise' | 'stack' | 'all';
+  tries?: string[];
+}
+
+const defaults = {
+  tokens: ['total + 12 * (n - 1)', 'if n<3 then "small" else "big"', 'ifx == 3.14', '2 $ 3'],
+  tree: ['1 + 2 * 3', '(1 + 2) * 3', '8 - 3 - 2', 'if n < 3 then 1 else 2', '(1 + 2'],
+  types: ['n * 2 + 1', '1 + "2"', 's + "pot" == "teapot"', 'if n then 1 else 2', 'if true then 1 else 1 + "a"'],
+  optimise: ['n * (2 + 3) + 0', '2 * (3 + 4) * n', 'if 1 < 2 then n else n / 0', 'n * 1 + 2 * 3'],
+  stack: ['1 + 2 * 3', '(1 + 2) * 3', 'if n < 3 then "small" else "big"'],
+  all: ['1 + 2 * 3', '(1 + 2) * 3', 'n * n - 1', 'if n < 3 then "small" else "big"'],
+};
+const { show = 'all', tries = defaults[show], source = tries[0] } = Astro.props;
+const sections = {
+  tokens: ['tokens'],
+  tree: ['tree'],
+  types: ['types'],
+  optimise: ['optimise'],
+  stack: ['stack'],
+  all: ['tokens', 'tree', 'stack'],
+}[show];
+const titles: Record<string, string> = {
+  tokens: 'Tokens',
+  tree: 'Syntax tree',
+  types: 'Types',
+  optimise: 'Three-address code',
+  stack: 'Stack machine code',
+};
+---
+
+<compiler-demo class="playground compiler-demo">
+  <label>Source <input value={source} maxlength="48" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  {
+    sections.map((name) => (
+      <section data-stage={name}>
+        {sections.length > 1 && <h4>{titles[name]}</h4>}
+        <div data-out={name} />
+      </section>
+    ))
+  }
+  <p class="hint" data-out="status" aria-live="polite">The widget needs JavaScript to run the compiler.</p>
+</compiler-demo>
+
+<script>
+  import {
+    fold,
+    lex,
+    parse,
+    runStackCode,
+    showInstruction,
+    toStackCode,
+    toThreeAddress,
+    toTree,
+    treeSvg,
+    typeCheck,
+    unparse,
+  } from '../lib/languages';
+
+  class CompilerDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`);
+      const lines = (items: string[]) => {
+        const list = document.createElement('ol');
+        list.className = 'listing';
+        list.start = 0;
+        list.append(...items.map((item) => Object.assign(document.createElement('li'), { textContent: item })));
+        return list;
+      };
+      const stages: Record<string, (target: HTMLElement) => string | void> = {
+        tokens: (target) => {
+          const tokens = lex(field.value);
+          target.className = 'tokens';
+          target.replaceChildren(
+            ...tokens.map((token) => {
+              const chip = document.createElement('span');
+              chip.dataset.kind = token.kind;
+              chip.append(
+                Object.assign(document.createElement('b'), { textContent: token.text }),
+                Object.assign(document.createElement('small'), { textContent: token.kind }),
+              );
+              return chip;
+            }),
+          );
+          return `${field.value.length} characters became ${tokens.length} tokens. Spaces were dropped.`;
+        },
+        tree: (target) => {
+          const expr = parse(field.value);
+          target.className = 'viz-scroll';
+          target.innerHTML = treeSvg(toTree(expr));
+          return `With every bracket written in: ${unparse(expr)}`;
+        },
+        types: (target) => {
+          const { tree, type, error } = typeCheck(parse(field.value));
+          target.className = 'viz-scroll';
+          target.innerHTML = treeSvg(tree);
+          return error ? `Type error. ${error}` : `The whole expression has type ${type}. It would be allowed to run.`;
+        },
+        optimise: (target) => {
+          const expr = parse(field.value);
+          const before = toThreeAddress(expr);
+          const after = toThreeAddress(fold(expr));
+          target.className = 'columns';
+          const column = (title: string, items: string[]) => {
+            const box = document.createElement('div');
+            box.append(Object.assign(document.createElement('h4'), { textContent: title }), lines(items));
+            return box;
+          };
+          target.replaceChildren(column('As written', before), column('After optimising', after));
+          return before.length === after.length
+            ? 'Nothing here can be worked out before the program runs.'
+            : `${before.length - after.length} of ${before.length} lines were removed at compile time.`;
+        },
+        stack: (target) => {
+          const code = toStackCode(parse(field.value));
+          target.className = '';
+          target.replaceChildren(lines(code.map(showInstruction)));
+          const last = runStackCode(code).at(-1)!;
+          return last.error ? last.note : last.note.slice(last.note.indexOf('Finished'));
+        },
+      };
+      const render = () => {
+        let status = '';
+        let failed = false;
+        for (const [name, stage] of Object.entries(stages)) {
+          const target = out(name);
+          if (!target) continue;
+          // A stage that fails stops every stage after it, as in a real compiler.
+          if (failed) {
+            target.replaceChildren();
+            continue;
+          }
+          try {
+            status = stage(target) || status;
+          } catch (error) {
+            target.replaceChildren();
+            status = `${name === 'tokens' ? 'Lexing' : 'Parsing'} failed. ${(error as Error).message}`;
+            failed = true;
+          }
+        }
+        out('status')!.textContent = status;
+      };
+      field.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest<HTMLElement>('[data-try]')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('compiler-demo', CompilerDemo);
+</script>

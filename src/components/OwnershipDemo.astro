@@ -1,0 +1,68 @@
+---
+// Steps the Rust borrow checker through a few lines, showing what each
+// variable owns or borrows and where the compiler objects.
+import Controls from './Controls.astro';
+import { ownershipScripts, type OwnershipName } from '../lib/languages';
+
+interface Props {
+  script?: OwnershipName;
+}
+
+const { script: name = 'move' } = Astro.props;
+const script = ownershipScripts[name];
+const first = script.steps[0];
+---
+
+<ownership-demo class="playground ownership-demo" data-script={name} tabindex="0" role="group" aria-label="Ownership step-through">
+  <div class="loop-layout">
+    <ol class="loop-code">{script.code.map((line) => <li><code>{line}</code></li>)}</ol>
+    <div>
+      <h4>Variables</h4>
+      <dl class="readouts stacked" data-out="vars">
+        {first.vars.map(([variable, state, tone]) => <div data-tone={tone}><dt>{variable}</dt><dd>{state}</dd></div>)}
+      </dl>
+    </div>
+  </div>
+  <p class="frame-caption" data-out="note" aria-live="polite">{first.note}</p>
+  <Controls />
+</ownership-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { ownershipScripts, type OwnershipName, type OwnershipScript } from '../lib/languages';
+
+  class OwnershipDemo extends HTMLElement {
+    connectedCallback() {
+      const script: OwnershipScript = ownershipScripts[this.dataset.script as OwnershipName];
+      const lines = [...this.querySelectorAll('.loop-code li')];
+      const vars = this.querySelector('[data-out="vars"]')!;
+      const note = this.querySelector('[data-out="note"]')!;
+      attachStepper(this, {
+        count: () => script.steps.length,
+        interval: 2400,
+        render: (index) => {
+          const step = script.steps[index];
+          lines.forEach((line, i) => {
+            line.classList.toggle('now', i === step.line && !step.error);
+            line.classList.toggle('failed', i === step.line && Boolean(step.error));
+          });
+          vars.replaceChildren(
+            ...step.vars.map(([variable, state, tone]) => {
+              const row = document.createElement('div');
+              if (tone) row.dataset.tone = tone;
+              row.append(
+                Object.assign(document.createElement('dt'), { textContent: variable }),
+                Object.assign(document.createElement('dd'), { textContent: state }),
+              );
+              return row;
+            }),
+          );
+          note.textContent = step.note;
+          note.classList.toggle('bad', Boolean(step.error));
+        },
+      });
+    }
+  }
+
+  customElements.define('ownership-demo', OwnershipDemo);
+</script>

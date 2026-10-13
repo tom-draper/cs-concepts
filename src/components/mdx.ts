@@ -1,5 +1,11 @@
 // Components available in every .mdx page without an import.
 import AdderDemo from './AdderDemo.astro';
+import ClosureDemo from './ClosureDemo.astro';
+import CompilerDemo from './CompilerDemo.astro';
+import GcDemo from './GcDemo.astro';
+import JitDemo from './JitDemo.astro';
+import OwnershipDemo from './OwnershipDemo.astro';
+import VmDemo from './VmDemo.astro';
 import AutomatonDemo from './AutomatonDemo.astro';
 import LambdaDemo from './LambdaDemo.astro';
 import PdaDemo from './PdaDemo.astro';
@@ -60,6 +66,12 @@ import Tree from './viz/Tree.astro';
 import Venn from './viz/Venn.astro';
 
 export const components = {
+  ClosureDemo,
+  CompilerDemo,
+  GcDemo,
+  JitDemo,
+  OwnershipDemo,
+  VmDemo,
   Automaton,
   AutomatonDemo,
   LambdaDemo,

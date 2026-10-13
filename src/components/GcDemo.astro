@@ -1,0 +1,153 @@
+---
+// A small heap of objects. The reader drops variables and frees memory by
+// reference counting or by tracing, to see what each can and cannot reclaim.
+import { arrowHead, fit } from './viz/geom';
+import { layoutGraph } from './viz/graph-layout';
+import { heap, refCounts } from '../lib/languages';
+
+const roots = Object.keys(heap.roots);
+const { points, lines, width, height } = layoutGraph(
+  { ...heap.rootAt, ...heap.objects },
+  [...Object.entries(heap.roots), ...heap.refs],
+  true,
+);
+const counts = refCounts(roots, new Set());
+---
+
+<gc-demo class="playground gc-demo">
+  <p class="tries" role="group" aria-label="Collector">
+    <button type="button" data-mode="counting" aria-pressed="true">Reference counting</button>
+    <button type="button" data-mode="tracing" aria-pressed="false">Tracing</button>
+  </p>
+  <div class="viz-scroll">
+    <svg class="viz-svg" viewBox={`0 0 ${width} ${height + 6}`} style={fit(width)} role="img" aria-label="Objects on the heap and the references between them">
+      {
+        lines.map((l) => (
+          <g class="v-gedge" data-from={l.from} data-to={l.to}>
+            <line x1={l.x1} y1={l.y1} x2={l.x2} y2={l.y2} />
+            <polygon points={arrowHead(l.x1, l.y1, l.tip.x, l.tip.y, 9)} />
+          </g>
+        ))
+      }
+      {
+        points.map((p) => (
+          <g class={`v-node ${p.name in heap.roots ? 'root' : ''}`} data-node={p.name}>
+            <rect x={p.x - p.hw} y={p.y - p.r} width={p.hw * 2} height={p.r * 2} rx={p.name in heap.roots ? 4 : p.r} />
+            <text class="v-text" x={p.x} y={p.y}>{p.name}</text>
+            {p.name in heap.objects && <text class="v-small count" x={p.x} y={p.y + p.r + 9}>{counts[p.name]}</text>}
+          </g>
+        ))
+      }
+    </svg>
+  </div>
+  <p class="tries">
+    {roots.map((root) => <button type="button" data-drop={root}>{root} = null</button>)}
+    <button type="button" data-act="collect" hidden>Collect</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Objects in memory</dt><dd data-out="held">{Object.keys(heap.objects).length}</dd></div>
+    <div><dt>Unreachable but not freed</dt><dd data-out="leaked">0</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">The squares are variables. The number under each object is how many references point at it. Set a variable to null.</p>
+</gc-demo>
+
+<script>
+  import { heap, reachable, refCounts, releaseUnreferenced } from '../lib/languages';
+
+  class GcDemo extends HTMLElement {
+    connectedCallback() {
+      const all = Object.keys(heap.objects);
+      let mode = 'counting';
+      let roots = Object.keys(heap.roots);
+      let freed = new Set<string>();
+      let marking = false;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const names = (items: string[]) => items.join(', ').replace(/, ([^,]*)$/, ' and $1');
+
+      const render = (status?: string) => {
+        const live = reachable(roots);
+        const counts = refCounts(roots, freed);
+        const leaked = all.filter((name) => !freed.has(name) && !live.has(name));
+        this.dataset.mode = mode;
+        for (const node of this.querySelectorAll<SVGElement>('[data-node]')) {
+          const name = node.dataset.node!;
+          const gone = freed.has(name) || (name in heap.roots && !roots.includes(name));
+          node.classList.toggle('gone', gone);
+          node.classList.toggle('alt', !gone && leaked.includes(name));
+          node.classList.toggle('hl', marking && live.has(name));
+          const count = node.querySelector('.count');
+          if (count) count.textContent = gone ? '' : String(counts[name]);
+        }
+        for (const edge of this.querySelectorAll<SVGElement>('[data-from]')) {
+          const from = edge.dataset.from!;
+          edge.classList.toggle('gone', freed.has(from) || (from in heap.roots && !roots.includes(from)));
+        }
+        for (const button of this.querySelectorAll<HTMLButtonElement>('[data-drop]')) {
+          button.disabled = !roots.includes(button.dataset.drop!);
+        }
+        for (const button of this.querySelectorAll<HTMLElement>('[data-mode]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.mode === mode));
+        }
+        this.querySelector<HTMLElement>('[data-act="collect"]')!.hidden = mode !== 'tracing';
+        out('held').textContent = String(all.length - freed.size);
+        out('leaked').textContent = String(leaked.length);
+        if (status) out('status').textContent = status;
+        return leaked;
+      };
+
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button || marking) return;
+        if (button.dataset.mode) {
+          mode = button.dataset.mode;
+          roots = Object.keys(heap.roots);
+          freed = new Set();
+          render(
+            mode === 'counting'
+              ? 'Reference counting frees an object the moment its count reaches zero.'
+              : 'A tracing collector does nothing until it runs. Drop a variable, then press Collect.',
+          );
+        } else if (button.dataset.act === 'reset') {
+          roots = Object.keys(heap.roots);
+          freed = new Set();
+          render('Back to the start.');
+        } else if (button.dataset.drop) {
+          roots = roots.filter((root) => root !== button.dataset.drop);
+          if (mode === 'counting') {
+            const before = freed;
+            freed = releaseUnreferenced(roots, freed);
+            const released = [...freed].filter((name) => !before.has(name));
+            const leaked = render();
+            out('status').textContent =
+              (released.length
+                ? `The count of ${released[0]} fell to zero, so it was freed at once. That released ${names(released)}.`
+                : 'No count reached zero, so nothing was freed.') +
+              (leaked.length
+                ? ` ${names(leaked)} can no longer be reached, but no count is zero, because E and F point at each other. This is a leak.`
+                : '');
+          } else {
+            const leaked = render();
+            out('status').textContent = leaked.length
+              ? `${names(leaked)} ${leaked.length === 1 ? 'is' : 'are'} now garbage, in orange. Nothing happens until the collector runs.`
+              : 'Everything is still reachable.';
+          }
+        } else if (button.dataset.act === 'collect') {
+          // Mark, pause so the reader can see it, then sweep.
+          marking = true;
+          const live = reachable(roots);
+          render(`Mark: starting from the variables, follow every reference. ${live.size} ${live.size === 1 ? 'object is' : 'objects are'} reached, in blue.`);
+          setTimeout(() => {
+            marking = false;
+            const swept = all.filter((name) => !live.has(name) && !freed.has(name));
+            freed = new Set(all.filter((name) => !live.has(name)));
+            render(swept.length ? `Sweep: ${names(swept)} ${swept.length === 1 ? 'was' : 'were'} not marked, so ${swept.length === 1 ? 'it is' : 'they are'} freed. Cycles make no difference.` : 'Sweep: every object was marked, so nothing is freed.');
+          }, 1600);
+        }
+      });
+      render();
+    }
+  }
+
+  customElements.define('gc-demo', GcDemo);
+</script>
