@@ -1,0 +1,161 @@
+---
+description: Entropy measures how much information a source produces, in bits, as the average surprise of its messages. It sets a hard limit on lossless compression and gives a common unit for uncertainty, from passwords to machine learning.
+difficulty: intermediate
+---
+
+A weather station in a desert sends one report a day: sunny or rain. It is sunny 99 days in 100. A station in a changeable climate sends the same two words, each half the time.
+
+Both stations send one of two messages, yet they are plainly not telling you the same amount. "Sunny" from the desert is no news at all. From the other station, either word settles a real question.
+
+In 1948 Claude Shannon gave this intuition a number. He called it **entropy**, and it measures information in **bits**.
+
+## Surprise
+
+The information in a message depends on how unlikely it was. Shannon defined the information in an event with probability p as
+
+```
+information = log₂(1 / p)   bits
+```
+
+A certain event, with p = 1, carries 0 bits. An event with probability one half carries 1 bit, which is the answer to one fair yes-or-no question. One in four is 2 bits, and one in a thousand is about 10.
+
+| Event | Probability | Information |
+| --- | --- | --- |
+| Sunny in the desert | 0.99 | 0.014 bits |
+| A fair coin lands heads | 0.5 | 1 bit |
+| A die shows six | 1/6 | 2.58 bits |
+| Rain in the desert | 0.01 | 6.64 bits |
+| A chosen card is the ace of spades | 1/52 | 5.70 bits |
+
+The logarithm makes information add up. Two fair coin flips have four equally likely outcomes, so each has probability one quarter, and log₂ 4 = 2 bits: one bit for each coin. [Probabilities](/foundations/probability/) of independent events multiply, and their information adds.
+
+## The average surprise
+
+**Entropy** is the average information per message, weighting each message by how often it occurs.
+
+```
+H = sum over every message of   p × log₂(1 / p)
+```
+
+For the desert station:
+
+```
+H = 0.99 × 0.014  +  0.01 × 6.64  =  0.081 bits per report
+```
+
+The rare message is very informative, but it is rare. On average each report carries less than a tenth of a bit.
+
+For a source with two messages, entropy depends only on how lopsided the split is.
+
+| Split | Entropy |
+| --- | --- |
+| 50 / 50 | 1 bit |
+| 75 / 25 | 0.811 bits |
+| 90 / 10 | 0.469 bits |
+| 99 / 1 | 0.081 bits |
+| 100 / 0 | 0 bits |
+
+Entropy is highest when every message is equally likely, because that is when the outcome is hardest to predict. With n equally likely messages it is log₂ n bits. Any imbalance lowers it.
+
+## Text as a source
+
+Treat a piece of text as a source that emits characters, with each character's probability taken from how often it appears.
+
+<EntropyDemo />
+
+In `abracadabra` the letter `a` makes up 5 of 11 characters and carries 1.14 bits each time. The single `c` carries 3.46. The average is 2.04 bits per character.
+
+Try the other buttons.
+
+| Text | Entropy per character | Why |
+| --- | --- | --- |
+| `aaaaaaaaaaaa` | 0 bits | one symbol, never a surprise |
+| `abababababab` | 1 bit | two symbols, equally common |
+| `abracadabra` | 2.04 bits | five symbols, unevenly spread |
+| `abcdefghijklmnop` | 4 bits | sixteen symbols, each once |
+
+## The limit on compression
+
+Entropy is not only a description. Shannon's **source coding theorem** says it is a limit.
+
+No lossless code can use fewer bits per symbol, on average, than the entropy of the source. And codes exist that come as close to it as you like.
+
+So `abracadabra`, seen as 11 independent characters, needs at least 11 × 2.04 = 22.4 bits. Stored as [ASCII](/foundations/character-encodings/) it takes 88. [Huffman coding](/information/huffman-coding/) gets it into 23, within one bit of the limit.
+
+The other direction matters as much. Data whose bits are all equally likely and independent has maximum entropy, and nothing can shrink it.
+
+<Aside title="Why no compressor shrinks everything">
+
+There are 2ⁿ files of n bits and only 2ⁿ − 1 files that are shorter. A lossless compressor must map different inputs to different outputs, so by the pigeonhole principle it cannot make every n-bit file shorter. If it shrinks some files, it must grow others. Compressors work because the files people care about are a tiny, highly patterned fraction of all possible files.
+
+</Aside>
+
+This is why compressing a file twice gains nothing, and why encrypted data does not compress. Good compressed output and good ciphertext both look like random bits.
+
+## Order matters
+
+The widget's count has a blind spot. It says `abababababab` needs 1 bit per character, 12 bits in all. But anyone can see the pattern, and "`ab` six times" is far shorter.
+
+The count treats every character as independent of the ones before it. Real sources are not like that. In English, after `q` the next letter is almost certainly `u`. After `th`, an `e` is likely. Knowing what came before makes the next symbol less surprising, so the true entropy is lower.
+
+| Model of English | Bits per letter |
+| --- | --- |
+| 27 symbols, all equally likely | 4.75 |
+| Using letter frequencies | about 4.1 |
+| Using the previous letter as well | about 3.6 |
+| Using whole-word frequencies | 2.1 to 2.6 |
+| Shannon's estimate from people guessing the next letter | 1.0 to 1.5 |
+
+So the entropy of a source depends on the model used to predict it. A better predictor finds lower entropy and makes a better compressor. [Lempel-Ziv compression](/information/lempel-ziv-compression/) exploits repeated strings. The strongest text compressors use a language model to predict each next symbol, and the two problems, prediction and compression, turn out to be the same problem.
+
+## Why it is called entropy
+
+The formula has the same form as entropy in thermodynamics, which counts how many microscopic arrangements of particles are consistent with what can be observed. Both measure what is not known. The story goes that John von Neumann suggested the name to Shannon for that reason, adding that nobody really understands entropy, so in a debate he would always have the advantage.
+
+## Costs
+
+<Ops items={[
+  ['Compute entropy of n symbols', 'O(n)', 'one pass to count, one to sum'],
+  ['Fair coin', '1 bit', 'the unit'],
+  ['English text', '~1.3 bits/letter', 'with a good model'],
+  ['Random bytes', '8 bits/byte', 'incompressible'],
+]} />
+
+## Implementation
+
+```python
+from collections import Counter
+from math import log2
+
+def entropy(text):
+    counts = Counter(text)
+    return sum(count / len(text) * log2(len(text) / count)
+               for count in counts.values())
+
+entropy('abracadabra')          # 2.040
+entropy('abababababab')         # 1.0
+entropy('aaaaaaaaaaaa')         # 0.0
+```
+
+## Where it is used
+
+**Compression.** Entropy is the target. A format is judged by how close it gets.
+
+**Passwords and keys.** The strength of a secret is the entropy of the process that chose it. A password picked at random from 2⁴⁰ possibilities has 40 bits and takes about 2³⁹ guesses to find, as on the [password hashing](/security/password-hashing/) page. A password a person made up has far less than its length suggests, because people are predictable.
+
+**Random number generators.** An operating system gathers unpredictable events, such as interrupt timings, into an entropy pool and uses it to seed the generators that produce cryptographic keys.
+
+**Machine learning.** A decision tree chooses the question that reduces entropy the most at each split. Classifiers and language models are trained by minimising **cross-entropy**: the average number of bits the model would need to encode the right answers. A model that predicts well is surprised less.
+
+**Communication.** Shannon's second theorem gives every noisy channel a **capacity** in bits per second. Below that rate, [error-correcting codes](/information/error-correcting-codes/) can make errors as rare as you like. Above it, they cannot.
+
+**Detecting packed or encrypted data.** Security tools measure the entropy of a file's bytes. A section close to 8 bits per byte is compressed or encrypted, which is a clue when it turns up inside a program.
+
+## Key takeaways
+
+- The information in an event is log₂(1/p) bits. Unlikely events carry more.
+- Entropy is the average information per message from a source. It is highest when all messages are equally likely.
+- No lossless compressor can beat the entropy of the source on average, and good ones approach it.
+- Random data has maximum entropy and cannot be compressed.
+- The measured entropy depends on the model. Using context lowers it, which is why prediction and compression are the same task.
+- The same quantity measures password strength, the quality of a prediction and the capacity of a channel.
