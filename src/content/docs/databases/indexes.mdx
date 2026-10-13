@@ -1,0 +1,142 @@
+---
+description: An index is a separate, sorted structure that lets a database find rows by the value of a column without reading the whole table. It makes reads dramatically faster and every write slightly slower.
+difficulty: intermediate
+---
+
+A table is stored in no useful order, usually the order in which rows happened to be inserted. To find the rows where `age = 41`, a database with nothing else to go on must read every row and check. That is a **full table scan**. For a table of a hundred rows it is instant. For a hundred million it takes minutes.
+
+An **index** solves this the way the index at the back of a book does. It is a second structure, kept beside the table, that lists the values of a column in sorted order with a pointer from each to its row.
+
+## Scan against lookup
+
+Twelve people, stored in the order they signed up, and an index on their ages. Search for an age.
+
+<IndexDemo />
+
+Without the index, all twelve rows are examined, because the table gives no hint where a 41-year-old might be, or whether there is more than one.
+
+With the index, the ages are sorted, so a [binary search](/algorithms/binary-search/) applies: look in the middle, discard the half that cannot contain the answer, repeat. Three or four index entries are examined, and then one row is fetched directly.
+
+The gap widens with size, since a scan grows in step with the table and a search grows with its logarithm.
+
+| Rows | Scan reads | Sorted search reads |
+| --- | --- | --- |
+| 1,000 | 1,000 | 10 |
+| 1,000,000 | 1,000,000 | 20 |
+| 1,000,000,000 | 1,000,000,000 | 30 |
+
+## B-trees
+
+A real index is not a sorted array. Inserting into the middle of an array means moving everything after it, and a database is written to constantly.
+
+The standard structure is the [B-tree](/data-structures/b-trees/), in practice its variant the [B+ tree](/data-structures/b-plus-trees/). It is a search tree in which each node is one disk page holding hundreds of keys, so each node has hundreds of children.
+
+<Tree btree linkLeaves leafOnly root={{ k: [30, 46], c: [[19, 21, 23, 27], [30, 34, 38, 41], [46, 52, 58, 65]] }} highlight={[41]} caption="The ages from the widget as a small B+ tree. The root says which leaf to read: 41 lies between 30 and 46, so it is in the middle leaf. The leaves are chained together in order." />
+
+Because every node fans out so widely, the tree is very shallow. With a few hundred keys in each node, three levels cover millions of rows and four cover billions. Finding one row costs three or four page reads, and the top levels are almost always already in memory.
+
+The chain between leaves gives a second ability that matters as much as lookup. Having found the first matching entry, the database walks along the leaves to read every key in a **range**, in order.
+
+| Query | How a B-tree index helps |
+| --- | --- |
+| `WHERE age = 41` | descend to the entry |
+| `WHERE age BETWEEN 30 AND 40` | descend to 30, then walk along the leaves |
+| `WHERE age > 60` | descend to 60, walk to the end |
+| `ORDER BY age` | read the leaves in order, with no sorting |
+| `ORDER BY age LIMIT 10` | read the first ten leaf entries and stop |
+| `MIN(age)`, `MAX(age)` | read one end of the tree |
+| `WHERE name LIKE 'Sm%'` | a range: everything from `Sm` to just before `Sn` |
+| `WHERE name LIKE '%son'` | no help, since the start is unknown |
+
+## Costs
+
+<Ops items={[
+  ['Lookup by key', 'O(log n)', 'three or four page reads'],
+  ['Range of k rows', 'O(log n + k)', 'descend once, then walk'],
+  ['Insert, update, delete', 'O(log n)', 'for each index on the table'],
+  ['Full scan, no index', 'O(n)', 'every page of the table'],
+]} />
+
+An index is not free.
+
+**Every write maintains every index.** Inserting a row into a table with five indexes means six writes. Updating an indexed column means removing the old entry and adding the new one. Tables that are written far more than they are read should have few indexes.
+
+**Indexes take space.** An index is a copy of its columns, plus pointers. A heavily indexed table can have more index than data.
+
+**They compete for memory.** An index helps most when its upper levels are cached. Many indexes means less memory for each.
+
+The useful question is which queries actually run, and indexing those. Indexing every column is nearly always a mistake.
+
+## Indexes on several columns
+
+A **composite index** covers several columns in a stated order, such as (`city`, `age`). Its entries are sorted by city, and within each city by age, like a phone book sorted by surname and then first name.
+
+That ordering decides which queries it can serve.
+
+| Query | Uses an index on (`city`, `age`)? |
+| --- | --- |
+| `WHERE city = 'London'` | yes |
+| `WHERE city = 'London' AND age = 41` | yes, fully |
+| `WHERE city = 'London' AND age > 30` | yes, fully |
+| `WHERE age = 41` | no, ages are scattered across every city |
+| `WHERE city > 'L' AND age = 41` | only the city part |
+
+This is the **leftmost prefix rule**. A phone book finds everyone called Smith quickly and is useless for finding everyone called John.
+
+The guideline for column order is to put columns tested for equality first and a column tested for a range last.
+
+## Covering indexes
+
+After finding an entry, the database normally makes a second trip, to the table, to fetch the rest of the row. If the index already holds every column the query needs, that trip is skipped. Such an index **covers** the query, which is then answered from the index alone.
+
+```sql
+CREATE INDEX people_city_age ON people (city, age);
+
+SELECT age FROM people WHERE city = 'London';      -- never touches the table
+```
+
+The saving can be large, because the fetches from the table are scattered random reads, one for each matching row.
+
+## Clustered and secondary
+
+In some databases the table itself is stored as a B-tree ordered by primary key, with the full rows in the leaves. That is a **clustered index**. MySQL's InnoDB works this way. Looking a row up by primary key is a single descent, and rows with neighbouring keys sit physically together.
+
+Every other index is a **secondary index**. Its leaves hold the indexed columns and a reference to the row. In InnoDB the reference is the primary key, so a secondary lookup is two descents. PostgreSQL stores rows in an unordered heap, and all its indexes point at a physical location.
+
+A table can be clustered in only one order, since the rows can only be laid out one way.
+
+## When an index is not used
+
+Having an index does not mean the database will use it.
+
+**A function is applied to the column.** `WHERE LOWER(email) = 'a@b.c'` cannot use an index on `email`, because the index is sorted by the original values. The same applies to arithmetic on the column and to implicit type conversions. The fix is to index the expression itself, or to rewrite the condition so the bare column is on one side.
+
+**Too many rows match.** If a condition matches a third of the table, following the index means a third of a million random reads. Reading the whole table in order is faster. The [query planner](/databases/query-planning/) estimates this and deliberately ignores the index. Indexing a column with only a few distinct values, such as a yes or no flag, rarely helps for that reason.
+
+**The leading column is missing.** As in the leftmost prefix rule.
+
+**Statistics are stale.** The planner works from estimates of the data, and misjudges if they are out of date.
+
+`EXPLAIN` shows whether a query used an index.
+
+## Other kinds of index
+
+| Kind | Good for | Not for |
+| --- | --- | --- |
+| B-tree | equality, ranges, sorting | searching inside text |
+| [Hash](/data-structures/hash-tables/) | equality only, slightly faster | ranges or ordering |
+| Inverted index | which documents contain a word: full-text search | |
+| Spatial, such as an R-tree | points within a region | |
+| [Bloom filter](/data-structures/bloom-filters/) | quickly ruling out files that cannot contain a key | saying where the key is |
+| Bitmap | columns with few distinct values, in analytics | frequently updated tables |
+
+A **unique index** also enforces a rule: no two rows may share a value. Primary keys and `UNIQUE` constraints are implemented this way. A **partial index** covers only rows meeting a condition, such as unshipped orders, which keeps it small.
+
+## Key takeaways
+
+- An index is a sorted copy of one or more columns with pointers to the rows, letting the database find rows without scanning the table.
+- Most indexes are B+ trees: shallow, with wide nodes, giving lookups in three or four page reads and efficient range scans.
+- Indexes speed up reads and slow down writes, and take space. Index the queries that actually run.
+- A composite index serves queries on its leading columns only.
+- An index that contains every column a query needs can answer it without touching the table.
+- The planner ignores an index when a function hides the column or when too many rows match.
