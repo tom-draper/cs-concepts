@@ -1,0 +1,121 @@
+---
+description: An NP-complete problem is one of the hardest problems in NP, in the sense that a fast algorithm for it would give a fast algorithm for every problem in NP. Recognising one tells you to stop looking for a perfect, efficient solution.
+difficulty: advanced
+---
+
+You are asked to write a scheduler, a route planner or a packing tool. The small cases work. The large ones take hours, and every idea for speeding them up seems to hit a wall.
+
+There are two explanations. Either you have not found the right algorithm yet, or there is no right algorithm to find. The theory of **NP-completeness** often lets you tell which, by showing that your problem is equivalent to one that thousands of people have failed to solve efficiently for fifty years.
+
+## Satisfiability
+
+The original NP-complete problem is about logic. Given a formula built from true-or-false variables, is there a way to set the variables that makes the whole formula true?
+
+This is **SAT**, the Boolean satisfiability problem. In the standard form the formula is a list of **clauses** that must all hold. Each clause is a few variables or their negations joined by "or", written `∨`, with `¬` meaning "not". When every clause has exactly three of them, the problem is **3-SAT**.
+
+Try to make all seven clauses true.
+
+<SatDemo />
+
+A clause holds if at least one of its three parts is true. Fixing one clause tends to break another, because the same variable appears in several, negated in some and not in others.
+
+Checking a proposed assignment is easy: look at each clause once. So SAT is in [NP](/theory/p-vs-np/). Finding an assignment by brute force means trying up to 2ⁿ of them for n variables. Here that is 16. For a formula with 300 variables it is more than the number of atoms in the observable universe.
+
+## The definition
+
+A problem is **NP-complete** if two things are true.
+
+1. It is in NP: a proposed solution can be checked in polynomial time.
+2. It is **NP-hard**: every problem in NP can be converted into it in polynomial time.
+
+The conversion in the second condition is a [reduction](/theory/reductions/). It turns any instance of the other problem into an instance of this one, so that the answers agree. If this problem could be solved quickly, so could the other, by converting and then solving.
+
+So an NP-complete problem is a hardest problem in NP. A polynomial algorithm for just one of them would give a polynomial algorithm for all of NP, and would prove P = NP.
+
+## The first one
+
+The second condition looks impossible to establish. NP contains infinitely many problems, including ones nobody has thought of. How could all of them be converted into a single problem?
+
+The **Cook-Levin theorem** of 1971 did it for SAT. The argument uses the definition of NP directly. A problem is in NP if some program checks certificates in polynomial time. A program running for a limited number of steps on a real machine is a limited amount of [logic circuitry](/architecture/logic-gates/) unrolled through time, and a circuit is a Boolean formula. So the question "is there a certificate this checker accepts?" can be written out as "is there an assignment that satisfies this formula?".
+
+That makes SAT at least as hard as everything in NP at once.
+
+## Then thousands more
+
+After the first, the rest are far easier. To show a new problem is NP-hard, it is enough to reduce one known NP-complete problem to it, because reductions chain together. If everything in NP converts to SAT, and SAT converts to your problem, then everything in NP converts to your problem.
+
+In 1972 Richard Karp used this to show 21 well-known problems were NP-complete. The list now runs to thousands, from every area of computing.
+
+| Problem | The question |
+| --- | --- |
+| 3-SAT | Can these three-part clauses all be satisfied? |
+| Subset sum | Do some of these numbers add up to the target? |
+| Knapsack | Can items worth at least v fit within weight w? |
+| Graph colouring | Can the vertices be given 3 colours with no edge joining two of the same colour? |
+| Clique | Are there k vertices that are all joined to each other? |
+| Vertex cover | Are there k vertices that between them touch every edge? |
+| Hamiltonian cycle | Is there a tour that visits every vertex exactly once? |
+| Travelling salesman | Is there a tour of every city with total length under k? |
+| Bin packing | Do these items fit into k bins? |
+| Job scheduling | Can these jobs meet their deadlines on k machines? |
+
+They look unrelated. Formally they are one problem in different notations. An efficient algorithm for any row of the table would solve every row.
+
+Generalised versions of many puzzles are on the list too, including sudoku on larger grids.
+
+## Easy problems with hard neighbours
+
+NP-complete problems often sit right beside problems that are easy. The difference in wording can be a single number.
+
+| Easy, in P | NP-complete |
+| --- | --- |
+| 2-SAT: clauses of two parts | 3-SAT: clauses of three |
+| Colour a graph with 2 colours | Colour a graph with 3 colours |
+| Shortest path between two vertices | Longest simple path between two vertices |
+| A tour using every **edge** once (Euler) | A tour visiting every **vertex** once (Hamilton) |
+| [Minimum spanning tree](/algorithms/minimum-spanning-trees/) | Shortest tour through every vertex |
+| Pair people up so everyone has a partner | Group people into compatible threes |
+| Linear programming with fractional answers | Linear programming with whole-number answers |
+
+There is no simple rule for which side a problem falls on, which is why it helps to know the standard examples. A problem that feels like "choose a subset", "find an ordering" or "assign one of several options to everything, subject to conflicts" deserves suspicion.
+
+## NP-hard and NP-complete
+
+The two terms are often mixed up.
+
+| Term | In NP? | At least as hard as all of NP? |
+| --- | --- | --- |
+| NP | yes | not necessarily |
+| NP-hard | not necessarily | yes |
+| NP-complete | yes | yes |
+
+NP-complete means both conditions hold. NP-hard means only the second, so it includes problems harder than anything in NP, even undecidable ones such as the [halting problem](/theory/the-halting-problem/).
+
+Optimisation problems are usually called NP-hard. "Find the shortest tour" is not a yes or no question, so it is not in NP as defined. Its decision version, "is there a tour shorter than k?", is NP-complete, and the two are equally hard in practice.
+
+## What to do about one
+
+A proof of NP-completeness does not make the problem go away. It tells you which goal to give up. You cannot have an algorithm that is fast, exact and works on every input, unless P = NP. You can usually have two of the three.
+
+**Give up "every input".** Real instances are often small or structured. Brute force with [backtracking](/algorithms/backtracking/) and good pruning is fine for 20 items. Special cases can be easy: graph colouring is trivial on trees, and scheduling on one machine is often simple.
+
+**Give up "exact".** An **approximation algorithm** runs fast and guarantees an answer within a known factor of the best. Vertex cover has a simple one that is never worse than twice the optimum. The travelling salesman problem has one within a factor of 1.5, provided a direct trip is never longer than a detour. [Greedy](/algorithms/greedy-algorithms/) heuristics, local search and simulated annealing offer no guarantee but work well in practice.
+
+**Give up "fast", carefully.** [Dynamic programming](/algorithms/dynamic-programming/) solves knapsack and subset sum in time proportional to the number of items times the target value. That is quick when the numbers are small. It does not contradict NP-completeness, because the target can be exponentially large compared with the number of digits needed to write it down. This is called **pseudo-polynomial** time.
+
+**Use a solver.** Modern SAT solvers routinely handle industrial formulas with millions of variables, despite the worst case. They are used to verify processors, check software and solve package dependencies. Since every NP problem converts to SAT, translating your problem into a formula and calling a solver is often the most practical route. Integer programming solvers fill the same role for numerical problems.
+
+<Aside type="tip" title="Worst case is not typical case">
+
+NP-completeness is a statement about the hardest instances of a problem as the size grows. It says nothing about the instance in front of you. Many NP-complete problems are easy on almost every input that arises in practice.
+
+</Aside>
+
+## Key takeaways
+
+- A problem is NP-complete if it is in NP and every problem in NP reduces to it in polynomial time.
+- SAT was the first, by the Cook-Levin theorem. Thousands more have followed by chains of reductions.
+- All NP-complete problems are equivalent: a polynomial algorithm for one would be a polynomial algorithm for all, and would prove P = NP.
+- NP-hard means at least as hard as NP, without having to be in NP.
+- Small changes to a problem can move it between easy and NP-complete.
+- In practice the response is to exploit small or special inputs, accept approximate answers, or hand the problem to a SAT or integer programming solver.
