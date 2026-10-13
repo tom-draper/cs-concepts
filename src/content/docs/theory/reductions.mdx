@@ -1,0 +1,162 @@
+---
+description: A reduction converts one problem into another so that a solution to the second gives a solution to the first. It is how new algorithms are built from old ones, and how problems are proved to be hard or impossible.
+difficulty: advanced
+---
+
+Programmers rarely solve a problem from nothing. They turn it into one that has already been solved. To find the median of a list, sort it and take the middle. To find duplicates, put everything in a [hash table](/data-structures/hash-tables/).
+
+A **reduction** is that move made precise. Problem A reduces to problem B if any instance of A can be converted into an instance of B whose answer gives the answer to A. It is the main tool of complexity theory, and it works in two directions: it can show that a problem is easy, and it can show that a problem is hard.
+
+## The shape of a reduction
+
+A reduction from A to B is a conversion with two properties.
+
+1. It is cheap to carry out, usually meaning polynomial time.
+2. It preserves the answer: the instance of A is a "yes" exactly when the converted instance of B is a "yes".
+
+With such a conversion and a solver for B, you have a solver for A.
+
+```python
+def solve_a(instance):
+    return solve_b(convert(instance))
+```
+
+The notation is A ≤ B, read as "A is no harder than B". Whatever B costs, A costs at most that plus the conversion.
+
+## Two conclusions from one fact
+
+The statement "A reduces to B" can be used in two ways, and they point in opposite directions.
+
+| If you know | You can conclude |
+| --- | --- |
+| B is easy | A is easy |
+| A is hard | B is hard |
+
+The first is how algorithms are designed. The second is how hardness is proved: if B had a fast algorithm, the reduction would hand A a fast algorithm too, and A is known or believed not to have one.
+
+<Aside type="warning" title="The direction is easy to get backwards">
+
+To show your problem is hard, reduce a **known hard problem to yours**, not yours to it. Reducing your problem to SAT shows only that SAT can solve it, which is true of every problem in NP, the easy ones included.
+
+</Aside>
+
+## Reducing to something easy
+
+Suppose there are workers and jobs, each worker is qualified for some of the jobs, and each job needs one worker. What is the largest number of jobs that can be filled?
+
+This is bipartite matching. It can be solved by converting it into a [maximum flow](/algorithms/maximum-flow/) problem. Add a source with a pipe to every worker, a sink with a pipe from every job, and a pipe from each worker to each job they can do, all with capacity 1.
+
+<Graph
+  directed
+  nodes={{ source: [0, 1], Ann: [1.6, 0], Bob: [1.6, 1], Cy: [1.6, 2], paint: [3.4, 0], wire: [3.4, 1], tile: [3.4, 2], sink: [5, 1] }}
+  edges={[['source', 'Ann'], ['source', 'Bob'], ['source', 'Cy'], ['Ann', 'paint'], ['Ann', 'wire'], ['Bob', 'paint'], ['Cy', 'wire'], ['Cy', 'tile'], ['paint', 'sink'], ['wire', 'sink'], ['tile', 'sink']]}
+  path={[['source', 'Ann'], ['Ann', 'wire'], ['wire', 'sink'], ['source', 'Bob'], ['Bob', 'paint'], ['paint', 'sink'], ['source', 'Cy'], ['Cy', 'tile'], ['tile', 'sink']]}
+  caption="Every pipe carries at most one unit. A flow of 3 from source to sink uses three worker-to-job pipes that share no worker and no job, which is a matching of size 3."
+/>
+
+Each unit of flow passes through one worker and one job, and the capacities stop any worker or job being used twice. So the maximum flow equals the maximum matching. No new algorithm was needed, only a way of drawing the problem.
+
+A great deal of algorithm design is this. Many scheduling and assignment problems become flows. Many optimisation problems become shortest paths in a suitable [graph](/foundations/graph-theory/). Problems about ordering become [topological sorts](/algorithms/topological-sort/).
+
+## Two problems that are one
+
+Two graph problems show how close a reduction can be.
+
+An **independent set** is a set of vertices with no edge between any two of them. A **vertex cover** is a set of vertices that touches every edge.
+
+<Graph
+  nodes={{ A: [0, 0], B: [0, 1.4], C: [1.2, 0.7], D: [2.5, 0.7], E: [3.8, 0.7] }}
+  edges={[['A', 'B'], ['A', 'C'], ['B', 'C'], ['C', 'D'], ['D', 'E']]}
+  highlight={['A', 'D']}
+  alt={['B', 'C', 'E']}
+  caption="A and D, in blue, are independent: no edge joins them. Everything else, in orange, is a vertex cover: every edge has an orange end."
+/>
+
+These are complements. If no edge has both ends inside a set, then every edge has at least one end outside it, and the reverse. So a graph with n vertices has an independent set of size k exactly when it has a vertex cover of size n − k.
+
+The conversion does nothing to the graph. It only changes the number in the question. Each problem reduces to the other, so they are equally hard.
+
+## Reducing from something hard
+
+The interesting reductions connect problems that look nothing alike. This one converts 3-SAT, a problem about logic formulas described on the [NP-completeness](/theory/np-completeness/) page, into independent set, a problem about graphs.
+
+Take a formula with three clauses.
+
+```
+(a ∨ b ∨ c)  ∧  (¬a ∨ ¬b ∨ d)  ∧  (¬c ∨ ¬d ∨ e)
+```
+
+Build a graph from it with two rules.
+
+- Each clause becomes a triangle, with one vertex per part.
+- Join every vertex to its contradiction: `a` to `¬a`, `b` to `¬b` and so on.
+
+Then ask: is there an independent set with one vertex for each clause, which here means size 3?
+
+<Graph
+  nodes={{ a: [1.2, 0], b: [1.2, 1.2], c: [0, 0.6], '¬a': [3, 0], '¬b': [3, 1.2], d: [4.2, 0.6], '¬c': [1.2, 2.6], '¬d': [3, 2.6], e: [2.1, 3.5] }}
+  edges={[['a', 'b'], ['b', 'c'], ['a', 'c'], ['¬a', '¬b'], ['¬b', 'd'], ['¬a', 'd'], ['¬c', '¬d'], ['¬d', 'e'], ['¬c', 'e'], ['a', '¬a'], ['b', '¬b'], ['c', '¬c'], ['d', '¬d']]}
+  highlight={['a', 'd', 'e']}
+  caption="Three triangles for three clauses, plus an edge between each pair of opposites. The blue vertices are an independent set of size 3."
+/>
+
+The two rules encode the two requirements of the formula.
+
+**The triangles** allow at most one vertex to be chosen from each clause. With three clauses and a set of size three, exactly one is chosen from each. That vertex is the part that makes its clause true.
+
+**The contradiction edges** stop the set containing both `a` and `¬a`. So the choices never demand that a variable be true and false at once.
+
+The blue set picks `a`, `d` and `e`. Set those three variables to true and each clause has a true part. In the other direction, any satisfying assignment gives an independent set: pick one true part from each clause.
+
+So the formula is satisfiable exactly when the graph has an independent set of that size. The graph has three vertices per clause and is quick to build. If independent set had a polynomial algorithm, 3-SAT would have one too. Since 3-SAT is NP-complete, independent set is NP-hard, and so is vertex cover by the previous section.
+
+The little structures that stand in for parts of the original problem, here the triangles and the contradiction edges, are called **gadgets**. Designing them is the creative part of a hardness proof.
+
+## Chains
+
+Reductions compose. If A reduces to B and B reduces to C, then A reduces to C, by doing one conversion after the other.
+
+This is why there are thousands of known NP-complete problems. Each was proved hard by one reduction from a problem already on the list, and all the chains lead back to SAT.
+
+<Graph
+  directed
+  nodes={{ SAT: [1.5, 0], '3-SAT': [1.5, 1], 'independent set': [0, 2], 'subset sum': [3.2, 2], 'vertex cover': [0, 3], clique: [1.7, 3], knapsack: [3.2, 3] }}
+  edges={[['SAT', '3-SAT'], ['3-SAT', 'independent set'], ['3-SAT', 'subset sum'], ['independent set', 'vertex cover'], ['independent set', 'clique'], ['subset sum', 'knapsack']]}
+  caption="A small part of the family tree. An arrow from A to B means A reduces to B, so B is at least as hard as A."
+/>
+
+## Proving things impossible
+
+The same technique works for undecidability, with "solvable at all" in place of "solvable quickly".
+
+Suppose you wanted a tool that reads a program and reports whether it will ever print `hello`. Here is a reduction from the [halting problem](/theory/the-halting-problem/) to that question. Given any program and its input, build a new program.
+
+```python
+def wrapper():
+    run_silently(program, data)      # may or may not finish
+    print('hello')
+```
+
+The wrapper prints `hello` exactly when the original program halts. So a tool that could detect printing could decide halting, which is impossible. Therefore no such tool exists.
+
+Nearly every proof that a question about programs is undecidable has this shape: wrap an arbitrary program so that the behaviour you are asking about happens only if it finishes.
+
+## Checking a reduction
+
+A hardness proof has four parts, and the common mistakes each miss one.
+
+| Step | The mistake |
+| --- | --- |
+| Start from a problem known to be hard | starting from your own problem, which reverses the direction |
+| Give a conversion that runs in polynomial time | a conversion that produces an exponentially large instance |
+| Show a "yes" becomes a "yes" | |
+| Show a "no" becomes a "no" | proving only one direction, so some answers are not preserved |
+
+## Key takeaways
+
+- A reduction from A to B converts instances of A into instances of B with the same answer, so a solver for B also solves A.
+- "A reduces to B" means A is no harder than B. If B is easy, so is A. If A is hard, so is B.
+- Reducing to a solved problem, such as maximum flow, shortest paths or sorting, is an everyday way to design algorithms.
+- To prove a problem is NP-hard, reduce a known NP-complete problem to it, not the other way round.
+- Reductions chain together, which is how one hard problem became thousands.
+- The same method, starting from the halting problem, proves that problems are undecidable.
