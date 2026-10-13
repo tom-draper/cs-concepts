@@ -1,0 +1,81 @@
+---
+// Reduces a lambda calculus term one beta step at a time, leftmost redex first.
+import { reduceLambda } from '../lib/theory';
+
+interface Props {
+  term?: string;
+}
+
+const { term = '(λx.λy.x) a b' } = Astro.props;
+const tries = [
+  ['identity', '(λx.x) a'],
+  ['pick the first', '(λx.λy.x) a b'],
+  ['true AND false', '(λp.λq.p q p) (λx.λy.x) (λx.λy.y)'],
+  ['successor of 2', '(λn.λf.λx.f (n f x)) (λf.λx.f (f x))'],
+  ['2 + 1', '(λm.λn.λf.λx.m f (n f x)) (λf.λx.f (f x)) (λf.λx.f x)'],
+  ['renaming', '(λx.λy.x) y'],
+  ['never finishes', '(λx.x x) (λx.x x)'],
+];
+const first = reduceLambda(term);
+---
+
+<lambda-demo class="playground lambda-demo">
+  <label>Term <input value={term} maxlength="90" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map(([name, value]) => <button type="button" data-term={value}>{name}</button>)}
+  </p>
+  <ol class="reductions" start="0" data-out="steps">{first.steps.map((step) => <li><code>{step}</code></li>)}</ol>
+  <p class="hint" data-out="status" aria-live="polite">Type <code>\</code> for λ. Each line is one substitution.</p>
+</lambda-demo>
+
+<script>
+  import { reduceLambda } from '../lib/theory';
+
+  class LambdaDemo extends HTMLElement {
+    connectedCallback() {
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const list = this.querySelector('[data-out="steps"]')!;
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = () => {
+        try {
+          const { steps, done } = reduceLambda(field.value);
+          list.replaceChildren(
+            ...steps.map((step) => {
+              const item = document.createElement('li');
+              item.append(Object.assign(document.createElement('code'), { textContent: step }));
+              return item;
+            }),
+          );
+          const count = steps.length - 1;
+          status.textContent = !done
+            ? `Still reducing after ${count} steps. This term may have no normal form.`
+            : count === 0
+              ? 'Already in normal form: there is no function applied to an argument anywhere in it.'
+              : `Normal form reached in ${count} ${count === 1 ? 'step' : 'steps'}.`;
+        } catch (error) {
+          list.replaceChildren();
+          status.textContent = `Not a valid term. ${(error as Error).message}`;
+        }
+      };
+      field.addEventListener('input', () => {
+        // Let the reader type a backslash and see a lambda.
+        if (field.value.includes('\\')) {
+          const at = field.selectionStart;
+          field.value = field.value.replaceAll('\\', 'λ');
+          field.setSelectionRange(at, at);
+        }
+        render();
+      });
+      this.addEventListener('click', (event) => {
+        const term = (event.target as HTMLElement).closest<HTMLElement>('[data-term]')?.dataset.term;
+        if (!term) return;
+        field.value = term;
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('lambda-demo', LambdaDemo);
+</script>

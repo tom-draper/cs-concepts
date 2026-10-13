@@ -1,0 +1,53 @@
+---
+import Figure from './Figure.astro';
+import { fit } from './geom';
+import { layoutAutomaton } from './automaton-layout';
+import { machines, type Machine, type MachineName } from '../../lib/theory';
+
+interface Props {
+  /** A machine from src/lib/theory.ts by name, or one written out in full. */
+  machine: MachineName | Machine;
+  /** States the machine is in now. */
+  active?: string[];
+  alt?: string[];
+  caption?: string;
+  label?: string;
+}
+
+const { machine: given, active = [], alt = [], caption, label } = Astro.props;
+const machine: Machine = typeof given === 'string' ? machines[given] : given;
+const { points, arrows, entry, width, viewBox } = layoutAutomaton(machine);
+---
+
+<Figure caption={caption}>
+  <svg
+    class="viz-svg automaton"
+    viewBox={viewBox}
+    style={fit(width)}
+    role="img"
+    aria-label={label ?? `State diagram with ${points.length} states, starting in ${machine.start} and accepting in ${machine.accept.join(', ')}`}
+  >
+    <g class="v-gedge">
+      <line x1={entry.x1} y1={entry.y} x2={entry.x2} y2={entry.y}></line>
+      <polygon points={entry.head}></polygon>
+    </g>
+    {
+      arrows.map((arrow) => (
+        <g class="v-gedge" data-from={arrow.from} data-to={arrow.to} data-reads={arrow.label}>
+          <path d={arrow.d} />
+          <polygon points={arrow.head} />
+          <text class="v-sym" x={arrow.lx} y={arrow.ly}>{arrow.label}</text>
+        </g>
+      ))
+    }
+    {
+      points.map((p) => (
+        <g class={`v-node ${active.includes(p.name) ? 'hl' : alt.includes(p.name) ? 'alt' : ''}`} data-state={p.name}>
+          <rect x={p.x - p.r} y={p.y - p.r} width={p.r * 2} height={p.r * 2} rx={p.r} />
+          {p.accept && <rect class="inner" x={p.x - p.r + 4} y={p.y - p.r + 4} width={p.r * 2 - 8} height={p.r * 2 - 8} rx={p.r - 4} />}
+          <text class="v-text" x={p.x} y={p.y}>{p.name}</text>
+        </g>
+      ))
+    }
+  </svg>
+</Figure>

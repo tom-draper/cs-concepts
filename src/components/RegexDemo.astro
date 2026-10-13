@@ -1,0 +1,83 @@
+---
+// Compiles a regular expression to an NFA in the browser and runs it on a line
+// of text, reporting how big the NFA and the equivalent DFA are.
+interface Props {
+  pattern?: string;
+  text?: string;
+}
+
+const { pattern = 'colou?r', text = 'what colour is it' } = Astro.props;
+const tries = [
+  ['colou?r', 'what colour is it'],
+  ['(ab)+', 'xababab'],
+  ['b(a|e|i)*t', 'a bit of a beat'],
+  ['(a|b)*a(a|b)(a|b)(a|b)', 'abbabab'],
+  ['(a+', 'aaa'],
+];
+---
+
+<regex-demo class="playground regex-demo">
+  <label>Pattern <input data-in="pattern" value={pattern} maxlength="40" spellcheck="false" autocomplete="off" /></label>
+  <label>Text <input data-in="text" value={text} maxlength="60" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {tries.map(([p, t]) => <button type="button" data-pattern={p} data-text={t}>{p}</button>)}
+  </p>
+  <p class="found" data-out="found" aria-live="polite">{text}</p>
+  <dl class="readouts">
+    <div><dt>Whole text matches</dt><dd data-out="whole">-</dd></div>
+    <div><dt>NFA states</dt><dd data-out="nfa">-</dd></div>
+    <div><dt>DFA states</dt><dd data-out="dfa">-</dd></div>
+  </dl>
+  <p class="hint" data-out="status" aria-live="polite">Supports letters, <code>.</code> <code>|</code> <code>*</code> <code>+</code> <code>?</code> and brackets.</p>
+</regex-demo>
+
+<script>
+  import { compileRegex, dfaSize, regexFind, regexMatches } from '../lib/theory';
+
+  class RegexDemo extends HTMLElement {
+    connectedCallback() {
+      const pattern = this.querySelector<HTMLInputElement>('[data-in="pattern"]')!;
+      const text = this.querySelector<HTMLInputElement>('[data-in="text"]')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const render = () => {
+        const found = out('found');
+        try {
+          const nfa = compileRegex(pattern.value);
+          const span = regexFind(nfa, text.value);
+          if (span) {
+            const mark = document.createElement('mark');
+            mark.textContent = text.value.slice(span[0], span[1]);
+            found.replaceChildren(text.value.slice(0, span[0]), mark, text.value.slice(span[1]));
+          } else {
+            found.textContent = text.value;
+          }
+          const size = dfaSize(nfa);
+          out('whole').textContent = regexMatches(nfa, text.value) ? 'yes' : 'no';
+          out('nfa').textContent = String(nfa.free.length);
+          out('dfa').textContent = size >= 5000 ? 'over 5000' : String(size);
+          out('status').textContent = !span
+            ? 'No part of the text matches.'
+            : span[0] === span[1]
+              ? 'The pattern matches the empty string, so it matches at the very start without reading anything.'
+              : `The leftmost match is highlighted: characters ${span[0] + 1} to ${span[1]}.`;
+        } catch (error) {
+          found.textContent = text.value;
+          for (const name of ['whole', 'nfa', 'dfa']) out(name).textContent = '-';
+          out('status').textContent = `Not a valid pattern. ${(error as Error).message}`;
+        }
+      };
+      this.addEventListener('input', render);
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest<HTMLElement>('[data-pattern]');
+        if (!button) return;
+        pattern.value = button.dataset.pattern!;
+        text.value = button.dataset.text!;
+        render();
+      });
+      render();
+    }
+  }
+
+  customElements.define('regex-demo', RegexDemo);
+</script>

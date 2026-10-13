@@ -2477,3 +2477,179 @@ main {
   min-height: 4.5em;
   margin: 0.9rem 0 0.5rem !important;
 }
+
+/* ---------- Theory of computation widgets ---------- */
+
+.v-gedge path {
+  fill: none;
+  stroke: var(--viz-stroke);
+  stroke-width: 1.5;
+}
+
+.v-gedge.on path {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.viz-svg .v-sym {
+  fill: var(--text-2);
+  font: 600 12px var(--mono);
+}
+
+.viz-svg .v-gedge.on .v-sym {
+  fill: var(--accent);
+}
+
+.automaton .v-text {
+  font-size: 13px;
+}
+
+.playground .viz {
+  margin: 0.9rem 0 0;
+}
+
+.playground .viz-scroll {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.playground label + label {
+  margin-top: 0.5rem;
+}
+
+.playground .frame-caption {
+  min-height: 3em;
+  margin: 0.9rem 0 0.5rem !important;
+}
+
+.playground .frame-caption.good,
+.playground .frame-caption.bad {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tape {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-height: 2.1rem;
+  margin: 0.9rem 0 0 !important;
+}
+
+.tape i {
+  width: 2rem;
+  height: 2.1rem;
+  border: 1.5px solid var(--viz-stroke);
+  border-radius: 3px;
+  background: var(--viz-fill);
+  font: 600 1rem/2rem var(--mono);
+  text-align: center;
+}
+
+.tape i.now {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tape i.done {
+  opacity: 0.4;
+}
+
+.tape i.blank {
+  border-style: dashed;
+}
+
+.pda-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.8rem 1.5rem;
+  margin-top: 0.9rem;
+}
+
+.pda-layout .tape {
+  margin-top: 0 !important;
+}
+
+.regex-demo .found {
+  min-height: 2.6rem;
+  margin: 0.9rem 0 0 !important;
+  padding: 0.45rem 0.75rem;
+  border: 1px dashed var(--viz-stroke);
+  border-radius: 0.5rem;
+  font: 1rem var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.regex-demo mark {
+  border-radius: 2px;
+  outline: 1.5px solid var(--accent);
+  background: var(--accent-soft);
+  color: inherit;
+}
+
+.playground .rules {
+  width: auto;
+}
+
+.rules th {
+  padding: 0 1.1rem 0.3rem 0.5rem;
+  color: var(--text-2);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.playground .rules td {
+  padding: 0.2rem 1.1rem 0.2rem 0.5rem;
+  color: var(--text);
+  font: 0.85rem var(--mono);
+}
+
+.rules tr[data-on] td {
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.reductions {
+  margin: 0.9rem 0 0;
+  padding-left: 1.8rem;
+  color: var(--text-3);
+  font-size: 0.9rem;
+}
+
+.reductions li {
+  margin: 0;
+  padding: 0.1rem 0;
+}
+
+.reductions code {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: 1em;
+  overflow-wrap: anywhere;
+}
+
+.clauses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.9rem 0 0 !important;
+}
+
+.clauses span {
+  padding: 0.15rem 0.5rem;
+  border: 1px dashed var(--alt);
+  border-radius: 4px;
+  background: var(--alt-soft);
+  font: 600 0.85rem var(--mono);
+  white-space: nowrap;
+}
+
+.clauses span[data-holds='true'] {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+}

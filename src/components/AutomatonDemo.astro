@@ -1,0 +1,92 @@
+---
+// Feeds a string to a finite automaton one symbol at a time, lighting up every
+// state the machine could be in.
+import Automaton from './viz/Automaton.astro';
+import Controls from './Controls.astro';
+import { closure, machines, type MachineName } from '../lib/theory';
+
+interface Props {
+  machine?: MachineName;
+  input?: string;
+}
+
+const { machine: name = 'even-zeros', input = '1001' } = Astro.props;
+const machine = machines[name];
+---
+
+<automaton-demo class="playground automaton-demo" data-machine={name} tabindex="0" role="group" aria-label="Finite automaton step-through">
+  <label>Input <input value={input} maxlength="14" spellcheck="false" autocomplete="off" /></label>
+  <Automaton machine={name} active={closure(machine, [machine.start])} />
+  <p class="tape" data-out="tape">{[...input].map((symbol) => <i>{symbol}</i>)}</p>
+  <p class="frame-caption" data-out="note" aria-live="polite">Accepts {machine.accepts}. Type a string of {[...machine.alphabet].join('s and ')}s and step through it.</p>
+  <Controls />
+</automaton-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { accepts, machines, runMachine, type Machine, type MachineName } from '../lib/theory';
+
+  class AutomatonDemo extends HTMLElement {
+    connectedCallback() {
+      const machine: Machine = machines[this.dataset.machine as MachineName];
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const tape = this.querySelector('[data-out="tape"]')!;
+      const note = this.querySelector('[data-out="note"]')!;
+      const nodes = [...this.querySelectorAll<SVGElement>('[data-state]')];
+      const arrows = [...this.querySelectorAll<SVGElement>('[data-reads]')];
+      const list = (states: string[]) => states.join(' and ');
+      let input = '';
+      let sets: string[][] = [];
+
+      const load = () => {
+        // Drop anything outside the machine's alphabet.
+        input = [...field.value].filter((symbol) => machine.alphabet!.includes(symbol)).join('');
+        if (field.value !== input) field.value = input;
+        sets = runMachine(machine, input);
+        tape.replaceChildren(
+          ...[...input].map((symbol) => {
+            const cell = document.createElement('i');
+            cell.textContent = symbol;
+            return cell;
+          }),
+        );
+      };
+
+      load();
+      const stepper = attachStepper(this, {
+        count: () => sets.length,
+        interval: 1100,
+        render: (index) => {
+          const now = sets[index];
+          const before = sets[index - 1];
+          const symbol = input[index - 1];
+          nodes.forEach((node) => node.classList.toggle('hl', now.includes(node.dataset.state!)));
+          arrows.forEach((arrow) =>
+            arrow.classList.toggle(
+              'on',
+              index > 0 && before.includes(arrow.dataset.from!) && arrow.dataset.reads!.split(',').includes(symbol),
+            ),
+          );
+          [...tape.children].forEach((cell, i) => {
+            cell.classList.toggle('done', i < index - 1);
+            cell.classList.toggle('now', i === index - 1);
+          });
+          let text = index === 0 ? `Start in ${list(now)}.` : now.length ? `Read ${symbol}: move to ${list(now)}.` : `Read ${symbol}: no arrow to follow, so every path has died.`;
+          if (index === sets.length - 1) {
+            text += accepts(machine, now)
+              ? ` The input is finished in an accepting state. Accepted.`
+              : ` The input is finished${now.length ? ', but not in an accepting state' : ''}. Rejected.`;
+          }
+          note.textContent = text;
+        },
+      });
+      field.addEventListener('input', () => {
+        load();
+        // Jump to the verdict; the reader can scrub back through the steps.
+        stepper.go(sets.length - 1);
+      });
+    }
+  }
+
+  customElements.define('automaton-demo', AutomatonDemo);
+</script>

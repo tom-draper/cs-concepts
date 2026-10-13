@@ -1,0 +1,107 @@
+---
+// Runs a small Turing machine on a tape the reader can edit, showing the head,
+// the state and the rule about to fire.
+import Controls from './Controls.astro';
+import { BLANK, turingMachines, type TuringName } from '../lib/theory';
+
+interface Props {
+  machine?: TuringName;
+}
+
+const { machine: name = 'increment' } = Astro.props;
+const machine = turingMachines[name];
+const rows = Object.entries(machine.rules).flatMap(([state, bySymbol]) =>
+  Object.entries(bySymbol).map(([symbol, [write, move, next]]) => ({ state, symbol, write, move, next })),
+);
+const show = (symbol: string) => (symbol === BLANK ? 'blank' : symbol);
+---
+
+<turing-demo class="playground turing-demo" data-machine={name} tabindex="0" role="group" aria-label={`Turing machine: ${machine.title}`}>
+  <label>Tape <input value={machine.input} maxlength="10" spellcheck="false" autocomplete="off" /></label>
+  <p class="tries">
+    Try:
+    {machine.tries.map((item) => <button type="button" data-try={item}>{item}</button>)}
+  </p>
+  <p class="tape" data-out="tape">{[...machine.input].map((symbol, i) => <i class={i === 0 ? 'now' : ''}>{symbol}</i>)}</p>
+  <dl class="readouts">
+    <div><dt>State</dt><dd data-out="state">{machine.start}</dd></div>
+    <div><dt>Steps taken</dt><dd data-out="steps">0</dd></div>
+  </dl>
+  <table class="rules">
+    <thead><tr><th>In state</th><th>reading</th><th>write</th><th>move</th><th>go to</th></tr></thead>
+    <tbody>
+      {
+        rows.map((row) => (
+          <tr data-rule={`${row.state} ${row.symbol}`}>
+            <td>{row.state}</td><td>{show(row.symbol)}</td><td>{show(row.write)}</td><td>{row.move === 'L' ? 'left' : 'right'}</td><td>{row.next}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+  <p class="frame-caption" data-out="note" aria-live="polite">{machine.title}. Step through to watch the head work.</p>
+  <Controls />
+</turing-demo>
+
+<script>
+  import { attachStepper } from '../lib/stepper';
+  import { BLANK, runTuring, turingMachines, type TuringFrame, type TuringName } from '../lib/theory';
+
+  class TuringDemo extends HTMLElement {
+    connectedCallback() {
+      const machine = turingMachines[this.dataset.machine as TuringName];
+      const field = this.querySelector<HTMLInputElement>('label input')!;
+      const out = (name: string) => this.querySelector(`[data-out="${name}"]`)!;
+      const rules = [...this.querySelectorAll<HTMLElement>('[data-rule]')];
+      const show = (symbol: string) => (symbol === BLANK ? 'a blank' : symbol);
+      let frames: TuringFrame[] = [];
+      const load = () => {
+        frames = runTuring(machine, field.value.replace(/\s/g, ''));
+      };
+
+      load();
+      const stepper = attachStepper(this, {
+        count: () => frames.length,
+        interval: 650,
+        render: (index) => {
+          const frame = frames[index];
+          out('tape').replaceChildren(
+            ...frame.tape.map((symbol, i) => {
+              const cell = document.createElement('i');
+              cell.textContent = symbol === BLANK ? '' : symbol;
+              cell.className = [i === frame.head ? 'now' : '', symbol === BLANK ? 'blank' : ''].join(' ');
+              return cell;
+            }),
+          );
+          out('state').textContent = frame.state;
+          out('steps').textContent = String(index);
+          const key = `${frame.state} ${frame.tape[frame.head]}`;
+          rules.forEach((row) => row.toggleAttribute('data-on', Boolean(frame.rule) && row.dataset.rule === key));
+          const [write, move, next] = frame.rule ?? [];
+          out('note').textContent = !frame.rule
+            ? frame.state === 'accept'
+              ? 'The machine halts in accept. The input is in the language.'
+              : frame.state === 'done'
+                ? 'The machine halts. Its answer is what is left on the tape.'
+                : `In ${frame.state} reading ${show(frame.tape[frame.head])} there is no rule, so the machine halts and rejects.`
+            : index === frames.length - 1
+              ? `Still running after ${index} steps. It may be about to finish, or it may never finish. The widget gives up here.`
+              : `In ${frame.state} reading ${show(frame.tape[frame.head])}: write ${show(write!)}, move ${move === 'L' ? 'left' : 'right'}, go to ${next}.`;
+        },
+      });
+      field.addEventListener('input', () => {
+        load();
+        stepper.go(0);
+      });
+      this.addEventListener('click', (event) => {
+        const item = (event.target as HTMLElement).closest<HTMLElement>('[data-try]')?.dataset.try;
+        if (item === undefined) return;
+        field.value = item;
+        load();
+        stepper.go(0);
+      });
+    }
+  }
+
+  customElements.define('turing-demo', TuringDemo);
+</script>

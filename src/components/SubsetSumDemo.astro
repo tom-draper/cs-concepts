@@ -1,0 +1,75 @@
+---
+// Subset sum by hand and by brute force: checking an answer is one addition,
+// finding one may mean trying every subset.
+interface Props {
+  numbers?: number[];
+  target?: number;
+}
+
+const { numbers = [14, 27, 8, 35, 19, 42, 11, 23], target = 90 } = Astro.props;
+---
+
+<subset-sum class="playground subset-sum" data-numbers={numbers.join(',')} data-target={target}>
+  <p class="tries" role="group" aria-label="Numbers to include">
+    {numbers.map((value, i) => <button type="button" data-index={i} aria-pressed="false">{value}</button>)}
+  </p>
+  <dl class="readouts" aria-live="polite">
+    <div><dt>Target</dt><dd>{target}</dd></div>
+    <div><dt>Your sum</dt><dd data-out="sum">0</dd></div>
+    <div><dt>Subsets to choose from</dt><dd>{2 ** numbers.length - 1}</dd></div>
+  </dl>
+  <p class="tries">
+    <button type="button" data-act="search">Search every subset</button>
+    <button type="button" data-act="clear">Clear</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Pick numbers that add up to exactly {target}.</p>
+</subset-sum>
+
+<script>
+  import { findSubset } from '../lib/theory';
+
+  class SubsetSum extends HTMLElement {
+    connectedCallback() {
+      const numbers = this.dataset.numbers!.split(',').map(Number);
+      const target = Number(this.dataset.target);
+      const buttons = [...this.querySelectorAll<HTMLElement>('[data-index]')];
+      const status = this.querySelector('[data-out="status"]')!;
+      const picked = new Set<number>();
+      const render = (message?: string) => {
+        const sum = [...picked].reduce((total, i) => total + numbers[i], 0);
+        buttons.forEach((button, i) => button.setAttribute('aria-pressed', String(picked.has(i))));
+        this.querySelector('[data-out="sum"]')!.textContent = String(sum);
+        status.textContent =
+          message ??
+          (sum === target
+            ? `That adds up to ${target}. Checking it took ${picked.size - 1} additions.`
+            : sum > target
+              ? `${sum - target} too many.`
+              : `${target - sum} short.`);
+      };
+      this.addEventListener('click', (event) => {
+        const button = (event.target as HTMLElement).closest('button');
+        if (!button) return;
+        if (button.dataset.index) {
+          const index = Number(button.dataset.index);
+          picked.has(index) ? picked.delete(index) : picked.add(index);
+          render();
+        } else if (button.dataset.act === 'clear') {
+          picked.clear();
+          render(`Pick numbers that add up to exactly ${target}.`);
+        } else {
+          const result = findSubset(numbers, target);
+          picked.clear();
+          result.picked?.forEach((index) => picked.add(index));
+          render(
+            result.picked
+              ? `Found after checking ${result.checked} of the ${result.total} subsets. One more number in the list would double that total.`
+              : `No subset works. Being sure of that meant checking all ${result.total}.`,
+          );
+        }
+      });
+    }
+  }
+
+  customElements.define('subset-sum', SubsetSum);
+</script>
