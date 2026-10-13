@@ -1,0 +1,98 @@
+---
+// Three replicas and a network partition that cuts one of them off. The
+// reader chooses whether the system stays consistent or stays available.
+---
+
+<cap-demo class="playground cap-demo">
+  <p class="tries" role="group" aria-label="During a partition">
+    During a partition:
+    <button type="button" data-mode="CP" aria-pressed="true">stay consistent</button>
+    <button type="button" data-mode="AP" aria-pressed="false">stay available</button>
+  </p>
+  <div class="columns cap-nodes">
+    {
+      ['A', 'B', 'C'].map((name, i) => (
+        <div class="env" data-node={i}>
+          <h4>Node {name}</h4>
+          <p class="slots"><i data-out="value">v0</i></p>
+          <p class="tries">
+            <button type="button" data-write={i}>Write</button>
+            <button type="button" data-read={i}>Read</button>
+          </p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="tries">
+    <button type="button" data-act="partition">Cut A off from B and C</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">The network is healthy, so every write reaches all three nodes. Cut the network, then write on both sides.</p>
+</cap-demo>
+
+<script>
+  import { CapCluster } from '../lib/distributed';
+
+  class CapDemo extends HTMLElement {
+    connectedCallback() {
+      const cluster = new CapCluster();
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message: string) => {
+        cluster.nodes.forEach((node, i) => {
+          const box = this.querySelector<HTMLElement>(`[data-node="${i}"]`)!;
+          box.querySelector('[data-out="value"]')!.textContent = node.value;
+          box.dataset.cut = String(cluster.partitioned && i === 0);
+        });
+        for (const button of this.querySelectorAll<HTMLElement>('[data-mode]')) {
+          button.setAttribute('aria-pressed', String(button.dataset.mode === cluster.mode));
+        }
+        this.querySelector('[data-act="partition"]')!.textContent = cluster.partitioned ? 'Heal the network' : 'Cut A off from B and C';
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const { mode, write, read, act } = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (mode) {
+          cluster.mode = mode as 'CP' | 'AP';
+          render(
+            mode === 'CP'
+              ? 'Consistent: a node that cannot reach a majority refuses to answer, so nobody ever sees stale or conflicting data.'
+              : 'Available: every node always answers, using whatever data it has, even if it is out of date.',
+          );
+        } else if (act) {
+          if (!cluster.partitioned) {
+            cluster.partitioned = true;
+            render('The link is down. A cannot tell whether B and C have crashed or are merely unreachable, and they cannot tell about A.');
+          } else {
+            const { discarded } = cluster.heal();
+            render(
+              discarded.length
+                ? `The network is back, and the two sides had diverged. The latest write was kept and ${discarded.join(' and ')} was thrown away, although the client that wrote it had been told it succeeded.`
+                : 'The network is back. The sides never disagreed, so there is nothing to reconcile.',
+            );
+          }
+        } else if (write !== undefined) {
+          const name = cluster.nodes[Number(write)].name;
+          const result = cluster.write(Number(write));
+          render(
+            !result.ok
+              ? `Node ${name} refused the write. It is cut off from the majority and cannot be sure its data is current, so it returns an error. Consistent, and not available.`
+              : cluster.partitioned
+                ? `Node ${name} accepted ${result.value}. The write reached only the nodes on its side of the partition.`
+                : `Node ${name} accepted ${result.value} and copied it to the others.`,
+          );
+        } else if (read !== undefined) {
+          const name = cluster.nodes[Number(read)].name;
+          const result = cluster.read(Number(read));
+          render(
+            !result.ok
+              ? `Node ${name} refused the read. It cannot reach a majority, so it will not risk returning old data.`
+              : result.stale
+                ? `Node ${name} returned ${result.value}, which is out of date. A newer value exists on the other side. Available, and not consistent.`
+                : `Node ${name} returned ${result.value}, the latest value.`,
+          );
+        }
+      });
+    }
+  }
+
+  customElements.define('cap-demo', CapDemo);
+</script>

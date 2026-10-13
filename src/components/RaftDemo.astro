@@ -1,0 +1,100 @@
+---
+// A five-node Raft cluster. The reader triggers elections, sends client
+// requests and crashes nodes to see when entries commit.
+---
+
+<raft-demo class="playground raft-demo">
+  <div class="raft-nodes">
+    {
+      [0, 1, 2, 3, 4].map((i) => (
+        <div class="env" data-node={i}>
+          <h4><span data-out="role">Follower</span>, term <span data-out="term">0</span></h4>
+          <p class="slots" data-out="log"><i class="none">empty log</i></p>
+          <p class="tries">
+            <button type="button" data-timeout={i}>Time out</button>
+            <button type="button" data-toggle={i}>Crash</button>
+          </p>
+        </div>
+      ))
+    }
+  </div>
+  <p class="tries">
+    <button type="button" data-act="request">Client request</button>
+    <button type="button" data-act="reset">Reset</button>
+  </p>
+  <p class="hint" data-out="status" aria-live="polite">Five followers and no leader. Make one of them time out, as it would after hearing nothing for a while.</p>
+</raft-demo>
+
+<script>
+  import { Raft } from '../lib/distributed';
+
+  class RaftDemo extends HTMLElement {
+    connectedCallback() {
+      let raft = new Raft();
+      const status = this.querySelector('[data-out="status"]')!;
+      const render = (message: string) => {
+        for (const node of raft.nodes) {
+          const box = this.querySelector<HTMLElement>(`[data-node="${node.id}"]`)!;
+          box.dataset.up = String(node.up);
+          box.dataset.role = node.up ? node.role : 'down';
+          box.querySelector('[data-out="role"]')!.textContent = !node.up ? 'Crashed' : node.role === 'leader' ? 'Leader' : 'Follower';
+          box.querySelector('[data-out="term"]')!.textContent = String(node.term);
+          box.querySelector('[data-out="log"]')!.replaceChildren(
+            ...(node.log.length ? node.log : [0]).map((term, i) => {
+              const cell = document.createElement('i');
+              cell.textContent = term ? String(term) : 'empty log';
+              // A dashed entry is stored but not yet committed.
+              cell.className = !term ? 'none' : i < node.commit ? '' : 'empty';
+              return cell;
+            }),
+          );
+          box.querySelector<HTMLButtonElement>('[data-timeout]')!.disabled = !node.up || node.role === 'leader';
+          box.querySelector('[data-toggle]')!.textContent = node.up ? 'Crash' : 'Restart';
+        }
+        status.textContent = message;
+      };
+      this.addEventListener('click', (event) => {
+        const data = (event.target as HTMLElement).closest('button')?.dataset ?? {};
+        if (data.timeout) {
+          const id = Number(data.timeout);
+          const { won, votes, refused } = raft.timeout(id);
+          render(
+            won
+              ? `Node ${id + 1} heard nothing from a leader, moved to term ${raft.nodes[id].term} and asked for votes. It got ${votes} of 5, a majority, and is leader for this term. It now sends heartbeats so nobody else times out.`
+              : `Node ${id + 1} moved to term ${raft.nodes[id].term} and asked for votes, and got only ${votes} of 5. ` +
+                  (refused ? `${refused} ${refused === 1 ? 'node' : 'nodes'} refused because their logs are more complete than its own. ` : 'Too few nodes are reachable. ') +
+                  'No leader this term.',
+          );
+        } else if (data.toggle) {
+          const id = Number(data.toggle);
+          const wasLeader = raft.leader()?.id === id;
+          raft.toggle(id);
+          render(
+            !raft.nodes[id].up
+              ? wasLeader
+                ? `The leader crashed. Nothing happens until a follower's timer runs out and it calls an election.`
+                : `Node ${id + 1} crashed. ${raft.nodes.filter((node) => node.up).length} of 5 are still up.`
+              : raft.leader()
+                ? `Node ${id + 1} restarted as a follower. The leader sent it the entries it had missed, replacing anything that disagreed.`
+                : `Node ${id + 1} restarted as a follower. There is no leader to bring it up to date.`,
+          );
+        } else if (data.act === 'request') {
+          const { accepted, committed } = raft.request();
+          const up = raft.nodes.filter((node) => node.up).length;
+          render(
+            !accepted
+              ? 'There is no leader, so nobody can accept the request. The cluster is unavailable until an election succeeds.'
+              : committed
+                ? `The leader appended the entry and sent it to the followers. ${up} of 5 nodes stored it, a majority, so it is committed and the client is told it succeeded.`
+                : `The leader appended the entry, and only ${up} of 5 nodes have it. That is not a majority, so it stays uncommitted, shown dashed, and the client is left waiting.`,
+          );
+        } else if (data.act === 'reset') {
+          raft = new Raft();
+          render('Five followers and no leader.');
+        }
+      });
+    }
+  }
+
+  customElements.define('raft-demo', RaftDemo);
+</script>
