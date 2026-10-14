@@ -32,6 +32,21 @@ A cache holding a tiny fraction of memory would be useless if programs accessed 
 
 Caches are built to exploit both. In real programs they answer well over 90% of accesses from L1.
 
+## Watching the hierarchy
+
+Below, the core, three caches and main memory stand in a row. The farther a level stands, the longer a read takes to come back from it. The sizes are shrunk so every line fits on screen: a line here is 4 words, L1 holds 2 lines, L2 holds 4, L3 holds 8, and memory has 16. The latencies are the ones in the table above.
+
+Every line of memory has its own colour, and keeps it wherever it is copied, so you can see the same line sitting in several levels at once.
+
+<CacheHierarchy />
+
+Things to try:
+
+- **Walk an array.** One read in four goes far, and the three after it are hits, because the whole line came back. On the second pass the array is still in L3, so the far trips are shorter.
+- **Small loop.** Two trips to memory, then everything comes from L1.
+- **Chase a linked list.** About the same number of reads, but almost every one goes to RAM. Run it next to the array and compare the cycles.
+- **Stride by a line.** Reads go in order, but each one lands on a new line, and the lines are evicted before they come round again. Order alone does not help: the reads have to share lines.
+
 ## Cache lines
 
 To exploit spatial locality, a cache does not store individual bytes. It stores fixed-size blocks called **cache lines**, almost always **64 bytes**.
