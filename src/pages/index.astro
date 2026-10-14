@@ -1,59 +1,68 @@
 ---
 import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
+import CodeCube from '../components/CodeCube.astro';
 import { allPages, parts } from '../outline';
 import { url } from '../lib/url';
 
 const written = new Set((await getCollection('docs')).map((entry) => entry.id));
 const first = allPages.find((page) => written.has(page.id));
+const cubePage = 'information/error-correcting-codes';
 ---
 
 <Base>
   <div class="page home">
     <section class="hero">
-      <h1>Computer science, one concept at a time.</h1>
-      <p>
-        A book-style guide where every concept gets its own page, its own diagrams and a
-        worked example. Read it front to back, or jump straight to the thing you need.
-      </p>
-      {
-        first && (
-          <a class="cta" href={url(first.id)}>
-            Start reading <span aria-hidden="true">→</span>
-          </a>
-        )
-      }
-      <p class="progress">
-        {written.size} of {allPages.length} pages written so far. Greyed-out titles are
-        planned.
-      </p>
+      <div class="hero-text">
+        <h1>Visual Computer Science</h1>
+        <p>
+          Every concept gets a page, and every page has figures you can turn, push and break.
+          Read it front to back like a book, or go straight to the thing you need.
+        </p>
+        <div class="actions">
+          {first && <a class="cta" href={url(first.id)}>Start reading</a>}
+          {written.has(cubePage) && <a href={url(cubePage)}>Explore the code cube</a>}
+        </div>
+        <p class="progress">
+          {written.size} of {allPages.length} pages written so far. Greyed-out titles are planned.
+        </p>
+      </div>
+      <figure class="hero-figure">
+        <CodeCube variant="hero" />
+        <figcaption>
+          Every 3-bit word is a corner, and every edge flips one bit. A code picks corners far
+          enough apart that a damaged word can find its way home.
+        </figcaption>
+      </figure>
     </section>
 
-    <section class="contents">
+    <section class="contents" aria-labelledby="contents">
+      <h2 id="contents">Contents</h2>
+      <p>{parts.length} parts, in reading order.</p>
       {
         parts.map((part, index) => (
           <section class="part">
-            <h2>
-              <span class="num">{index + 1}</span>
-              {part.title}
-            </h2>
+            <span class="num" aria-hidden="true">{index + 1}</span>
+            <h3>{part.title}</h3>
             <p class="summary">{part.summary}</p>
-            {part.chapters.map((chapter) => (
-              <div class="chapter">
-                <h3>{chapter.title}</h3>
-                <ul>
-                  {chapter.pages.map((page) => (
-                    <li>
-                      {written.has(page.id) ? (
-                        <a href={url(page.id)}>{page.title}</a>
-                      ) : (
-                        <span class="planned">{page.title}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+            <div class="chapters">
+              {part.chapters.map((chapter) => (
+                <div class="chapter">
+                  <h4>{chapter.title}</h4>
+                  <ul>
+                    {chapter.pages.map((page) => (
+                      <li>
+                        {written.has(page.id) ? (
+                          <a href={url(page.id)}>{page.title}</a>
+                        ) : (
+                          <span class="planned">{page.title}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
           </section>
         ))
       }
