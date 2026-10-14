@@ -1,0 +1,235 @@
+---
+// Three-bit codes on a cube, in 3D. Corners are words, edges are single bit
+// flips, and walking from the sent word to the received one counts the damage.
+import { codes, judge, type CodeId } from '../lib/code-cube';
+
+interface Props {
+  code?: CodeId;
+  /** `hero` plays a short loop with no controls, for the home page. */
+  variant?: 'figure' | 'hero';
+}
+
+const { code: start = 'repeat', variant = 'figure' } = Astro.props;
+const code = codes[start];
+const sent = code.words[0];
+const verdict = judge(code, sent, sent);
+const bits = [1, 2, 3];
+---
+
+<code-cube class:list={['plate', 'code-cube', variant]} data-code={start} data-variant={variant}>
+  <div class="plate-stage">
+    <div
+      class="plate-canvas"
+      role="img"
+      aria-label="A cube whose eight corners are the 3-bit words 000 to 111. Each edge joins two words that differ in one bit, so the number of edges between two corners is their Hamming distance."
+    >
+    </div>
+    <div class="plate-labels" aria-hidden="true"></div>
+    {variant === 'figure' && <p class="plate-hint">Drag to turn the cube. Click a corner to make it the received word.</p>}
+    <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
+  </div>
+
+  {
+    variant === 'figure' ? (
+      <div class="plate-panel">
+        <div class="cc-col">
+          <div class="cc-group" role="group" aria-label="Code">
+            <span class="cc-caption">Code</span>
+            <div class="cc-segments">
+              {Object.values(codes).map((c) => (
+                <button type="button" data-code={c.id} aria-pressed={String(c.id === start)}>
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p class="cc-summary" data-out="summary">{code.summary}</p>
+          <dl class="cc-facts">
+            <div><dt>Codewords</dt><dd data-out="count">{code.words.length}</dd></div>
+            <div><dt>Minimum distance</dt><dd data-out="distance">{code.distance}</dd></div>
+            <div><dt>Rate</dt><dd data-out="rate">{code.dataBits}/3</dd></div>
+          </dl>
+        </div>
+
+        <div class="cc-col">
+          <div class="cc-group" role="group" aria-label="Send a codeword">
+            <span class="cc-caption">Send</span>
+            <div class="cc-words" data-out="words" data-shows={start}>
+              {code.words.map((w) => (
+                <button type="button" class="word" data-send={w} aria-pressed={String(w === sent)}>
+                  {w}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div class="cc-group" role="group" aria-label="Flip a bit in transit">
+            <span class="cc-caption">Flip in transit</span>
+            <div class="cc-flips">
+              {bits.map((b) => (
+                <button type="button" class={`flip b${b}`} data-flip={b - 1}>
+                  Bit {b}
+                </button>
+              ))}
+              <button type="button" class="undo" data-act="reset">Undo damage</button>
+            </div>
+          </div>
+
+          <dl class="cc-readout">
+            <div><dt>Sent</dt><dd class="word" data-out="sent">{sent}</dd></div>
+            <div><dt>Received</dt><dd class="word" data-out="received">{sent}</dd></div>
+            <div><dt>Bits flipped</dt><dd data-out="flips">0</dd></div>
+          </dl>
+        </div>
+        <p class="cc-verdict" data-out="verdict" data-outcome={verdict.outcome} aria-live="polite">{verdict.text}</p>
+      </div>
+    ) : (
+      <p class="cc-verdict hero-caption" data-out="verdict" data-outcome={verdict.outcome}>{verdict.text}</p>
+    )
+  }
+</code-cube>
+
+<script>
+  import { codes, flip, judge, walk, type CodeId } from '../lib/code-cube';
+  import type { CodeCubeScene } from '../lib/code-cube-scene';
+
+  // The hero loop: each line is a code, a word to send, and the bits to flip.
+  const reel: [CodeId, string, number[]][] = [
+    ['repeat', '000', [1]],
+    ['repeat', '111', [0, 2]],
+    ['parity', '011', [2]],
+    ['repeat', '111', [2]],
+  ];
+
+  class CodeCube extends HTMLElement {
+    private code = codes.repeat;
+    private sent = '000';
+    private path: string[] = ['000'];
+    private scene?: CodeCubeScene;
+    private timers: number[] = [];
+
+    connectedCallback() {
+      this.code = codes[(this.dataset.code as CodeId) ?? 'repeat'];
+      this.sent = this.code.words[0];
+      this.path = [this.sent];
+      const hero = this.dataset.variant === 'hero';
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        if (set.code) this.choose(set.code as CodeId);
+        else if (set.send) this.send(set.send);
+        else if (set.flip !== undefined) this.receive(flip(this.received, Number(set.flip)), true);
+        else if (set.act === 'reset') this.send(this.sent);
+      });
+
+      // Three.js is only fetched once the figure is close to the screen.
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          try {
+            const { CodeCubeScene } = await import('../lib/code-cube-scene');
+            this.scene = new CodeCubeScene(
+              this.querySelector<HTMLElement>('.plate-canvas')!,
+              this.querySelector<HTMLElement>('.plate-labels')!,
+              {
+                reducedMotion,
+                autoRotate: true,
+                interactive: !hero,
+                onPick: (word) => this.receive(word, false),
+              },
+            );
+            this.render();
+            if (hero && !reducedMotion) this.play(0);
+          } catch {
+            this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
+            this.classList.add('no-webgl');
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      near.observe(this);
+      this.render();
+    }
+
+    disconnectedCallback() {
+      this.timers.forEach(clearTimeout);
+      this.scene?.dispose();
+    }
+
+    private get received() {
+      return this.path.at(-1)!;
+    }
+
+    private play(index: number) {
+      const [id, word, flips] = reel[index % reel.length];
+      this.code = codes[id];
+      this.send(word);
+      flips.forEach((bit, i) => {
+        this.timers.push(window.setTimeout(() => this.receive(flip(this.received, bit), true), 1400 + i * 700));
+      });
+      this.timers.push(window.setTimeout(() => this.play(index + 1), 5200));
+    }
+
+    private choose(id: CodeId) {
+      this.code = codes[id];
+      this.send(this.code.words.includes(this.sent) ? this.sent : this.code.words[0]);
+    }
+
+    private send(word: string) {
+      this.sent = word;
+      this.path = [word];
+      this.render();
+    }
+
+    /** Move the received word, one flip at a time so the packet follows edges. */
+    private receive(word: string, step: boolean) {
+      this.path = step ? [...this.path, word] : [...this.path, ...walk(this.received, word).slice(1)];
+      this.render();
+    }
+
+    private render() {
+      const { code, sent } = this;
+      const received = this.received;
+      const verdict = judge(code, sent, received);
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`);
+
+      this.querySelectorAll<HTMLElement>('[data-code]').forEach((b) => {
+        if (b !== this) b.setAttribute('aria-pressed', String(b.dataset.code === code.id));
+      });
+      const words = out('words');
+      if (words && words.dataset.shows !== code.id) {
+        words.dataset.shows = code.id;
+        words.innerHTML = code.words
+          .map((w) => `<button type="button" class="word" data-send="${w}">${w}</button>`)
+          .join('');
+      }
+      this.querySelectorAll<HTMLElement>('[data-send]').forEach((b) =>
+        b.setAttribute('aria-pressed', String(b.dataset.send === sent)),
+      );
+
+      const text: Record<string, string> = {
+        summary: code.summary,
+        count: String(code.words.length),
+        distance: String(code.distance),
+        rate: `${code.dataBits}/3`,
+        sent,
+        received,
+        flips: String([...sent].filter((b, i) => b !== received[i]).length),
+      };
+      for (const [name, value] of Object.entries(text)) {
+        const el = out(name);
+        if (el) el.textContent = value;
+      }
+      const v = out('verdict')!;
+      v.textContent = verdict.text;
+      v.dataset.outcome = verdict.outcome;
+
+      this.scene?.set({ code, sent, path: this.path, decoded: verdict.decoded, outcome: verdict.outcome });
+    }
+  }
+
+  customElements.define('code-cube', CodeCube);
+</script>
