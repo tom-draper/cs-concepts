@@ -123,6 +123,7 @@ pre {
 /* ---------- Top bar ---------- */
 
 .topbar {
+  --read: 0;
   position: fixed;
   inset: 0 0 auto 0;
   z-index: 30;
@@ -131,29 +132,151 @@ pre {
   align-items: center;
   gap: 0.5rem;
   padding: 0 1.25rem;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
 }
 
+/* The mark: a real cube, one process ink per axis, as in the cube figure.
+   Opposite faces share an ink, so a quarter turn swaps the visible two. */
 .brand {
+  --turn: 0deg;
   display: inline-flex;
   align-items: center;
-  gap: 0.6rem;
-  margin-right: auto;
+  gap: 0.7rem;
+  flex: none;
   color: var(--text);
-  font-size: 1rem;
+  font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
   text-decoration: none;
+  transition: --turn 0.6s cubic-bezier(0.3, 1.4, 0.5, 1);
 }
 
-.brand svg {
+.mark {
+  --s: 0.8rem;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
   flex: none;
+}
+
+.cube {
+  position: relative;
+  width: var(--s);
+  height: var(--s);
+  transform-style: preserve-3d;
+  transform: rotateX(-35.264deg) rotateY(calc(45deg + var(--turn) + var(--read) * 360deg));
+}
+
+.cube i {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+}
+
+.cube .x { background: var(--plate-bit-1); transform: rotateY(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube .x.far { transform: rotateY(90deg) translateZ(calc(var(--s) / 2)); }
+.cube .y { background: var(--plate-bit-3); transform: rotateX(90deg) translateZ(calc(var(--s) / 2)); }
+.cube .y.far { transform: rotateX(-90deg) translateZ(calc(var(--s) / 2)); }
+.cube .z { background: var(--plate-bit-2); transform: translateZ(calc(var(--s) / 2)); }
+.cube .z.far { transform: rotateY(180deg) translateZ(calc(var(--s) / 2)); }
+
+@property --turn {
+  syntax: '<angle>';
+  inherits: true;
+  initial-value: 0deg;
+}
+
+.brand:hover,
+.brand:focus-visible {
+  --turn: 90deg;
 }
 
 .brand .short {
   display: none;
+}
+
+/* A book's running head: where you are, once the title has gone by. */
+.running-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+  margin-left: 0.4rem;
+  padding-left: 1.1rem;
+  border-left: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  opacity: 0;
+  translate: 0 0.35rem;
+  visibility: hidden;
+  transition: opacity 0.2s, translate 0.2s, visibility 0.2s;
+}
+
+.running .running-head {
+  opacity: 1;
+  translate: 0;
+  visibility: visible;
+}
+
+.running-head .chapter,
+.running-head .sep {
+  color: var(--text-3);
+  flex: none;
+}
+
+.running-head .title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: 700;
+}
+
+.running-head:hover .title {
+  color: var(--accent);
+}
+
+.search-btn {
+  margin-left: auto;
+}
+
+/* Reading progress, drawn as three process inks. Each settles at its own
+   speed, so scrolling knocks them briefly out of register and they come to
+   rest as one line of black (or white, on the dark page). */
+.register {
+  position: absolute;
+  inset: auto 0 -1px 0;
+  height: 2px;
+  background: var(--border);
+  background-clip: content-box;
+  padding-top: 1px;
+  isolation: isolate;
+}
+
+.register i {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  transform: scaleX(var(--read));
+  mix-blend-mode: multiply;
+}
+
+.register .c { background: var(--plate-bit-1); transition: transform 0.12s ease-out; }
+.register .m { background: var(--plate-bit-2); transition: transform 0.35s ease-out; }
+.register .y { background: var(--plate-bit-3); transition: transform 0.6s ease-out; }
+
+:root[data-theme='dark'] .register i {
+  mix-blend-mode: screen;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .register i {
+    mix-blend-mode: screen;
+  }
 }
 
 .icon-btn,
@@ -172,16 +295,19 @@ pre {
   cursor: pointer;
 }
 
-.icon-btn:hover,
-.search-btn:hover {
+.icon-btn:hover {
   color: var(--text);
   background: var(--bg-soft);
 }
 
 .search-btn {
+  min-width: 13rem;
   border-color: var(--border);
-  background: var(--surface);
-  min-width: 12rem;
+}
+
+.search-btn:hover {
+  color: var(--text);
+  border-color: var(--text-3);
 }
 
 .search-btn kbd {
@@ -1076,6 +1202,15 @@ main {
 
   .search-btn {
     min-width: 0;
+    border-color: transparent;
+  }
+
+  .running .brand .full {
+    display: none;
+  }
+
+  .running .brand .short {
+    display: inline;
   }
 
   .search-btn span,
@@ -1117,6 +1252,11 @@ main {
     display: none;
   }
 
+  .running-head .chapter,
+  .running-head .sep {
+    display: none;
+  }
+
   .brand .short {
     display: inline;
   }
@@ -1125,6 +1265,10 @@ main {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+
+  .cube {
+    transform: rotateX(-35.264deg) rotateY(45deg);
   }
 }
 

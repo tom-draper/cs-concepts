@@ -2,6 +2,7 @@
 import '../styles/global.css';
 import Sidebar from '../components/Sidebar.astro';
 import { url } from '../lib/url';
+import { pagesById } from '../outline';
 
 interface Props {
   title?: string;
@@ -25,6 +26,8 @@ const mark = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${face
   .map(([points, fill]) => `<polygon points="${points}" fill="${fill}"/>`)
   .join('')}</svg>`;
 const favicon = `data:image/svg+xml,${encodeURIComponent(mark)}`;
+// The running head, shown in the bar once the page's own title scrolls away.
+const running = currentId ? pagesById.get(currentId) : undefined;
 ---
 
 <!doctype html>
@@ -55,18 +58,32 @@ const favicon = `data:image/svg+xml,${encodeURIComponent(mark)}`;
         <svg viewBox="0 0 20 20" width="20" height="20"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>
       </label>
       <a class="brand" href={url('')}>
-        <Fragment set:html={mark.replace('<svg ', '<svg width="22" height="22" aria-hidden="true" ')} />
+        <span class="mark" aria-hidden="true">
+          <span class="cube">
+            <i class="x"></i><i class="x far"></i><i class="y"></i><i class="y far"></i><i class="z"></i><i class="z far"></i>
+          </span>
+        </span>
         <span class="full">Visual Computer Science</span>
         <span class="short">VCS</span>
       </a>
+      {
+        running && (
+          <a class="running-head" href="#" aria-label={`Back to the top of ${title ?? running.title}`}>
+            <span class="chapter">{running.chapter}</span>
+            <span class="sep" aria-hidden="true">›</span>
+            <span class="title">{title ?? running.title}</span>
+          </a>
+        )
+      }
       <button id="search-btn" class="search-btn" type="button">
         <svg viewBox="0 0 20 20" width="15" height="15" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="m13 13 4 4" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"></path></svg>
-        <span>Search</span>
+        <span>Search the book</span>
         <kbd>/</kbd>
       </button>
       <button id="theme-btn" class="icon-btn" type="button" aria-label="Switch between light and dark theme">
         <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.75"></circle><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor"></path></svg>
       </button>
+      <span class="register" aria-hidden="true"><i class="c"></i><i class="m"></i><i class="y"></i></span>
     </header>
 
     <nav class="sidebar" aria-label="Contents">
@@ -100,6 +117,30 @@ const favicon = `data:image/svg+xml,${encodeURIComponent(mark)}`;
             localStorage.setItem('theme', next);
           } catch {}
         });
+
+        // Reading progress drives the register line and turns the mark.
+        const bar = document.querySelector('.topbar');
+        let queued = false;
+        function measure() {
+          queued = false;
+          const room = root.scrollHeight - innerHeight;
+          const read = room > 0 ? Math.min(1, Math.max(0, scrollY / room)) : 0;
+          bar.style.setProperty('--read', read.toFixed(4));
+        }
+        addEventListener('scroll', () => {
+          if (!queued) requestAnimationFrame(measure);
+          queued = true;
+        }, { passive: true });
+        addEventListener('resize', measure);
+        measure();
+
+        // The running head takes over once the page's own title has scrolled away.
+        const heading = document.querySelector('.prose h1');
+        if (heading && bar.querySelector('.running-head')) {
+          new IntersectionObserver(([entry]) => {
+            bar.classList.toggle('running', !entry.isIntersecting && entry.boundingClientRect.top < 0);
+          }, { rootMargin: `-${bar.offsetHeight}px 0px 0px 0px` }).observe(heading);
+        }
 
         // Keep the current page visible in a long sidebar.
         document
