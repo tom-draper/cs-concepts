@@ -15,7 +15,7 @@ const pattern = patterns[0];
     >
     </div>
     <div class="plate-labels" aria-hidden="true"></div>
-    <p class="plate-hint">Drag to turn. Click any word to read it. Farther away means slower.</p>
+    <p class="plate-hint" data-out="hint">Drag to turn. Click any word to read it. Farther away means slower.</p>
     <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
   </div>
 
@@ -41,6 +41,7 @@ const pattern = patterns[0];
           <button type="button" data-act="step">Step</button>
           <button type="button" data-act="finish">Run to the end</button>
           <button type="button" data-act="fast" aria-pressed="false">Fast</button>
+          <button type="button" data-act="scale" aria-pressed="false">Draw to scale</button>
           <button type="button" class="undo" data-act="reset">Empty the caches</button>
         </div>
       </div>
@@ -86,6 +87,7 @@ const pattern = patterns[0];
     private next = 0;
     private playing = false;
     private fast = false;
+    private scaled = false;
     private run = 0;
     private scene?: CacheScene;
     private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -101,6 +103,10 @@ const pattern = patterns[0];
           if (this.next < this.pattern.words.length) this.read(this.pattern.words[this.next++], false);
         } else if (set.act === 'finish') this.finish();
         else if (set.act === 'fast') this.fast = !this.fast;
+        else if (set.act === 'scale') {
+          this.scaled = !this.scaled;
+          this.scene?.setScaled(this.scaled);
+        }
         else if (set.act === 'reset') this.reset();
         this.render();
       });
@@ -192,6 +198,10 @@ const pattern = patterns[0];
         b.setAttribute('aria-pressed', String(b.dataset.pattern === this.pattern.id)),
       );
       this.querySelector('[data-act="fast"]')!.setAttribute('aria-pressed', String(this.fast));
+      this.querySelector('[data-act="scale"]')!.setAttribute('aria-pressed', String(this.scaled));
+      out('hint').textContent = this.scaled
+        ? 'Drawn to scale: distance from the core is proportional to latency. RAM is 62 times farther than L1.'
+        : 'Drag to turn. Click any word to read it. Farther away means slower.';
       const done = this.next >= this.pattern.words.length;
       this.querySelector('[data-act="play"]')!.textContent = this.playing ? 'Pause' : done ? 'Play again' : 'Play';
 
