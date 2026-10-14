@@ -27,22 +27,29 @@
   --bit-1: light-dark(#00778d, #4fd8ee);
   --bit-2: var(--accent);
   --bit-3: light-dark(#8a5d00, #ffd54a);
+  --bit-4: var(--text);
 
   /* Plates: the dark wells interactive figures sit in. */
-  --plate: light-dark(#0d1424, #080c17);
-  --plate-ink: #e6eaf4;
-  --plate-ink-2: #95a1bb;
-  --plate-line: #26324f;
-  --plate-bit-1: #3dd8f0;
-  --plate-bit-2: #ff5cab;
-  --plate-bit-3: #ffd54a;
-  --plate-good: #7ef0b8;
-  --plate-bad: #ff6b6b;
+  --plate: var(--bg);
+  --plate-ink: var(--text);
+  --plate-ink-2: var(--text-2);
+  --plate-line: var(--border);
+  /* Inks the 3D scenes read, so they follow the theme. */
+  --plate-muted: light-dark(#8f99aa, #4f5b78);
+  --plate-bit-1: light-dark(#0098b6, #3dd8f0);
+  --plate-bit-2: light-dark(#d6246e, #ff5cab);
+  --plate-bit-3: light-dark(#e3a300, #ffd54a);
+  --plate-bit-4: light-dark(#1f2838, #e6eaf4);
+  --plate-spark: light-dark(#b0175c, #ffffff);
+  --plate-tray: light-dark(#e2e7df, #18213a);
+  --plate-good: light-dark(#0b8f5b, #7ef0b8);
+  --plate-warn: light-dark(#b07800, #ffd54a);
+  --plate-bad: light-dark(#d23b3b, #ff6b6b);
   /* Memory levels, from fastest to slowest. */
-  --plate-lvl-0: #7ef0b8;
-  --plate-lvl-1: #c9ec7a;
-  --plate-lvl-2: #ffc46b;
-  --plate-lvl-3: #ff6b6b;
+  --plate-lvl-0: light-dark(#12a26b, #7ef0b8);
+  --plate-lvl-1: light-dark(#6f9a10, #c9ec7a);
+  --plate-lvl-2: light-dark(#d98a00, #ffc46b);
+  --plate-lvl-3: light-dark(#d64545, #ff6b6b);
 
   /* Diagram ink. */
   --viz-fill: light-dark(#fbfcfa, #161d2c);
@@ -3705,28 +3712,29 @@ main {
 
 /* ---------- Plates: three.js figures ---------- */
 
+/*
+  A plate has no box of its own. The canvas is painted in the page colour, so
+  the figure sits straight on the paper, and its controls read as part of the
+  page below it.
+*/
+
 .plate {
   display: block;
-  margin: 2.5rem 0;
-  overflow: hidden;
-  border-radius: 1rem;
+  margin: 3rem 0;
   background: var(--plate);
   color: var(--plate-ink);
   font-size: 0.95rem;
   line-height: 1.5;
-  outline: 1px solid light-dark(transparent, var(--plate-line));
-  outline-offset: -1px;
-  box-shadow: 0 24px 48px -28px rgb(13 20 36 / 0.55);
-}
-
-.prose .plate {
-  margin-inline: -2rem;
 }
 
 .plate-stage {
   position: relative;
   aspect-ratio: 16 / 10;
   min-height: 21rem;
+}
+
+.prose .plate-stage {
+  margin-inline: -3.5rem;
 }
 
 .plate.hero .plate-stage {
@@ -3745,6 +3753,11 @@ main {
   width: 100%;
   height: 100%;
   cursor: grab;
+  /* Feather every edge into the page, so glow never draws a border. */
+  mask-image:
+    linear-gradient(to right, transparent, #000 7%, #000 93%, transparent),
+    linear-gradient(to bottom, transparent, #000 9%, #000 91%, transparent);
+  mask-composite: intersect;
 }
 
 .plate-canvas canvas:active {
@@ -3764,7 +3777,7 @@ main {
   left: 0;
   top: 0;
   white-space: nowrap;
-  will-change: transform;
+  will-change: transform, opacity;
 }
 
 .cc-label {
@@ -3773,16 +3786,23 @@ main {
   align-items: center;
   font: 700 0.95rem/1.1 var(--mono);
   letter-spacing: 0.06em;
+  transition: opacity 0.3s;
 }
 
 .cc-label i {
   font-style: normal;
-  opacity: 0.45;
+  opacity: 0.5;
 }
 
-.cc-label .b1 { color: var(--plate-bit-1); }
-.cc-label .b2 { color: var(--plate-bit-2); }
-.cc-label .b3 { color: var(--plate-bit-3); }
+.b1 { --ink: var(--bit-1); }
+.b2 { --ink: var(--bit-2); }
+.b3 { --ink: var(--bit-3); }
+.b4 { --ink: var(--bit-4); }
+
+.cc-label i,
+.cc-axis {
+  color: var(--ink);
+}
 
 .cc-label.is-code i {
   opacity: 1;
@@ -3790,8 +3810,8 @@ main {
 
 .cc-label.is-sent::after,
 .cc-label.is-received::after {
-  margin-top: 0.15rem;
-  padding: 0 0.4rem;
+  margin-top: 0.2rem;
+  padding: 0 0.45rem;
   border-radius: 1rem;
   font: 600 0.7rem/1.5 var(--font);
   letter-spacing: 0;
@@ -3805,6 +3825,7 @@ main {
 
 .cc-label.is-received::after {
   content: 'received';
+  background: var(--plate);
   box-shadow: inset 0 0 0 1px var(--plate-ink);
   color: var(--plate-ink);
 }
@@ -3812,20 +3833,15 @@ main {
 .cc-axis {
   font-size: 0.78rem;
   font-weight: 700;
-  opacity: 0.85;
 }
-
-.cc-axis.b1 { color: var(--plate-bit-1); }
-.cc-axis.b2 { color: var(--plate-bit-2); }
-.cc-axis.b3 { color: var(--plate-bit-3); }
 
 .plate-hint,
 .plate-fallback {
   position: absolute;
-  left: 1.25rem;
-  top: 0.9rem;
+  left: 3.5rem;
+  top: 0.5rem;
   margin: 0 !important;
-  color: var(--plate-ink-2);
+  color: var(--text-3);
   font-size: 0.8rem;
 }
 
@@ -3842,8 +3858,7 @@ main {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 1.5rem 2.5rem;
-  padding: 1.5rem 2rem 1.75rem;
-  border-top: 1px solid var(--plate-line);
+  padding-top: 0.5rem;
 }
 
 .plate-col {
@@ -3877,7 +3892,7 @@ main {
   padding: 0 0.8rem;
   border: 1px solid var(--plate-line);
   border-radius: 0.5rem;
-  background: rgb(255 255 255 / 0.03);
+  background: var(--surface);
   color: var(--plate-ink);
   font: inherit;
   font-size: 0.875rem;
@@ -3896,7 +3911,7 @@ main {
 }
 
 .plate button:focus-visible {
-  outline-color: var(--plate-ink);
+  outline-color: var(--accent);
 }
 
 .plate .word {
@@ -3909,15 +3924,22 @@ main {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 2px;
+  background: var(--fill);
   transform: rotate(45deg);
 }
 
-.plate .flip.b1::before { background: var(--plate-bit-1); }
-.plate .flip.b2::before { background: var(--plate-bit-2); }
-.plate .flip.b3::before { background: var(--plate-bit-3); }
+.plate .flip.b1 { --fill: var(--plate-bit-1); }
+.plate .flip.b2 { --fill: var(--plate-bit-2); }
+.plate .flip.b3 { --fill: var(--plate-bit-3); }
+.plate .flip.b4 { --fill: var(--plate-bit-4); }
+
+.plate .flip[hidden] {
+  display: none;
+}
 
 .plate .undo {
   border-style: dashed;
+  background: none;
   color: var(--plate-ink-2);
 }
 
@@ -3953,25 +3975,20 @@ main {
 .plate-verdict {
   grid-column: 1 / -1;
   margin: 0 !important;
-  padding: 0.75rem 1rem;
-  border-left: 3px solid var(--plate-ink-2);
-  border-radius: 0 0.5rem 0.5rem 0;
-  background: rgb(255 255 255 / 0.04);
-  font-size: 1rem;
+  padding: 0.2rem 0 0.2rem 1rem;
+  border-left: 3px solid var(--plate-line);
+  font-size: 1.05rem;
 }
 
 .plate-verdict[data-tone='good'] { border-left-color: var(--plate-good); }
-.plate-verdict[data-tone='warn'] { border-left-color: var(--plate-bit-3); }
+.plate-verdict[data-tone='warn'] { border-left-color: var(--plate-warn); }
 .plate-verdict[data-tone='bad'] { border-left-color: var(--plate-bad); }
 
 .hero-caption {
-  border-left: 0;
-  border-top: 1px solid var(--plate-line);
-  border-radius: 0;
-  background: none;
-  padding: 0.9rem 1.25rem;
-  font-size: 0.9rem;
-  min-height: 4.6rem;
+  min-height: 3em;
+  margin-top: 0.5rem !important;
+  color: var(--text-2);
+  font-size: 0.95rem;
 }
 
 /* The memory hierarchy figure. */
@@ -3982,7 +3999,8 @@ main {
 }
 
 .cache-level,
-.cache-hover {
+.cache-hover,
+.cache-clock {
   position: absolute;
   left: 0;
   top: 0;
@@ -4005,10 +4023,35 @@ main {
   font-size: 0.75rem;
 }
 
+.cache-level.raised {
+  margin-top: -4.2rem;
+}
+
+.cache-clock {
+  display: grid;
+  justify-items: center;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  transition: opacity 0.4s;
+}
+
+.cache-clock b {
+  font-size: 1.15rem;
+}
+
+.cache-clock small {
+  color: var(--plate-ink-2);
+  font-size: 0.72rem;
+}
+
+.cache-clock.idle {
+  opacity: 0;
+}
+
 .cache-status {
   position: absolute;
-  left: 1.25rem;
-  bottom: 0.9rem;
+  left: 3.5rem;
+  bottom: 0.5rem;
   color: var(--plate-ink);
   font-size: 0.875rem;
 }
@@ -4059,16 +4102,27 @@ main {
   background: var(--lvl);
 }
 
-@media (max-width: 64rem) {
-  .prose .plate {
-    margin-inline: 0;
+@media (max-width: 78rem) {
+  .prose .plate-stage {
+    margin-inline: -2rem;
+  }
+
+  .plate-hint,
+  .plate-fallback,
+  .cache-status {
+    left: 2rem;
   }
 }
 
 @media (max-width: 40rem) {
-  .plate {
-    margin-inline: -1rem !important;
-    border-radius: 0;
+  .prose .plate-stage {
+    margin-inline: -1rem;
+  }
+
+  .plate-hint,
+  .plate-fallback,
+  .cache-status {
+    left: 1rem;
   }
 
   .plate-stage {
@@ -4082,7 +4136,6 @@ main {
 
   .plate-panel {
     grid-template-columns: minmax(0, 1fr);
-    padding: 1.25rem 1rem 1.5rem;
   }
 }
 
@@ -4094,9 +4147,13 @@ main {
   margin: 0;
 }
 
+.hero-figure .plate-hint {
+  left: 0;
+}
+
 .hero-figure figcaption {
   max-width: 32rem;
-  margin-top: 0.9rem;
+  margin-top: 0.5rem;
   color: var(--text-3);
   font-size: 0.9rem;
   line-height: 1.5;

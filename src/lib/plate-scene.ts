@@ -1,8 +1,11 @@
-// The shared half of every 3D figure: a renderer that matches its plate's
-// colour, a bloom pass, orbit controls, HTML labels pinned to points in the
-// scene, and a render loop that only runs while the figure is on screen.
+// The shared half of every 3D figure: a renderer painted in the page colour so
+// the figure sits straight on the paper, inks read from the CSS theme, soft
+// shadows and reflections, a bloom pass for dark mode, orbit controls, HTML
+// labels pinned to points in the scene, and a render loop that only runs while
+// the figure is on screen.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -34,6 +37,49 @@ export function glowTexture() {
   return texture;
 }
 
+/**
+ * A fading tail of glowing dots that follows a moving point. Call `follow`
+ * every frame with where the point is now.
+ */
+export class Trail {
+  private dots: THREE.Sprite[] = [];
+  private history: THREE.Vector3[] = [];
+
+  constructor(parent: THREE.Object3D, map: THREE.Texture, public size: number, count = 16) {
+    for (let i = 0; i < count; i++) {
+      const dot = new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false }));
+      dot.visible = false;
+      parent.add(dot);
+      this.dots.push(dot);
+    }
+  }
+
+  /** Recolour the tail. Additive light only reads on a dark page. */
+  paint(color: THREE.Color, dark: boolean) {
+    for (const dot of this.dots) {
+      const material = dot.material as THREE.SpriteMaterial;
+      material.color.copy(color);
+      material.blending = dark ? THREE.AdditiveBlending : THREE.NormalBlending;
+      material.needsUpdate = true;
+    }
+  }
+
+  follow(at: THREE.Vector3 | null) {
+    if (at) this.history.unshift(at.clone());
+    else this.history.pop();
+    this.history.length = Math.min(this.history.length, this.dots.length);
+    this.dots.forEach((dot, i) => {
+      const point = this.history[i];
+      dot.visible = !!point;
+      if (!point) return;
+      const fade = 1 - i / this.dots.length;
+      dot.position.copy(point);
+      dot.scale.setScalar(this.size * (0.35 + 0.65 * fade));
+      (dot.material as THREE.SpriteMaterial).opacity = 0.55 * fade * fade;
+    });
+  }
+}
+
 /** Stretch and turn a unit-height cylinder so it spans two points. */
 export function span(mesh: THREE.Object3D, from: THREE.Vector3, to: THREE.Vector3) {
   const dir = to.clone().sub(from);
@@ -50,6 +96,12 @@ export abstract class PlateScene {
   protected scene = new THREE.Scene();
   protected camera = new THREE.PerspectiveCamera(32, 1, 0.1, 200);
   protected controls: OrbitControls;
+  /** True when the page behind the figure is dark. Set before `themed` runs. */
+  protected dark = true;
+  protected key = new THREE.DirectionalLight(0xffffff, 2.2);
+  private hemi = new THREE.HemisphereLight(0xdfe8ff, 0x30283a, 1.2);
+  private shadowFloors: THREE.Mesh[] = [];
+  private probe = document.createElement('span');
   private raycaster = new THREE.Raycaster();
   private frameId = 0;
   private running = false;
@@ -64,7 +116,24 @@ export abstract class PlateScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.NoToneMapping;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     host.append(this.renderer.domElement);
+
+    // A soft studio for reflections, so solid shapes read in a light theme
+    // where glow cannot.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+
+    this.key.castShadow = true;
+    this.key.shadow.mapSize.set(2048, 2048);
+    this.key.shadow.radius = 6;
+    this.key.shadow.bias = -0.0005;
+    this.scene.add(this.key, this.key.target, this.hemi);
+
+    this.probe.hidden = true;
+    host.append(this.probe);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -76,7 +145,10 @@ export abstract class PlateScene {
       if (options.interactive) this.controls.autoRotate = false;
     });
 
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.4, 0.82);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.8, 0, 0.82);
+    // Drop the two widest blurs. They average the bright shapes over the whole
+    // canvas, which lifts the background off the page colour and shows a box.
+    this.bloom.compositeMaterial.uniforms.bloomFactors.value = [1, 0.7, 0.35, 0, 0];
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.composer.addPass(this.bloom);
@@ -100,6 +172,9 @@ export abstract class PlateScene {
     this.fit();
   }
 
+  /** Recolour the scene from `ink()`. Runs once when ready, and on every theme change. */
+  protected themed() {}
+
   /** Move things for this frame. Runs before the controls update and the render. */
   protected abstract frame(now: number): void;
 
@@ -111,10 +186,43 @@ export abstract class PlateScene {
     const plate = this.host.closest<HTMLElement>('.plate') ?? this.host;
     // The composer's target stores the clear colour unconverted and OutputPass
     // encodes it again, so hand it linear values to land on the CSS colour.
-    const color = new THREE.Color(getComputedStyle(plate).backgroundColor).convertSRGBToLinear();
-    this.renderer.setClearColor(color, 1);
+    const background = new THREE.Color(getComputedStyle(plate).backgroundColor);
+    this.dark = background.getHSL({ h: 0, s: 0, l: 0 }).l < 0.35;
+    this.renderer.setClearColor(background.clone().convertSRGBToLinear(), 1);
+
+    // Glow is for dark pages. On paper, shapes are lit and cast shadows instead.
+    this.bloom.enabled = this.dark;
+    this.scene.environmentIntensity = this.dark ? 0.35 : 0.8;
+    this.hemi.intensity = this.dark ? 1.2 : 1.6;
+    this.key.intensity = this.dark ? 2 : 2.4;
+    for (const floor of this.shadowFloors) {
+      (floor.material as THREE.ShadowMaterial).opacity = this.dark ? 0.45 : 0.13;
+    }
+    this.themed();
     this.kick();
   };
+
+  /** A colour from the theme, given the name after `--plate-`. */
+  protected ink(name: string): THREE.Color {
+    this.probe.style.color = `var(--plate-${name})`;
+    return new THREE.Color(getComputedStyle(this.probe).color);
+  }
+
+  /** An invisible floor that only shows the shadows falling on it. */
+  protected shadowFloor(y: number, size: number) {
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.ShadowMaterial({ opacity: 0.2 }));
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = y;
+    floor.receiveShadow = true;
+    this.scene.add(floor);
+    this.shadowFloors.push(floor);
+    const shadow = this.key.shadow.camera;
+    shadow.left = shadow.bottom = -size / 2;
+    shadow.right = shadow.top = size / 2;
+    shadow.far = 60;
+    shadow.updateProjectionMatrix();
+    return floor;
+  }
 
   private fit() {
     const { clientWidth: w, clientHeight: h } = this.host;
@@ -147,6 +255,11 @@ export abstract class PlateScene {
   private stop() {
     this.running = false;
     cancelAnimationFrame(this.frameId);
+  }
+
+  /** Whether the figure is on screen and animating. */
+  protected get isRunning() {
+    return this.running;
   }
 
   /** Draw once now if the loop is paused, so a change shows while off screen. */
