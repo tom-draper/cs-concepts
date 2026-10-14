@@ -41,6 +41,16 @@ What a code can do depends on the smallest distance between any two of its codew
 
 The reasoning is geometric. An error moves the received pattern away from the codeword that was sent, one step for each flipped bit. The receiver corrects by choosing the nearest codeword. If codewords are at least 3 apart, a pattern one step from the right codeword is at least two steps from every other, so the nearest is the right one.
 
+Three-bit words can be drawn exactly. There are eight of them, and they sit at the corners of a cube. Each bit is one direction, so every edge joins two words that differ in one bit, and the distance between two words is the number of edges walked between them.
+
+<CodeCube />
+
+With no redundancy, every corner is a codeword, and a flip just moves the message to another valid word. Nothing is noticed.
+
+A parity bit keeps the four corners with an even number of 1s. No two of them share an edge, so a single flip always lands on a corner that is not a codeword. That corner touches three codewords equally, so the receiver knows something broke but not what.
+
+Saying it three times keeps only `000` and `111`, at opposite corners. The faint tubes mark each codeword's decoding region: every corner one step away belongs to it. One flip stays inside the region and is undone. Two flips cross into the other region, and the receiver corrects, confidently, to the wrong word.
+
 A parity bit gives distance 2: detection only. The design problem is to pack as many codewords as possible into n bits while keeping them far apart.
 
 ## The Hamming code
