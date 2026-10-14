@@ -13,9 +13,11 @@
   "packageManager": "pnpm@12.11.2",
   "dependencies": {
     "@astrojs/mdx": "^8.0.3",
-    "astro": "^7.3.8"
+    "astro": "^7.3.8",
+    "three": "0.180.0"
   },
   "devDependencies": {
+    "@types/three": "0.180.0",
     "pagefind": "^1.5.2"
   }
 }
