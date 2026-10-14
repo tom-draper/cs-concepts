@@ -36,6 +36,8 @@
   --plate-bit-1: #3dd8f0;
   --plate-bit-2: #ff5cab;
   --plate-bit-3: #ffd54a;
+  --plate-good: #7ef0b8;
+  --plate-bad: #ff6b6b;
 
   /* Diagram ink. */
   --viz-fill: light-dark(#fbfcfa, #161d2c);
@@ -3839,26 +3841,24 @@ main {
   border-top: 1px solid var(--plate-line);
 }
 
-.cc-col {
+.plate-col {
   display: grid;
   align-content: start;
   gap: 1.1rem;
 }
 
-.cc-group {
+.plate-group {
   display: grid;
   gap: 0.45rem;
 }
 
-.cc-caption {
+.plate-caption {
   color: var(--plate-ink-2);
   font-size: 0.8rem;
   font-weight: 600;
 }
 
-.cc-segments,
-.cc-words,
-.cc-flips {
+.plate-buttons {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -3916,39 +3916,36 @@ main {
   color: var(--plate-ink-2);
 }
 
-.cc-summary {
+.plate-note {
   margin: 0 !important;
   color: var(--plate-ink-2);
 }
 
-.cc-facts,
-.cc-readout {
+.plate-facts {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 1.75rem;
   margin: 0;
 }
 
-.cc-facts dt,
-.cc-readout dt {
+.plate-facts dt {
   color: var(--plate-ink-2);
   font-size: 0.8rem;
 }
 
-.cc-facts dd,
-.cc-readout dd {
+.plate-facts dd {
   margin: 0;
   font-size: 1.35rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-.cc-readout dd.word {
+.plate-facts dd.word {
   font-family: var(--mono);
   letter-spacing: 0.08em;
 }
 
-.cc-verdict {
+.plate-verdict {
   grid-column: 1 / -1;
   margin: 0 !important;
   padding: 0.75rem 1rem;
@@ -3958,10 +3955,9 @@ main {
   font-size: 1rem;
 }
 
-.cc-verdict[data-outcome='corrected'] { border-left-color: #7ef0b8; }
-.cc-verdict[data-outcome='detected'] { border-left-color: var(--plate-bit-3); }
-.cc-verdict[data-outcome='undetected'],
-.cc-verdict[data-outcome='miscorrected'] { border-left-color: #ff6b6b; }
+.plate-verdict[data-tone='good'] { border-left-color: var(--plate-good); }
+.plate-verdict[data-tone='warn'] { border-left-color: var(--plate-bit-3); }
+.plate-verdict[data-tone='bad'] { border-left-color: var(--plate-bad); }
 
 .hero-caption {
   border-left: 0;
