@@ -216,14 +216,19 @@ four take a `text` prop for their starting input.
 3D figures are drawn with three.js. Each has a model in `src/lib/<name>.ts` and a scene
 in `src/lib/<name>-scene.ts` that extends `PlateScene` from `src/lib/plate-scene.ts`,
 which handles the renderer, bloom, orbit controls, HTML labels and pausing off screen.
-They sit in a dark `.plate`, share the `.plate-*` panel classes, and take their colours
-from the `--plate*` and `--bit-*` tokens in `global.css`.
+They sit in a `.plate` and share the `.plate-*` panel classes.
 
-- `<CodeCube />` draws 3-bit codes on a cube, where each edge is one bit flip. It takes
-  `code="none|parity|repeat"`, and the home page uses `variant="hero"`, which plays a
-  short loop without controls.
+- `<CodeCube />` draws short codes on a cube, where each edge is one bit flip, and
+  unfolds it into a tesseract for 4-bit codes. It takes `code="none|parity|repeat"` and
+  `bits={3|4}`, and the home page uses `variant="hero"`, which plays a short loop
+  without controls.
 - `<CacheHierarchy />` stands the core, L1, L2, L3 and RAM in a row, farther for slower,
-  and plays access patterns through them a line at a time.
+  and plays access patterns through them a line at a time. "Draw to scale" moves each
+  level to a distance proportional to its latency.
+
+Plates have no box: the canvas is painted in the page colour with feathered edges, and
+scenes read their colours from the `--plate-*` tokens through `ink()`, so they follow the
+light and dark themes. Bloom is used only on dark pages; light pages get shadows instead.
 
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
