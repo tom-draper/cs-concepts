@@ -1,12 +1,8 @@
 // The WebGL half of <CodeCube>. It draws whatever state it is handed and reports
 // clicks on corners; the code logic lives in code-cube.ts.
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { corners, decodesTo, nearest, walk, type Code, type Outcome } from './code-cube';
+import { ease, glowTexture, PlateScene, type PlateOptions } from './plate-scene';
 
 export interface CubeState {
   code: Code;
@@ -17,10 +13,7 @@ export interface CubeState {
   outcome: Outcome;
 }
 
-interface Options {
-  reducedMotion: boolean;
-  autoRotate: boolean;
-  interactive: boolean;
+interface Options extends Omit<PlateOptions, 'fov'> {
   onPick?: (word: string) => void;
 }
 
@@ -40,33 +33,8 @@ const point = (word: string) =>
 
 const edgeKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
-const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
-
-function glowTexture() {
-  const size = 128;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d')!;
-  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  g.addColorStop(0, 'rgba(255,255,255,1)');
-  g.addColorStop(0.35, 'rgba(255,255,255,0.35)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, size, size);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-export class CodeCubeScene {
-  private renderer: THREE.WebGLRenderer;
-  private composer: EffectComposer;
-  private bloom: UnrealBloomPass;
-  private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(32, 1, 0.1, 100);
-  private controls: OrbitControls;
+export class CodeCubeScene extends PlateScene {
   private cube = new THREE.Group();
-  private raycaster = new THREE.Raycaster();
 
   private nodes = new Map<string, { mesh: THREE.Mesh; hit: THREE.Mesh; label: HTMLElement }>();
   private edges = new Map<string, { mesh: THREE.Mesh; bit: number }>();
@@ -84,37 +52,15 @@ export class CodeCubeScene {
   private leg?: { from: THREE.Vector3; to: THREE.Vector3; start: number };
   private echoPath: THREE.Vector3[] = [];
   private echoStart = 0;
-  private frame = 0;
-  private running = false;
   private hover: string | null = null;
-  private resize: ResizeObserver;
-  private visible: IntersectionObserver;
-  private themeWatch: MutationObserver;
-  private media = matchMedia('(prefers-color-scheme: dark)');
 
-  constructor(
-    private host: HTMLElement,
-    private labelLayer: HTMLElement,
-    private options: Options,
-  ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.toneMapping = THREE.NoToneMapping;
-    host.append(this.renderer.domElement);
+  constructor(host: HTMLElement, labelLayer: HTMLElement, options: Options) {
+    super(host, labelLayer, { ...options, fov: [32, 44] });
 
     // Off every body diagonal, so no two corners start out stacked on screen.
     this.camera.position.set(8.3, 3.5, 1.4);
-    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-    this.controls.enableDamping = true;
-    this.controls.enablePan = false;
-    this.controls.enableZoom = options.interactive;
     this.controls.minDistance = 7;
     this.controls.maxDistance = 14;
-    this.controls.autoRotate = options.autoRotate && !options.reducedMotion;
-    this.controls.autoRotateSpeed = 0.7;
-    this.controls.addEventListener('start', () => {
-      if (options.interactive) this.controls.autoRotate = false;
-    });
 
     this.scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x1a1030, 1.4));
     const key = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -153,37 +99,15 @@ export class CodeCubeScene {
     this.echo.visible = false;
     this.cube.add(this.echo, this.verdictPath);
 
-    const pass = new RenderPass(this.scene, this.camera);
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.7, 0.4, 0.82);
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(pass);
-    this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-
-    this.readBackground();
-    this.themeWatch = new MutationObserver(() => this.readBackground());
-    this.themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    this.media.addEventListener('change', this.readBackground);
-
-    this.resize = new ResizeObserver(() => this.fit());
-    this.resize.observe(host);
-    this.fit();
-
-    this.visible = new IntersectionObserver(([entry]) => (entry.isIntersecting ? this.start() : this.stop()));
-    this.visible.observe(host);
-
-    if (options.interactive) this.listen();
+    if (options.interactive) {
+      this.listenForPicks<string>(
+        () => [...this.nodes.values()].map((n) => n.hit),
+        (word) => options.onPick?.(word),
+        (word) => (this.hover = word),
+      );
+    }
+    this.ready();
   }
-
-  private readBackground = () => {
-    // --plate uses light-dark(), so read the resolved colour off the plate itself.
-    const plate = this.host.closest<HTMLElement>('.plate') ?? this.host;
-    // The composer's target stores the clear colour unconverted and OutputPass
-    // encodes it again, so hand it linear values to land on the CSS colour.
-    const color = new THREE.Color(getComputedStyle(plate).backgroundColor).convertSRGBToLinear();
-    this.renderer.setClearColor(color, 1);
-    this.kick();
-  };
 
   private buildFloor(glow: THREE.Texture) {
     const floor = new THREE.Mesh(
@@ -247,7 +171,7 @@ export class CodeCubeScene {
       mesh.add(halo);
       const hit = new THREE.Mesh(hitGeometry, new THREE.MeshBasicMaterial({ visible: false }));
       hit.position.copy(mesh.position);
-      hit.userData.word = word;
+      hit.userData.pick = word;
       this.cube.add(mesh, hit);
 
       const label = document.createElement('span');
@@ -271,33 +195,6 @@ export class CodeCubeScene {
       this.labelLayer.append(el);
       this.axisLabels.push({ el, at });
     });
-  }
-
-  private listen() {
-    const canvas = this.renderer.domElement;
-    let down: { x: number; y: number } | null = null;
-    const pick = (event: PointerEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const ndc = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      this.raycaster.setFromCamera(ndc, this.camera);
-      const hits = this.raycaster.intersectObjects([...this.nodes.values()].map((n) => n.hit));
-      return (hits[0]?.object.userData.word as string | undefined) ?? null;
-    };
-    canvas.addEventListener('pointerdown', (event) => (down = { x: event.clientX, y: event.clientY }));
-    canvas.addEventListener('pointerup', (event) => {
-      if (!down || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5) return;
-      const word = pick(event);
-      if (word) this.options.onPick?.(word);
-    });
-    canvas.addEventListener('pointermove', (event) => {
-      if (event.buttons) return;
-      this.hover = pick(event);
-      canvas.style.cursor = this.hover ? 'pointer' : 'grab';
-    });
-    canvas.addEventListener('pointerleave', () => (this.hover = null));
   }
 
   set(state: CubeState) {
@@ -399,40 +296,7 @@ export class CodeCubeScene {
     }
   }
 
-  private fit() {
-    const { clientWidth: w, clientHeight: h } = this.host;
-    if (!w || !h) return;
-    this.renderer.setSize(w, h, false);
-    this.composer.setSize(w, h);
-    this.bloom.resolution.set(w, h);
-    this.camera.aspect = w / h;
-    // Pull back on narrow, tall stages so the whole cube stays in view.
-    this.camera.fov = w / h < 1 ? 44 : 32;
-    this.camera.updateProjectionMatrix();
-    this.kick();
-  }
-
-  private start() {
-    if (this.running) return;
-    this.running = true;
-    const tick = (now: number) => {
-      if (!this.running) return;
-      this.frame = requestAnimationFrame(tick);
-      this.update(now);
-    };
-    this.frame = requestAnimationFrame(tick);
-  }
-
-  private stop() {
-    this.running = false;
-    cancelAnimationFrame(this.frame);
-  }
-
-  private kick() {
-    if (!this.running) this.update(performance.now());
-  }
-
-  private update(now: number) {
+  protected frame(now: number) {
     if (!this.leg && this.queue.length) {
       this.leg = { from: this.packet.position.clone(), to: point(this.queue.shift()!), start: now };
     }
@@ -465,40 +329,14 @@ export class CodeCubeScene {
       const base = this.state?.code.words.includes(word) ? 0.16 : 0.085;
       node.mesh.scale.setScalar(word === this.hover ? base * 1.35 : base);
     }
-
-    this.controls.update();
-    this.composer.render();
-    this.placeLabels();
   }
 
-  private placeLabels() {
-    const w = this.host.clientWidth;
-    const h = this.host.clientHeight;
-    const v = new THREE.Vector3();
-    const toScreen = (at: THREE.Vector3) => {
-      v.copy(at).project(this.camera);
-      return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h, v.z] as const;
-    };
+  protected placeLabels() {
     for (const [word, node] of this.nodes) {
       // Push each label outwards from the centre so it sits beside its corner.
-      const [x, y, z] = toScreen(point(word).multiplyScalar(1.3));
-      node.label.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-      node.label.style.opacity = String(Math.max(0.4, Math.min(1, 1.9 - z * 1.0)));
+      const z = this.pin(node.label, point(word).multiplyScalar(1.3));
+      node.label.style.opacity = String(Math.max(0.4, Math.min(1, 1.9 - z)));
     }
-    for (const { el, at } of this.axisLabels) {
-      const [x, y] = toScreen(at);
-      el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
-    }
-  }
-
-  dispose() {
-    this.stop();
-    this.resize.disconnect();
-    this.visible.disconnect();
-    this.themeWatch.disconnect();
-    this.media.removeEventListener('change', this.readBackground);
-    this.controls.dispose();
-    this.composer.dispose();
-    this.renderer.dispose();
+    for (const { el, at } of this.axisLabels) this.pin(el, at);
   }
 }
