@@ -1,6 +1,7 @@
 ---
 // An animated run of a sorting algorithm. The first step is drawn at build
-// time; the script replays the rest and can re-run it on different input.
+// time as flat bars; in a browser with WebGL the script swaps in a 3D stage
+// (src/lib/studio/sort-stage.ts) and replays the rest of the run on it.
 import Controls from './Controls.astro';
 import { trace, type Algorithm } from '../lib/sort-traces';
 
@@ -23,7 +24,11 @@ const marks = { quick: 'pivot', selection: 'smallest so far' } as Record<string,
   aria-label={`${algorithm} sort, step by step`}
   data-algorithm={algorithm}
   data-values={JSON.stringify(values)}
+  data-pivot={algorithm === 'selection' ? 'min' : 'pivot'}
 >
+  <div class="sort-stage" aria-hidden="true" hidden>
+    <p class="stage-hint">Drag to orbit · double-click to reset</p>
+  </div>
   <div class="bars" aria-hidden="true">
     {
       first.values.map((value) => (
@@ -59,6 +64,8 @@ const marks = { quick: 'pivot', selection: 'smallest so far' } as Record<string,
 <script>
   import { attachStepper } from '../lib/stepper';
   import { trace, type Algorithm, type SortStep } from '../lib/sort-traces';
+  import { fontsReady, webglAvailable } from '../lib/studio/support';
+  import type { SortStage } from '../lib/studio/sort-stage';
 
   class SortDemo extends HTMLElement {
     connectedCallback() {
@@ -68,11 +75,15 @@ const marks = { quick: 'pivot', selection: 'smallest so far' } as Record<string,
       const stat = (name: string) => this.querySelector(`[data-stat="${name}"]`)!;
       let values: number[] = JSON.parse(this.dataset.values!);
       let steps: SortStep[] = trace(algorithm, values);
+      let stage: SortStage | undefined;
+      let current = 0;
 
       const stepper = attachStepper(this, {
-        interval: 550,
+        interval: 800,
         count: () => steps.length,
         render: (index) => {
+          current = index;
+          stage?.show(index);
           const step = steps[index];
           const max = Math.max(...step.values);
           bars.forEach((bar, i) => {
@@ -105,8 +116,35 @@ const marks = { quick: 'pivot', selection: 'smallest so far' } as Record<string,
           }
         }
         steps = trace(algorithm, values);
+        stage?.load(steps);
         stepper.go(0);
       });
+
+      // Build the 3D stage only when the demo is about to scroll into view.
+      if (!webglAvailable()) return;
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          await fontsReady();
+          const { SortStage } = await import('../lib/studio/sort-stage');
+          const host = this.querySelector<HTMLElement>('.sort-stage')!;
+          host.hidden = false;
+          try {
+            stage = new SortStage(host, values.length, Math.max(...values), {
+              pivotLabel: this.dataset.pivot,
+            });
+            stage.load(steps);
+            stage.show(current);
+            this.dataset.stage = '';
+          } catch (error) {
+            host.hidden = true;
+            console.warn('Could not start the 3D stage', error);
+          }
+        },
+        { rootMargin: '300px' },
+      );
+      near.observe(this);
     }
   }
 
