@@ -21,6 +21,7 @@ pnpm preview    # serve dist/ (search only works here, not in dev)
 | `src/content/docs/<part>/<page>.mdx` | One file per concept. |
 | `src/components/viz/` | Diagram components, rendered to inline SVG at build time. |
 | `src/components/mdx.ts` | The components every page can use without importing. |
+| `src/lib/*-scene.ts` | three.js scenes for 3D figures, loaded only when the figure nears the screen. |
 
 The outline lists every page the book intends to have. A page is **planned**
 (greyed out in the sidebar) until its `.mdx` file exists; then it becomes a link
@@ -211,6 +212,13 @@ The security pages use `<HashDemo />`, `<BlockModeDemo />`, `<RsaDemo />` (and
 The information and coding pages use `<EntropyDemo />`, `<HuffmanDemo />`, `<LzDemo />`,
 `<ChecksumDemo />` and `<HammingDemo />`, backed by `src/lib/information.ts`. The first
 four take a `text` prop for their starting input.
+
+`<CodeCube />` is the first 3D figure: 3-bit codes drawn on a cube with three.js, where
+each edge is one bit flip. The code logic is in `src/lib/code-cube.ts` and the scene in
+`src/lib/code-cube-scene.ts`. It takes `code="none|parity|repeat"`, and the home page
+uses `variant="hero"`, which plays a short loop without controls. 3D figures sit in a
+dark `.plate`, and their colours come from the `--plate*` and `--bit-*` tokens in
+`global.css`.
 
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
