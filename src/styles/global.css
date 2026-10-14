@@ -1,33 +1,61 @@
+/*
+ * Visual Computer Science: the studio look.
+ *
+ * A warm white set, hard-edged ink tiles, one clay accent, and labels set in
+ * bold monospace capitals. Surfaces are "boards" that float on a soft shadow;
+ * controls are "tiles" that sit on a hard ink edge and press down when used.
+ */
+
 :root {
   color-scheme: light dark;
 
-  --bg: light-dark(#fcfcfb, #161615);
-  --bg-soft: light-dark(#f4f3f0, #1f1f1d);
-  --border: light-dark(#e3e1db, #32312e);
-  --text: light-dark(#1c1b19, #e9e7e2);
-  --text-2: light-dark(#5c5a55, #a9a79f);
-  --text-3: light-dark(#8e8c85, #7b7972);
-  --accent: light-dark(#1f66c1, #6aa6f0);
-  --accent-soft: light-dark(#e3eefb, #1b2c44);
-  --alt: light-dark(#c9501c, #ee8a5c);
-  --alt-soft: light-dark(#fdebe2, #40251a);
+  /* The set. */
+  --bg: light-dark(#ebeae6, #151413);
+  --bg-soft: light-dark(#f7f6f3, #1e1d1b);
+  --board: light-dark(#fbfaf8, #201f1d);
+  --border: light-dark(#d8d5cd, #34322e);
+  --rule: light-dark(#cfccc4, #3a3833);
+
+  /* Ink. */
+  --text: light-dark(#1d1c1a, #ebe9e4);
+  --text-2: light-dark(#5b5852, #aaa79f);
+  --text-3: light-dark(#8d8981, #77746d);
+  --ink: light-dark(#1d1c1a, #0b0b0a);
+  --ink-edge: light-dark(#1d1c1a, #000000);
+
+  /* Clay is the one accent. The fill is the pure tone; text uses a deeper cut
+     so it still reads on the white set. */
+  --clay: #d97757;
+  --accent: light-dark(#b0502c, #e88d6c);
+  --accent-soft: light-dark(#f5ddd2, #3b2519);
+  --on-accent: #fffaf6;
+  --alt: light-dark(#2b2a27, #d9d6cf);
+  --alt-soft: light-dark(#dfdcd5, #2f2d2a);
 
   /* Diagram ink. */
-  --viz-fill: light-dark(#ffffff, #1f1f1d);
-  --viz-stroke: light-dark(#8e8c85, #7b7972);
+  --viz-fill: light-dark(#ffffff, #262522);
+  --viz-stroke: light-dark(#8d8981, #77746d);
 
   /* Chart series, in fixed slot order. */
-  --series-1: light-dark(#2a78d6, #3987e5);
-  --series-2: light-dark(#eb6834, #d95926);
-  --series-3: light-dark(#1baf7a, #199e70);
-  --series-4: light-dark(#eda100, #c98500);
-  --series-5: light-dark(#e87ba4, #d55181);
-  --series-6: light-dark(#008300, #008300);
+  --series-1: light-dark(#d97757, #e0825f);
+  --series-2: light-dark(#2b2a27, #d9d6cf);
+  --series-3: light-dark(#3f8f6e, #4fa880);
+  --series-4: light-dark(#c99a2e, #d6a93e);
+  --series-5: light-dark(#5b7fb8, #7397d1);
+  --series-6: light-dark(#9a6fb0, #b08ac4);
+
+  /* Shadows: boards float, tiles sit on a hard edge. */
+  --float: 0 1px 0 light-dark(#fff, #2c2b28) inset,
+    0 22px 40px -26px light-dark(rgb(40 30 20 / 0.32), rgb(0 0 0 / 0.7)),
+    0 2px 6px -2px light-dark(rgb(40 30 20 / 0.12), rgb(0 0 0 / 0.5));
+  --edge: 0 2px 0 var(--ink-edge);
 
   --sidebar-w: 18rem;
-  --topbar-h: 3.25rem;
+  --topbar-h: 3.5rem;
+  --radius: 0.7rem;
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  --mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas,
+    monospace;
 }
 
 :root[data-theme='light'] {
@@ -51,9 +79,24 @@ html {
 
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse 90% 60% at 60% -10%, light-dark(#f8f7f4, #1f1e1c), transparent 70%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font: 1rem/1.7 var(--font);
+}
+
+/* Film grain, about 1.5% over everything. */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: multiply;
 }
 
 a {
@@ -68,9 +111,44 @@ pre {
   font-family: var(--mono);
 }
 
+::selection {
+  background: var(--clay);
+  color: var(--on-accent);
+}
+
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--clay);
   outline-offset: 2px;
+}
+
+/* The house label: bold monospace, set a little smaller than the text. */
+.label,
+.brand-name,
+.eyebrow,
+.difficulty,
+.sidebar summary,
+.sidebar h2,
+.toc h2,
+.aside-title,
+.op dt,
+.pager small,
+.part h3,
+.controls button,
+.search-btn {
+  font-family: var(--mono);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* A small clay flag, like a playhead marker. */
+.tag {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.2rem;
+  background: var(--clay);
+  color: var(--on-accent);
+  font: 700 0.68rem/1.4 var(--mono);
+  letter-spacing: 0.01em;
 }
 
 /* ---------- Top bar ---------- */
@@ -84,16 +162,48 @@ pre {
   align-items: center;
   gap: 0.5rem;
   padding: 0 1rem;
-  background: var(--bg);
-  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+/* A ruler along the bottom edge: a tick every 8px, a long one every 40px. */
+.topbar::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 7px;
+  border-top: 1px solid var(--rule);
+  background:
+    repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 40px) top / 100% 7px no-repeat,
+    repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 8px) top / 100% 3px no-repeat;
+  pointer-events: none;
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
   margin-right: auto;
   color: var(--text);
-  font-weight: 650;
-  letter-spacing: -0.01em;
   text-decoration: none;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  height: 1.7rem;
+  padding: 0 0.45rem;
+  border-radius: 0.3rem;
+  background: var(--clay);
+  box-shadow: var(--edge);
+  color: var(--on-accent);
+  font: 800 0.8rem var(--mono);
+  letter-spacing: 0.01em;
+}
+
+.brand-name {
+  color: var(--text-2);
+  font-size: 0.72rem;
 }
 
 .icon-btn,
@@ -104,7 +214,7 @@ pre {
   height: 2.1rem;
   padding: 0 0.6rem;
   border: 1px solid transparent;
-  border-radius: 0.5rem;
+  border-radius: 0.45rem;
   background: none;
   color: var(--text-2);
   font: inherit;
@@ -112,15 +222,26 @@ pre {
   cursor: pointer;
 }
 
-.icon-btn:hover,
-.search-btn:hover {
+.icon-btn:hover {
   color: var(--text);
   background: var(--bg-soft);
 }
 
 .search-btn {
-  border-color: var(--border);
-  min-width: 11rem;
+  min-width: 12rem;
+  border-color: var(--ink-edge);
+  background: var(--board);
+  box-shadow: var(--edge);
+  font-size: 0.7rem;
+}
+
+.search-btn:hover {
+  color: var(--text);
+}
+
+.search-btn:active {
+  transform: translateY(2px);
+  box-shadow: none;
 }
 
 .search-btn kbd {
@@ -128,7 +249,7 @@ pre {
   padding: 0 0.35rem;
   border: 1px solid var(--border);
   border-radius: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   line-height: 1.4;
 }
 
@@ -139,7 +260,7 @@ pre {
 
 .nav-toggle {
   position: fixed;
-  top: 0.6rem;
+  top: 0.7rem;
   left: 1rem;
   width: 2.1rem;
   height: 2.1rem;
@@ -149,7 +270,7 @@ pre {
 }
 
 .nav-toggle:focus-visible ~ .topbar .menu-btn {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--clay);
 }
 
 /* ---------- Sidebar ---------- */
@@ -159,26 +280,26 @@ pre {
   inset: var(--topbar-h) auto 0 0;
   z-index: 20;
   width: var(--sidebar-w);
-  padding: 1rem 0.75rem 3rem;
+  padding: 1.25rem 0.75rem 3rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   background: var(--bg);
-  border-right: 1px solid var(--border);
-  font-size: 0.9rem;
+  border-right: 1px solid var(--rule);
+  font-size: 0.875rem;
   line-height: 1.4;
 }
 
 .sidebar details {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.35rem;
 }
 
 .sidebar summary {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.5rem;
+  gap: 0.6rem;
+  padding: 0.45rem 0.5rem;
   border-radius: 0.4rem;
-  font-weight: 600;
+  font-size: 0.72rem;
   cursor: pointer;
   list-style: none;
 }
@@ -187,18 +308,20 @@ pre {
   display: none;
 }
 
+/* A diamond that fills in when the part is open. */
 .sidebar summary::before {
   content: '';
-  width: 0.4rem;
-  height: 0.4rem;
-  border: solid var(--text-3);
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(-45deg);
-  transition: transform 0.12s;
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border: 1.5px solid var(--text-2);
+  transform: rotate(45deg);
+  transition: background 0.12s;
 }
 
 .sidebar details[open] > summary::before {
-  transform: rotate(45deg);
+  border-color: var(--clay);
+  background: var(--clay);
 }
 
 .sidebar summary:hover {
@@ -208,32 +331,28 @@ pre {
 .sidebar .count {
   margin-left: auto;
   color: var(--text-3);
-  font-size: 0.75rem;
-  font-weight: 400;
+  font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
 }
 
 .sidebar h2 {
-  margin: 0.9rem 0 0.25rem 1.4rem;
+  margin: 1rem 0 0.3rem 1.6rem;
   color: var(--text-3);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.64rem;
 }
 
 .sidebar ul {
-  margin: 0 0 0 1.4rem;
+  margin: 0 0 0 1.6rem;
   padding: 0;
   list-style: none;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--rule);
 }
 
 .sidebar li > * {
   display: block;
   margin-left: -1px;
   padding: 0.28rem 0.75rem;
-  border-left: 1px solid transparent;
+  border-left: 2px solid transparent;
 }
 
 .sidebar a {
@@ -247,8 +366,9 @@ pre {
 }
 
 .sidebar a[aria-current='page'] {
-  color: var(--accent);
-  border-left-color: var(--accent);
+  color: var(--text);
+  border-left-color: var(--clay);
+  background: linear-gradient(90deg, var(--accent-soft), transparent);
   font-weight: 600;
 }
 
@@ -269,7 +389,7 @@ main {
   grid-template-columns: minmax(0, 46rem) 13rem;
   column-gap: 3rem;
   justify-content: center;
-  padding: 2.5rem 2rem 4rem;
+  padding: 3rem 2rem 4rem;
 }
 
 .page > * {
@@ -280,35 +400,52 @@ main {
   grid-column: 2;
   grid-row: 1;
   position: sticky;
-  top: calc(var(--topbar-h) + 2.5rem);
+  top: calc(var(--topbar-h) + 3rem);
   align-self: start;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   line-height: 1.4;
 }
 
 .toc h2 {
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.6rem;
   color: var(--text-3);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.64rem;
 }
 
+/* Numbered to match the section headings: ◇ 01, ◇ 02, ... */
 .toc ul {
   margin: 0;
   padding: 0;
   list-style: none;
+  counter-reset: toc;
+}
+
+.toc li {
+  counter-increment: toc;
 }
 
 .toc a {
-  display: block;
-  padding: 0.25rem 0;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.28rem 0;
   color: var(--text-2);
   text-decoration: none;
 }
 
+.toc a::before {
+  content: '◇ ' counter(toc, decimal-leading-zero);
+  flex: none;
+  color: var(--text-3);
+  font: 700 0.7rem/1.6 var(--mono);
+}
+
 .toc a:hover {
-  color: var(--accent);
+  color: var(--text);
+}
+
+.toc a:hover::before {
+  content: '◆ ' counter(toc, decimal-leading-zero);
+  color: var(--clay);
 }
 
 /* ---------- Prose ---------- */
@@ -317,48 +454,77 @@ main {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
-  margin: 0 0 0.5rem;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
   color: var(--text-3);
-  font-size: 0.8rem;
+  font-size: 0.68rem;
 }
 
 .difficulty {
   margin-left: 0.4rem;
-  padding: 0.05rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 1rem;
-  color: var(--text-2);
-  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.2rem;
+  background: var(--clay);
+  color: var(--on-accent);
+  font-size: 0.64rem;
+}
+
+.difficulty.beginner {
+  background: var(--board);
+  box-shadow: inset 0 0 0 1.5px var(--ink-edge);
+  color: var(--text);
+}
+
+.difficulty.advanced {
+  background: var(--ink);
+  color: #fff;
 }
 
 .prose h1,
 .hero h1 {
-  margin: 0 0 0.75rem;
-  font-size: 2.25rem;
-  line-height: 1.15;
-  letter-spacing: -0.025em;
+  margin: 0 0 0.9rem;
+  font: 700 2.3rem/1.1 var(--mono);
+  letter-spacing: -0.01em;
 }
 
 .lede {
-  margin: 0 0 2rem;
+  margin: 0 0 2.25rem;
   color: var(--text-2);
   font-size: 1.15rem;
   line-height: 1.55;
 }
 
+/* Section headings carry the studio index: ◇ 01 THE PICTURE. */
+.prose {
+  counter-reset: section;
+}
+
 .prose h2 {
-  margin: 3rem 0 0.75rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin: 3.25rem 0 0.9rem;
   padding-top: 1.5rem;
-  border-top: 1px solid var(--border);
-  font-size: 1.5rem;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
+  border-top: 1px solid var(--rule);
+  font: 700 1.15rem/1.3 var(--mono);
+  letter-spacing: 0.01em;
+  counter-increment: section;
+}
+
+.prose h2::before {
+  content: '◇ ' counter(section, decimal-leading-zero);
+  flex: none;
+  color: var(--text-3);
+}
+
+.prose h2:hover::before {
+  content: '◆ ' counter(section, decimal-leading-zero);
+  color: var(--clay);
 }
 
 .prose h3 {
   margin: 2rem 0 0.5rem;
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   line-height: 1.3;
 }
 
@@ -372,21 +538,28 @@ main {
   margin-bottom: 0.3rem;
 }
 
+.prose ul > li::marker {
+  content: '◆  ';
+  color: var(--clay);
+  font-size: 0.7em;
+}
+
 .prose :not(pre) > code {
   padding: 0.12em 0.35em;
   border-radius: 0.3rem;
-  background: var(--bg-soft);
-  font-size: 0.88em;
+  background: var(--board);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: 0.86em;
 }
 
 .prose pre {
   margin: 0 0 1.4rem;
   padding: 1rem 1.1rem;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--bg-soft) !important;
-  font-size: 0.875rem;
+  border-radius: var(--radius);
+  background: var(--board) !important;
+  box-shadow: var(--float);
+  font-size: 0.85rem;
   line-height: 1.6;
 }
 
@@ -408,20 +581,21 @@ main {
 .prose th,
 .prose td {
   padding: 0.45rem 0.9rem;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--rule);
   text-align: left;
 }
 
 .prose th {
+  border-bottom: 2px solid var(--ink-edge);
   color: var(--text-2);
-  font-size: 0.8rem;
-  font-weight: 600;
+  font: 700 0.7rem var(--mono);
+  letter-spacing: 0.01em;
 }
 
 .prose blockquote {
   margin: 0 0 1.1rem;
   padding-left: 1rem;
-  border-left: 3px solid var(--border);
+  border-left: 3px solid var(--clay);
   color: var(--text-2);
 }
 
@@ -434,23 +608,26 @@ main {
 
 .aside {
   margin: 0 0 1.4rem;
-  padding: 0.85rem 1.1rem;
-  border-left: 3px solid var(--accent);
-  border-radius: 0 0.5rem 0.5rem 0;
-  background: var(--accent-soft);
+  padding: 0.9rem 1.1rem;
+  border-left: 3px solid var(--clay);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--board);
+  box-shadow: var(--float);
 }
 
 .aside.warning {
-  border-left-color: var(--alt);
+  border-left-color: var(--ink-edge);
   background: var(--alt-soft);
 }
 
 .aside-title {
-  margin: 0 0 0.25rem !important;
-  font-size: 0.8rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  margin: 0 0 0.3rem !important;
+  color: var(--accent);
+  font-size: 0.7rem;
+}
+
+.aside.warning .aside-title {
+  color: var(--text);
 }
 
 .aside > :last-child {
@@ -467,34 +644,33 @@ main {
 .step {
   position: relative;
   margin: 0 !important;
-  padding: 0 0 1.25rem 2.75rem;
+  padding: 0 0 1.5rem 3.1rem;
   counter-increment: step;
 }
 
 .step::before {
-  content: counter(step);
+  content: counter(step, decimal-leading-zero);
   position: absolute;
   left: 0;
-  top: 0;
-  width: 1.75rem;
-  height: 1.75rem;
-  border: 1.5px solid var(--accent);
-  border-radius: 50%;
-  background: var(--bg);
-  color: var(--accent);
-  font-size: 0.85rem;
-  font-weight: 700;
-  line-height: 1.55rem;
+  top: 0.1rem;
+  width: 2.1rem;
+  height: 1.6rem;
+  border-radius: 0.25rem;
+  background: var(--clay);
+  box-shadow: var(--edge);
+  color: var(--on-accent);
+  font: 800 0.75rem/1.6rem var(--mono);
+  letter-spacing: 0.04em;
   text-align: center;
 }
 
 .step:not(:last-child)::after {
   content: '';
   position: absolute;
-  left: calc(0.875rem - 0.5px);
-  top: 1.75rem;
-  bottom: 0;
-  border-left: 1px solid var(--border);
+  left: calc(1.05rem - 0.5px);
+  top: 2.2rem;
+  bottom: 0.3rem;
+  border-left: 1px dashed var(--rule);
 }
 
 .step-title {
@@ -509,19 +685,21 @@ main {
 .ops {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-  gap: 0.6rem;
-  margin: 0 0 1.4rem;
+  gap: 0.75rem;
+  margin: 0 0 1.6rem;
 }
 
 .op {
-  padding: 0.7rem 0.9rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.5rem;
+  background: var(--board);
+  box-shadow: 0 3px 0 var(--ink-edge);
 }
 
 .op dt {
   color: var(--text-2);
-  font-size: 0.8rem;
+  font-size: 0.64rem;
 }
 
 .op dd {
@@ -530,7 +708,7 @@ main {
 
 .op .cost {
   display: block;
-  font: 600 1.25rem/1.4 var(--mono);
+  font: 800 1.25rem/1.5 var(--mono);
 }
 
 .op .kind,
@@ -545,19 +723,19 @@ main {
 .op .kind i {
   width: 0.5rem;
   height: 0.5rem;
-  border-radius: 50%;
+  transform: rotate(45deg);
 }
 
 .op .kind .good {
-  background: #0ca30c;
+  background: var(--series-3);
 }
 
 .op .kind .ok {
-  background: #fab219;
+  background: var(--series-4);
 }
 
 .op .kind .bad {
-  background: #d03b3b;
+  background: var(--clay);
 }
 
 .op .op-note {
@@ -567,16 +745,29 @@ main {
 /* ---------- Diagrams ---------- */
 
 .viz {
-  margin: 0 0 1.4rem;
+  margin: 0 0 1.6rem;
 }
 
+/* Every diagram sits on a floating board with a ruler along its top edge. */
 .viz-scroll {
-  padding: 1rem;
+  position: relative;
+  padding: 1.6rem 1rem 1rem;
   overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--bg-soft);
+  border-radius: var(--radius);
+  background: var(--board);
+  box-shadow: var(--float);
   text-align: center;
+}
+
+.viz-scroll::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 0.55rem;
+  background:
+    repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 40px) 12px 0 / 100% 0.55rem no-repeat,
+    repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 8px) 12px 0 / 100% 0.3rem no-repeat;
+  opacity: 0.8;
 }
 
 .viz-svg {
@@ -589,7 +780,7 @@ main {
 }
 
 .viz figcaption {
-  margin-top: 0.5rem;
+  margin-top: 0.7rem;
   color: var(--text-2);
   font-size: 0.85rem;
   line-height: 1.5;
@@ -609,7 +800,7 @@ main {
 
 .v-text {
   font-size: 14px;
-  font-weight: 550;
+  font-weight: 600;
 }
 
 .viz-svg .v-small {
@@ -618,13 +809,13 @@ main {
 }
 
 .viz-svg .v-label {
-  fill: var(--alt);
-  font: 600 12px var(--mono);
+  fill: var(--accent);
+  font: 700 12px var(--mono);
 }
 
 .v-node rect {
   fill: var(--viz-fill);
-  stroke: var(--viz-stroke);
+  stroke: var(--ink-edge);
   stroke-width: 1.5;
 }
 
@@ -635,27 +826,31 @@ main {
 }
 
 .v-node.hl rect {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
-  stroke-width: 2;
+  fill: var(--clay);
+  stroke: var(--ink-edge);
+  stroke-width: 1.5;
+}
+
+.viz-svg .v-node.hl text {
+  fill: var(--on-accent);
 }
 
 .v-node.alt rect {
   fill: var(--alt-soft);
-  stroke: var(--alt);
-  stroke-width: 2;
+  stroke: var(--ink-edge);
+  stroke-width: 2.5;
 }
 
 .v-node.hl line {
-  stroke: var(--accent);
+  stroke: var(--ink-edge);
 }
 
 .v-node.alt line {
-  stroke: var(--alt);
+  stroke: var(--ink-edge);
 }
 
 .v-node.rb-red rect {
-  fill: #c93a3a;
+  fill: #c9442f;
 }
 
 .v-node.rb-black rect {
@@ -677,11 +872,12 @@ main {
 
 .v-node.empty rect {
   fill: none;
+  stroke: var(--viz-stroke);
   stroke-dasharray: 4 3;
 }
 
 .v-edge.on {
-  stroke: var(--accent);
+  stroke: var(--clay);
   stroke-width: 2.5;
 }
 
@@ -697,14 +893,14 @@ main {
 }
 
 .c-grid {
-  stroke: var(--border);
+  stroke: var(--rule);
   stroke-width: 1;
 }
 
 .viz-svg .c-tick,
 .viz-svg .c-title {
   fill: var(--text-2);
-  font-size: 11px;
+  font: 11px var(--mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -713,20 +909,19 @@ main {
 }
 
 .viz-svg .c-label {
-  font-size: 12px;
-  font-weight: 600;
+  font: 700 11px var(--mono);
   text-anchor: start;
 }
 
 .c-line {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 2.25;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .c-end {
-  stroke: var(--bg-soft);
+  stroke: var(--board);
   stroke-width: 2;
 }
 
@@ -746,28 +941,38 @@ main {
 /* ---------- Page footer ---------- */
 
 .page-footer {
-  margin-top: 3.5rem;
+  margin-top: 4rem;
 }
 
 .pager {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.75rem;
+  gap: 0.9rem;
 }
 
 .pager a {
   display: flex;
   flex-direction: column;
-  padding: 0.8rem 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
+  gap: 0.15rem;
+  padding: 0.85rem 1.05rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.55rem;
+  background: var(--board);
+  box-shadow: 0 3px 0 var(--ink-edge);
   color: var(--text);
-  font-weight: 600;
+  font-weight: 650;
   text-decoration: none;
+  transition: transform 0.08s, box-shadow 0.08s;
 }
 
 .pager a:hover {
-  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--ink-edge);
+}
+
+.pager a:active {
+  transform: translateY(3px);
+  box-shadow: none;
 }
 
 .pager a[rel='next'] {
@@ -776,61 +981,86 @@ main {
 }
 
 .pager small {
-  color: var(--text-3);
-  font-weight: 400;
+  color: var(--accent);
+  font-size: 0.64rem;
 }
 
 .edit {
   display: inline-block;
   margin-top: 1.5rem;
   color: var(--text-3);
-  font-size: 0.85rem;
+  font: 600 0.7rem var(--mono);
+  letter-spacing: 0.01em;
 }
 
 /* ---------- Home ---------- */
 
 .page.home {
-  grid-template-columns: minmax(0, 62rem);
+  grid-template-columns: minmax(0, 66rem);
+  padding-top: 2rem;
 }
 
 .hero {
-  max-width: 40rem;
-  margin-bottom: 3rem;
+  max-width: 42rem;
+  margin-bottom: 3.5rem;
+}
+
+.hero h1 {
+  font-size: 2.6rem;
+  line-height: 1.08;
 }
 
 .hero p {
-  margin: 0 0 1.5rem;
+  margin: 0 0 1.6rem;
   color: var(--text-2);
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   line-height: 1.55;
 }
 
 .hero .progress {
-  margin: 1.25rem 0 0;
+  margin: 1.4rem 0 0;
   color: var(--text-3);
-  font-size: 0.85rem;
+  font: 600 0.75rem var(--mono);
 }
 
 .cta {
-  display: inline-block;
-  padding: 0.6rem 1.1rem;
-  border-radius: 0.6rem;
-  background: var(--accent);
-  color: var(--bg);
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1.2rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.5rem;
+  background: var(--clay);
+  box-shadow: 0 3px 0 var(--ink-edge);
+  color: var(--on-accent);
+  font: 700 0.8rem var(--mono);
+  letter-spacing: 0.01em;
   text-decoration: none;
+  transition: transform 0.08s, box-shadow 0.08s;
+}
+
+.cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 0 var(--ink-edge);
+}
+
+.cta:active {
+  transform: translateY(3px);
+  box-shadow: none;
 }
 
 .contents {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+  gap: 1.25rem;
 }
 
 .part {
-  padding: 1.25rem 1.4rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
+  position: relative;
+  padding: 1.4rem 1.4rem 1.2rem;
+  border-radius: var(--radius);
+  background: var(--board);
+  box-shadow: var(--float);
 }
 
 .part h2 {
@@ -838,28 +1068,26 @@ main {
   align-items: baseline;
   gap: 0.6rem;
   margin: 0;
-  font-size: 1.15rem;
-  line-height: 1.3;
+  font: 700 1rem/1.3 var(--mono);
+  letter-spacing: 0.01em;
 }
 
 .part .num {
-  color: var(--text-3);
-  font: 400 0.85rem var(--mono);
+  color: var(--clay);
+  font: 800 0.8rem var(--mono);
 }
 
 .part .summary {
-  margin: 0.25rem 0 0;
+  margin: 0.4rem 0 0;
   color: var(--text-2);
   font-size: 0.875rem;
   line-height: 1.5;
 }
 
 .part h3 {
-  margin: 1rem 0 0.2rem;
+  margin: 1.1rem 0 0.25rem;
   color: var(--text-3);
-  font-size: 0.7rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.64rem;
 }
 
 .part ul {
@@ -867,7 +1095,17 @@ main {
   padding: 0;
   list-style: none;
   font-size: 0.9rem;
-  line-height: 1.75;
+  line-height: 1.8;
+}
+
+.part a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.part a:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 /* ---------- Search ---------- */
@@ -877,21 +1115,23 @@ main {
   max-height: min(36rem, calc(100vh - 6rem));
   margin-top: 4.5rem;
   padding: 1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  background: var(--bg);
+  border: 1.5px solid var(--ink-edge);
+  border-radius: var(--radius);
+  background: var(--board);
+  box-shadow: 0 4px 0 var(--ink-edge), 0 30px 60px -20px rgb(0 0 0 / 0.4);
   color: var(--text);
   --pagefind-ui-scale: 0.8;
   --pagefind-ui-primary: var(--accent);
   --pagefind-ui-text: var(--text);
-  --pagefind-ui-background: var(--bg);
+  --pagefind-ui-background: var(--board);
   --pagefind-ui-border: var(--border);
   --pagefind-ui-tag: var(--bg-soft);
   --pagefind-ui-font: var(--font);
 }
 
 .search-dialog::backdrop {
-  background: rgb(0 0 0 / 0.45);
+  background: rgb(30 25 20 / 0.4);
+  backdrop-filter: blur(2px);
 }
 
 .search-fallback {
@@ -913,17 +1153,25 @@ main {
 }
 
 @media (max-width: 56rem) {
+  .sort-demo {
+    --stage-h: 16rem;
+  }
+
   main {
     margin-left: 0;
   }
 
   .page {
-    padding: 1.5rem 1.1rem 3rem;
+    padding: 1.75rem 1.1rem 3rem;
   }
 
   .prose h1,
   .hero h1 {
-    font-size: 1.8rem;
+    font-size: 1.75rem;
+  }
+
+  .brand-name {
+    display: none;
   }
 
   .menu-btn {
@@ -959,7 +1207,7 @@ main {
     position: fixed;
     inset: var(--topbar-h) 0 0 0;
     z-index: 15;
-    background: rgb(0 0 0 / 0.4);
+    background: rgb(30 25 20 / 0.4);
   }
 }
 
@@ -998,12 +1246,11 @@ main {
 
 .player {
   display: block;
-  margin: 0 0 1.4rem;
-  border-radius: 0.6rem;
+  margin: 0 0 1.6rem;
 }
 
 .frame .viz {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.6rem;
 }
 
 .frame-caption {
@@ -1035,13 +1282,14 @@ main {
 .controls {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 .controls[hidden] {
   display: none;
 }
 
+/* Controls are tiles: an ink edge underneath that they press down onto. */
 .controls button,
 .playground button {
   display: inline-flex;
@@ -1049,37 +1297,90 @@ main {
   justify-content: center;
   min-width: 2.1rem;
   height: 2.1rem;
-  padding: 0 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg);
+  padding: 0 0.65rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.4rem;
+  background: var(--board);
+  box-shadow: var(--edge);
   color: var(--text);
-  font: inherit;
-  font-size: 0.85rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
   cursor: pointer;
+  transition: transform 0.06s, box-shadow 0.06s, background 0.12s;
+}
+
+.controls button {
+  font-size: 0.66rem;
 }
 
 .controls button:hover,
 .playground button:hover {
-  border-color: var(--accent);
+  background: var(--bg-soft);
   color: var(--accent);
 }
 
-.controls .play {
-  min-width: 4.5rem;
-  font-weight: 600;
+.controls button:active,
+.playground button:active {
+  transform: translateY(2px);
+  box-shadow: none;
 }
 
-.controls input {
+.controls .play {
+  min-width: 5rem;
+  background: var(--clay);
+  color: var(--on-accent);
+}
+
+.controls .play:hover {
+  background: color-mix(in srgb, var(--clay) 88%, black);
+  color: var(--on-accent);
+}
+
+/* The scrubber is a timeline: a ruler with a clay playhead. */
+.controls input[type='range'] {
   flex: 1;
   min-width: 3rem;
-  accent-color: var(--accent);
+  height: 1.6rem;
+  margin: 0 0.25rem;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.controls input[type='range']::-webkit-slider-runnable-track {
+  height: 0.6rem;
+  border-bottom: 1.5px solid var(--ink-edge);
+  background: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 6px);
+}
+
+.controls input[type='range']::-moz-range-track {
+  height: 0.6rem;
+  border-bottom: 1.5px solid var(--ink-edge);
+  background: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 6px);
+}
+
+.controls input[type='range']::-webkit-slider-thumb {
+  width: 0.7rem;
+  height: 1.3rem;
+  margin-top: -0.35rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.15rem;
+  background: var(--clay);
+  appearance: none;
+}
+
+.controls input[type='range']::-moz-range-thumb {
+  width: 0.7rem;
+  height: 1.3rem;
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.15rem;
+  background: var(--clay);
 }
 
 .controls .count {
-  min-width: 3.2rem;
+  min-width: 3.6rem;
   color: var(--text-2);
-  font-size: 0.8rem;
+  font: 700 0.72rem var(--mono);
   font-variant-numeric: tabular-nums;
   text-align: right;
 }
@@ -1088,11 +1389,11 @@ main {
 
 .playground {
   display: block;
-  margin: 0 0 1.4rem;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--bg-soft);
+  margin: 0 0 1.6rem;
+  padding: 1.1rem 1.2rem;
+  border-radius: var(--radius);
+  background: var(--board);
+  box-shadow: var(--float);
 }
 
 .playground label {
@@ -1108,11 +1409,15 @@ main {
   min-width: 0;
   height: 2.4rem;
   padding: 0 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
-  background: var(--bg);
+  border: 1.5px solid var(--ink-edge);
+  border-radius: 0.4rem;
+  background: var(--bg-soft);
   color: var(--text);
   font: 1rem var(--mono);
+}
+
+.playground input:focus-visible {
+  outline-offset: 0;
 }
 
 .playground .tries {
@@ -1185,21 +1490,61 @@ main {
 
 .sort-demo {
   display: block;
-  margin: 0 0 1.4rem;
-  border-radius: 0.6rem;
-  --bar: light-dark(#c4c1b8, #5a5852);
+  margin: 0 0 1.6rem;
+  --bar: light-dark(#e2ded6, #3a3833);
+  --bar-moved: light-dark(#efb49b, #f0a888);
+  --bar-sorted: light-dark(#2b2a27, #5b5852);
+  --stage-h: 20rem;
 }
 
+/* The 3D stage stands on the page itself, with no board around it. */
+.sort-stage {
+  position: relative;
+  height: var(--stage-h);
+  margin: -0.5rem -1rem 0;
+}
+
+.sort-stage[hidden] {
+  display: none;
+}
+
+.sort-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.sort-stage canvas:active {
+  cursor: grabbing;
+}
+
+.stage-hint {
+  position: absolute;
+  right: 1rem;
+  bottom: 0.25rem;
+  margin: 0 !important;
+  color: var(--text-3);
+  font: 700 0.62rem var(--mono);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}
+
+.sort-demo[data-stage] .bars {
+  display: none;
+}
+
+/* Flat fallback when there is no WebGL: bars on a board, the same height. */
 .bars {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 0.4rem;
-  height: 13rem;
-  padding: 1rem 1rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 0.6rem;
-  background: var(--bg-soft);
+  gap: 0.5rem;
+  height: var(--stage-h);
+  padding: 1.6rem 1.25rem 0.75rem;
+  border-radius: var(--radius);
+  background: var(--board);
+  box-shadow: var(--float);
 }
 
 .bar {
@@ -1215,6 +1560,7 @@ main {
 .bar i {
   height: calc(var(--h) - 1.5rem);
   min-height: 0.4rem;
+  border: 1.5px solid var(--ink-edge);
   border-radius: 4px 4px 0 0;
   background: var(--bar);
   transition: height 0.18s ease;
@@ -1222,7 +1568,7 @@ main {
 
 .bar span {
   height: 1.5rem;
-  font: 600 0.85rem/1.6rem var(--mono);
+  font: 700 0.85rem/1.6rem var(--mono);
 }
 
 .bar.out {
@@ -1230,19 +1576,19 @@ main {
 }
 
 .bar.sorted i {
-  background: var(--series-3);
+  background: var(--bar-sorted);
 }
 
 .bar.pivot i {
-  background: var(--text-2);
+  background: repeating-linear-gradient(45deg, var(--clay) 0 3px, var(--bar) 3px 7px);
 }
 
 .bar.compare i {
-  background: var(--accent);
+  background: var(--clay);
 }
 
 .bar.moved i {
-  background: var(--alt);
+  background: var(--bar-moved);
 }
 
 .bar.sorted,
@@ -1274,9 +1620,10 @@ main {
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.25rem 1.5rem;
-  margin: 0.6rem 0 0 !important;
+  margin: 0.75rem 0 0 !important;
   color: var(--text-2);
-  font-size: 0.8rem;
+  font: 600 0.68rem var(--mono);
+  letter-spacing: 0.01em;
 }
 
 .sort-meta .stats,
@@ -1315,6 +1662,29 @@ main {
 
 .legend .k-pivot::before {
   background: var(--text-2);
+}
+
+.sort-demo .legend span::before {
+  border: 1.5px solid var(--ink-edge);
+}
+
+.sort-demo .legend .k-compare::before {
+  background: var(--clay);
+}
+
+.sort-demo .legend .k-moved::before {
+  background: var(--bar-moved);
+}
+
+.sort-demo .legend .k-sorted::before {
+  background: var(--bar-sorted);
+}
+
+.sort-demo .legend .k-pivot::before {
+  width: 1rem;
+  border-color: var(--clay);
+  background: var(--clay);
+  border-radius: 1px;
 }
 
 /* ---------- Graph demo ---------- */
@@ -2306,8 +2676,7 @@ main {
   color: var(--text-2);
   font-size: 0.78rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .interleave .readouts {
