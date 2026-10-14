@@ -66,6 +66,15 @@ export function decodesTo(code: Code, word: string): string | null {
 
 export type Outcome = 'intact' | 'corrected' | 'detected' | 'undetected' | 'miscorrected';
 
+/** How each outcome is coloured in a plate's verdict line. */
+export const tone: Record<Outcome, string> = {
+  intact: 'neutral',
+  corrected: 'good',
+  detected: 'warn',
+  undetected: 'bad',
+  miscorrected: 'bad',
+};
+
 export interface Verdict {
   outcome: Outcome;
   decoded: string | null;

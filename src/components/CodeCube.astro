@@ -1,7 +1,7 @@
 ---
 // Three-bit codes on a cube, in 3D. Corners are words, edges are single bit
 // flips, and walking from the sent word to the received one counts the damage.
-import { codes, judge, type CodeId } from '../lib/code-cube';
+import { codes, judge, tone, type CodeId } from '../lib/code-cube';
 
 interface Props {
   code?: CodeId;
@@ -32,10 +32,10 @@ const bits = [1, 2, 3];
   {
     variant === 'figure' ? (
       <div class="plate-panel">
-        <div class="cc-col">
-          <div class="cc-group" role="group" aria-label="Code">
-            <span class="cc-caption">Code</span>
-            <div class="cc-segments">
+        <div class="plate-col">
+          <div class="plate-group" role="group" aria-label="Code">
+            <span class="plate-caption">Code</span>
+            <div class="plate-buttons">
               {Object.values(codes).map((c) => (
                 <button type="button" data-code={c.id} aria-pressed={String(c.id === start)}>
                   {c.name}
@@ -43,18 +43,18 @@ const bits = [1, 2, 3];
               ))}
             </div>
           </div>
-          <p class="cc-summary" data-out="summary">{code.summary}</p>
-          <dl class="cc-facts">
+          <p class="plate-note" data-out="summary">{code.summary}</p>
+          <dl class="plate-facts">
             <div><dt>Codewords</dt><dd data-out="count">{code.words.length}</dd></div>
             <div><dt>Minimum distance</dt><dd data-out="distance">{code.distance}</dd></div>
             <div><dt>Rate</dt><dd data-out="rate">{code.dataBits}/3</dd></div>
           </dl>
         </div>
 
-        <div class="cc-col">
-          <div class="cc-group" role="group" aria-label="Send a codeword">
-            <span class="cc-caption">Send</span>
-            <div class="cc-words" data-out="words" data-shows={start}>
+        <div class="plate-col">
+          <div class="plate-group" role="group" aria-label="Send a codeword">
+            <span class="plate-caption">Send</span>
+            <div class="plate-buttons" data-out="words" data-shows={start}>
               {code.words.map((w) => (
                 <button type="button" class="word" data-send={w} aria-pressed={String(w === sent)}>
                   {w}
@@ -63,9 +63,9 @@ const bits = [1, 2, 3];
             </div>
           </div>
 
-          <div class="cc-group" role="group" aria-label="Flip a bit in transit">
-            <span class="cc-caption">Flip in transit</span>
-            <div class="cc-flips">
+          <div class="plate-group" role="group" aria-label="Flip a bit in transit">
+            <span class="plate-caption">Flip in transit</span>
+            <div class="plate-buttons">
               {bits.map((b) => (
                 <button type="button" class={`flip b${b}`} data-flip={b - 1}>
                   Bit {b}
@@ -75,22 +75,22 @@ const bits = [1, 2, 3];
             </div>
           </div>
 
-          <dl class="cc-readout">
+          <dl class="plate-facts">
             <div><dt>Sent</dt><dd class="word" data-out="sent">{sent}</dd></div>
             <div><dt>Received</dt><dd class="word" data-out="received">{sent}</dd></div>
             <div><dt>Bits flipped</dt><dd data-out="flips">0</dd></div>
           </dl>
         </div>
-        <p class="cc-verdict" data-out="verdict" data-outcome={verdict.outcome} aria-live="polite">{verdict.text}</p>
+        <p class="plate-verdict" data-out="verdict" data-tone={tone[verdict.outcome]} aria-live="polite">{verdict.text}</p>
       </div>
     ) : (
-      <p class="cc-verdict hero-caption" data-out="verdict" data-outcome={verdict.outcome}>{verdict.text}</p>
+      <p class="plate-verdict hero-caption" data-out="verdict" data-tone={tone[verdict.outcome]}>{verdict.text}</p>
     )
   }
 </code-cube>
 
 <script>
-  import { codes, flip, judge, walk, type CodeId } from '../lib/code-cube';
+  import { codes, flip, judge, tone, walk, type CodeId } from '../lib/code-cube';
   import type { CodeCubeScene } from '../lib/code-cube-scene';
 
   // The hero loop: each line is a code, a word to send, and the bits to flip.
@@ -225,7 +225,7 @@ const bits = [1, 2, 3];
       }
       const v = out('verdict')!;
       v.textContent = verdict.text;
-      v.dataset.outcome = verdict.outcome;
+      v.dataset.tone = tone[verdict.outcome];
 
       this.scene?.set({ code, sent, path: this.path, decoded: verdict.decoded, outcome: verdict.outcome });
     }
