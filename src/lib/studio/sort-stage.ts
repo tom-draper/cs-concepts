@@ -179,7 +179,7 @@ export class SortStage {
       world.add(sprite);
     }
 
-    this.tag = makeTag(pivotLabel?.toUpperCase() ?? 'PIVOT', palette, { width: 0.62, pole: 0.28 });
+    this.tag = makeTag(pivotLabel ?? 'pivot', palette, { width: 0.62, pole: 0.28 });
     this.tag.group.visible = false;
     world.add(this.tag.group);
 

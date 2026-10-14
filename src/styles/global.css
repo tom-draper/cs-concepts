@@ -121,7 +121,7 @@ pre {
   outline-offset: 2px;
 }
 
-/* The house label: bold monospace capitals, tracked out. */
+/* The house label: bold monospace, set a little smaller than the text. */
 .label,
 .brand-name,
 .eyebrow,
@@ -137,8 +137,7 @@ pre {
 .search-btn {
   font-family: var(--mono);
   font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 /* A small clay flag, like a playhead marker. */
@@ -149,7 +148,7 @@ pre {
   background: var(--clay);
   color: var(--on-accent);
   font: 700 0.68rem/1.4 var(--mono);
-  letter-spacing: 0.06em;
+  letter-spacing: 0.01em;
 }
 
 /* ---------- Top bar ---------- */
@@ -199,7 +198,7 @@ pre {
   box-shadow: var(--edge);
   color: var(--on-accent);
   font: 800 0.8rem var(--mono);
-  letter-spacing: 0.08em;
+  letter-spacing: 0.01em;
 }
 
 .brand-name {
@@ -484,9 +483,8 @@ main {
 .prose h1,
 .hero h1 {
   margin: 0 0 0.9rem;
-  font: 800 2.3rem/1.1 var(--mono);
+  font: 700 2.3rem/1.1 var(--mono);
   letter-spacing: -0.01em;
-  text-transform: uppercase;
 }
 
 .lede {
@@ -508,9 +506,8 @@ main {
   margin: 3.25rem 0 0.9rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--rule);
-  font: 800 1.15rem/1.3 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font: 700 1.15rem/1.3 var(--mono);
+  letter-spacing: 0.01em;
   counter-increment: section;
 }
 
@@ -592,8 +589,7 @@ main {
   border-bottom: 2px solid var(--ink-edge);
   color: var(--text-2);
   font: 700 0.7rem var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .prose blockquote {
@@ -994,8 +990,7 @@ main {
   margin-top: 1.5rem;
   color: var(--text-3);
   font: 600 0.7rem var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 /* ---------- Home ---------- */
@@ -1025,9 +1020,7 @@ main {
 .hero .progress {
   margin: 1.4rem 0 0;
   color: var(--text-3);
-  font: 600 0.7rem var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font: 600 0.75rem var(--mono);
 }
 
 .cta {
@@ -1040,10 +1033,9 @@ main {
   background: var(--clay);
   box-shadow: 0 3px 0 var(--ink-edge);
   color: var(--on-accent);
-  font: 800 0.8rem var(--mono);
-  letter-spacing: 0.08em;
+  font: 700 0.8rem var(--mono);
+  letter-spacing: 0.01em;
   text-decoration: none;
-  text-transform: uppercase;
   transition: transform 0.08s, box-shadow 0.08s;
 }
 
@@ -1076,9 +1068,8 @@ main {
   align-items: baseline;
   gap: 0.6rem;
   margin: 0;
-  font: 800 1rem/1.3 var(--mono);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font: 700 1rem/1.3 var(--mono);
+  letter-spacing: 0.01em;
 }
 
 .part .num {
@@ -1535,8 +1526,7 @@ main {
   margin: 0 !important;
   color: var(--text-3);
   font: 700 0.62rem var(--mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
   pointer-events: none;
 }
 
@@ -1633,8 +1623,7 @@ main {
   margin: 0.75rem 0 0 !important;
   color: var(--text-2);
   font: 600 0.68rem var(--mono);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .sort-meta .stats,
@@ -2687,8 +2676,7 @@ main {
   color: var(--text-2);
   font-size: 0.78rem;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+  letter-spacing: 0.01em;
 }
 
 .interleave .readouts {
