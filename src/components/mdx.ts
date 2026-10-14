@@ -60,6 +60,7 @@ import BloomDemo from './BloomDemo.astro';
 import BitwiseDemo from './BitwiseDemo.astro';
 import BranchDemo from './BranchDemo.astro';
 import CacheDemo from './CacheDemo.astro';
+import CacheHierarchy from './CacheHierarchy.astro';
 import ChannelDemo from './ChannelDemo.astro';
 import CountingDemo from './CountingDemo.astro';
 import CountMinDemo from './CountMinDemo.astro';
@@ -169,6 +170,7 @@ export const components = {
   AdderDemo,
   BranchDemo,
   CacheDemo,
+  CacheHierarchy,
   CpuDemo,
   GateDemo,
   Gates,
