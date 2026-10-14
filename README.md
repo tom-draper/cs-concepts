@@ -213,12 +213,17 @@ The information and coding pages use `<EntropyDemo />`, `<HuffmanDemo />`, `<LzD
 `<ChecksumDemo />` and `<HammingDemo />`, backed by `src/lib/information.ts`. The first
 four take a `text` prop for their starting input.
 
-`<CodeCube />` is the first 3D figure: 3-bit codes drawn on a cube with three.js, where
-each edge is one bit flip. The code logic is in `src/lib/code-cube.ts` and the scene in
-`src/lib/code-cube-scene.ts`. It takes `code="none|parity|repeat"`, and the home page
-uses `variant="hero"`, which plays a short loop without controls. 3D figures sit in a
-dark `.plate`, and their colours come from the `--plate*` and `--bit-*` tokens in
-`global.css`.
+3D figures are drawn with three.js. Each has a model in `src/lib/<name>.ts` and a scene
+in `src/lib/<name>-scene.ts` that extends `PlateScene` from `src/lib/plate-scene.ts`,
+which handles the renderer, bloom, orbit controls, HTML labels and pausing off screen.
+They sit in a dark `.plate`, share the `.plate-*` panel classes, and take their colours
+from the `--plate*` and `--bit-*` tokens in `global.css`.
+
+- `<CodeCube />` draws 3-bit codes on a cube, where each edge is one bit flip. It takes
+  `code="none|parity|repeat"`, and the home page uses `variant="hero"`, which plays a
+  short loop without controls.
+- `<CacheHierarchy />` stands the core, L1, L2, L3 and RAM in a row, farther for slower,
+  and plays access patterns through them a line at a time.
 
 The data-representation pages have four small widgets, all backed by
 `src/lib/bits.ts`: `<BitsDemo value={65} signed step />` (flip bits, read the
