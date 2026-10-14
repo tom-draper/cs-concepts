@@ -3709,9 +3709,9 @@ main {
   color: var(--plate-ink);
   font-size: 0.95rem;
   line-height: 1.5;
-  box-shadow:
-    inset 0 0 0 1px light-dark(transparent, var(--plate-line)),
-    0 24px 48px -28px rgb(13 20 36 / 0.55);
+  outline: 1px solid light-dark(transparent, var(--plate-line));
+  outline-offset: -1px;
+  box-shadow: 0 24px 48px -28px rgb(13 20 36 / 0.55);
 }
 
 .prose .plate {
