@@ -234,15 +234,15 @@ and `{ k, c }` is a node with children.
 
 ### 3D scenes
 
-The home page hero and the sorting demo are three.js scenes built on
-`src/lib/studio/`:
+The sorting demo is a three.js scene built on `src/lib/studio/`, which other
+demos can reuse:
 
 | File | What it is |
 | --- | --- |
 | `studio.ts` | The shared set: transparent canvas, lights, floating board, ruler, clay tag flags, drag-to-orbit, theme sync. Rendering pauses off screen. |
 | `motion.ts` | Pure easing helpers for the animation principles: anticipation, squash and stretch, arcs, overshoot and follow-through. |
 | `support.ts` | WebGL and font checks that run before three.js loads. |
-| `hero.ts`, `sort-stage.ts` | The two scenes. |
+| `sort-stage.ts` | The sorting scene. |
 
 three.js is loaded with a dynamic `import()` only after the WebGL check passes,
 so other pages never download it. Scenes read their colours from the CSS tokens
@@ -252,7 +252,7 @@ and respect `prefers-reduced-motion`.
 
 The look is a warm, white photo studio: an off-white set, floating boards with
 soft shadows, hard-edged ink tiles for controls, one clay accent (`#d97757`) and
-labels in bold, tracked-out JetBrains Mono capitals. Section headings and the
+labels in bold JetBrains Mono. Section headings and the
 table of contents carry a `◇ 01` index. The tokens are at the top of
 `src/styles/global.css`.
 

@@ -1006,45 +1006,13 @@ main {
 }
 
 .hero {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
-  align-items: center;
-  gap: 1rem;
+  max-width: 42rem;
   margin-bottom: 3.5rem;
 }
 
-.hero-copy {
-  position: relative;
-  z-index: 1;
-}
-
-.hero .index {
-  margin: 0 0 1.6rem;
-  padding: 0;
-  list-style: none;
-  color: var(--text-2);
-  font: 800 0.95rem/2 var(--mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.hero .index li::before {
-  content: '◇ ';
-}
-
-.hero .index b {
-  color: var(--clay);
-}
-
 .hero h1 {
-  font-size: 2.9rem;
-  line-height: 1.02;
-}
-
-.hero h1 em {
-  color: var(--clay);
-  font-style: normal;
+  font-size: 2.6rem;
+  line-height: 1.08;
 }
 
 .hero p {
@@ -1059,35 +1027,6 @@ main {
   color: var(--text-3);
   font: 600 0.7rem var(--mono);
   letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.hero-stage {
-  position: relative;
-  aspect-ratio: 1.15;
-  min-height: 20rem;
-}
-
-.hero-stage canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  cursor: grab;
-}
-
-.hero-stage canvas:active {
-  cursor: grabbing;
-}
-
-.hero-stage .stage-hint {
-  position: absolute;
-  right: 0.5rem;
-  bottom: 0.25rem;
-  margin: 0;
-  color: var(--text-3);
-  font: 700 0.62rem var(--mono);
-  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -1219,18 +1158,6 @@ main {
 
   .toc {
     display: none;
-  }
-}
-
-@media (max-width: 64rem) {
-  .hero {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .hero-stage {
-    order: -1;
-    min-height: 16rem;
-    margin: -1rem 0 -1.5rem;
   }
 }
 

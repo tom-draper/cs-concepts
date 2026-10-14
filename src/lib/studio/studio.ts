@@ -1,6 +1,6 @@
 // The shared three.js "studio": a transparent canvas showing a floating white
 // board, lit like a product shot, with a soft shadow on the set below. Scenes
-// (the home hero, the sorting demo) build on top of it.
+// (such as the sorting demo) build on top of it.
 //
 // The canvas is transparent so the page background, and its grain, show
 // through. Colours come from the site's CSS custom properties so the scene
