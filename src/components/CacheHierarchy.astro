@@ -1,0 +1,227 @@
+---
+// The memory hierarchy in 3D. Pick an access pattern and watch each read travel
+// out to the nearest level that has its line, and the line travel back.
+import { levels, patterns } from '../lib/cache-hierarchy';
+
+const pattern = patterns[0];
+---
+
+<cache-hierarchy class="plate cache-hierarchy">
+  <div class="plate-stage">
+    <div
+      class="plate-canvas"
+      role="img"
+      aria-label="A processor core with three caches and main memory standing in a row, each farther away and slower than the last. Reads travel out until a level has the data, and the whole line is copied back into every faster level."
+    >
+    </div>
+    <div class="plate-labels" aria-hidden="true"></div>
+    <p class="plate-hint">Drag to turn. Click any word to read it. Farther away means slower.</p>
+    <p class="plate-fallback" hidden>This figure needs WebGL to draw. The controls and readout still work.</p>
+  </div>
+
+  <div class="plate-panel">
+    <div class="plate-col">
+      <div class="plate-group" role="group" aria-label="Access pattern">
+        <span class="plate-caption">Access pattern</span>
+        <div class="plate-buttons">
+          {
+            patterns.map((p) => (
+              <button type="button" data-pattern={p.id} aria-pressed={String(p.id === pattern.id)}>
+                {p.name}
+              </button>
+            ))
+          }
+        </div>
+      </div>
+      <p class="plate-note" data-out="summary">{pattern.summary}</p>
+      <div class="plate-group" role="group" aria-label="Playback">
+        <span class="plate-caption">Playback</span>
+        <div class="plate-buttons">
+          <button type="button" class="primary" data-act="play">Play</button>
+          <button type="button" data-act="step">Step</button>
+          <button type="button" data-act="finish">Run to the end</button>
+          <button type="button" data-act="fast" aria-pressed="false">Fast</button>
+          <button type="button" class="undo" data-act="reset">Empty the caches</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="plate-col">
+      <dl class="plate-facts">
+        <div><dt>Reads</dt><dd data-out="reads">0 of {pattern.words.length}</dd></div>
+        <div><dt>Cycles waiting</dt><dd data-out="cycles">0</dd></div>
+        <div><dt>Average per read</dt><dd data-out="average">none yet</dd></div>
+      </dl>
+      <div class="plate-group">
+        <span class="plate-caption">Served by</span>
+        <dl class="plate-facts served">
+          {
+            levels.map((l, i) => (
+              <div class={`lvl-${i}`}>
+                <dt>{l.name}</dt>
+                <dd data-out={`level-${i}`}>0</dd>
+              </div>
+            ))
+          }
+        </dl>
+        <div class="cache-strip" data-out="strip" aria-hidden="true"></div>
+      </div>
+    </div>
+
+    <p class="plate-verdict" data-out="verdict" data-tone="neutral" aria-live="polite">
+      Press Play to run the pattern, or Step through one read at a time.
+    </p>
+  </div>
+</cache-hierarchy>
+
+<script>
+  import { describe, Hierarchy, levels, patterns, RAM, totals, type Read } from '../lib/cache-hierarchy';
+  import type { CacheScene } from '../lib/cache-scene';
+
+  const tones = ['good', 'neutral', 'warn', 'bad'];
+
+  class CacheHierarchyFigure extends HTMLElement {
+    private hierarchy = new Hierarchy();
+    private pattern = patterns[0];
+    private next = 0;
+    private playing = false;
+    private fast = false;
+    private run = 0;
+    private scene?: CacheScene;
+    private reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    connectedCallback() {
+      this.addEventListener('click', (event) => {
+        const set = (event.target as HTMLElement).closest('button')?.dataset;
+        if (!set) return;
+        if (set.pattern) this.choose(set.pattern);
+        else if (set.act === 'play') this.playing ? this.pause() : this.play();
+        else if (set.act === 'step') {
+          this.pause();
+          if (this.next < this.pattern.words.length) this.read(this.pattern.words[this.next++], false);
+        } else if (set.act === 'finish') this.finish();
+        else if (set.act === 'fast') this.fast = !this.fast;
+        else if (set.act === 'reset') this.reset();
+        this.render();
+      });
+
+      // Three.js is only fetched once the figure is close to the screen.
+      const near = new IntersectionObserver(
+        async ([entry]) => {
+          if (!entry.isIntersecting) return;
+          near.disconnect();
+          try {
+            const { CacheScene } = await import('../lib/cache-scene');
+            this.scene = new CacheScene(
+              this.querySelector<HTMLElement>('.plate-canvas')!,
+              this.querySelector<HTMLElement>('.plate-labels')!,
+              {
+                reducedMotion: this.reduced,
+                interactive: true,
+                onPick: (word) => {
+                  this.pause();
+                  this.read(word, false);
+                  this.render();
+                },
+              },
+            );
+          } catch {
+            this.querySelector<HTMLElement>('.plate-fallback')!.hidden = false;
+            this.classList.add('no-webgl');
+          }
+        },
+        { rootMargin: '200px' },
+      );
+      near.observe(this);
+    }
+
+    disconnectedCallback() {
+      this.pause();
+      this.scene?.dispose();
+    }
+
+    private choose(id: string) {
+      this.pattern = patterns.find((p) => p.id === id)!;
+      this.reset();
+    }
+
+    private reset() {
+      this.pause();
+      this.hierarchy = new Hierarchy();
+      this.next = 0;
+      this.scene?.clear();
+    }
+
+    private pause() {
+      this.playing = false;
+      this.run++;
+    }
+
+    private async play() {
+      if (this.next >= this.pattern.words.length) this.reset();
+      this.playing = true;
+      const run = ++this.run;
+      while (this.run === run && this.next < this.pattern.words.length) {
+        await this.read(this.pattern.words[this.next++], false);
+        this.render();
+      }
+      if (this.run === run) this.playing = false;
+      this.render();
+    }
+
+    private finish() {
+      this.pause();
+      while (this.next < this.pattern.words.length) this.read(this.pattern.words[this.next++], true);
+    }
+
+    private read(word: number, instant: boolean): Promise<void> {
+      const read = this.hierarchy.read(word);
+      this.render();
+      if (this.scene) return this.scene.play(read, instant, this.fast);
+      // Without WebGL, still leave a beat between reads so Play can be followed.
+      return instant ? Promise.resolve() : new Promise((done) => setTimeout(done, this.fast ? 80 : 320));
+    }
+
+    private render() {
+      const out = (name: string) => this.querySelector<HTMLElement>(`[data-out="${name}"]`)!;
+      const log = this.hierarchy.log;
+      const sum = totals(log);
+      const last: Read | undefined = log.at(-1);
+
+      this.querySelectorAll<HTMLElement>('[data-pattern]').forEach((b) =>
+        b.setAttribute('aria-pressed', String(b.dataset.pattern === this.pattern.id)),
+      );
+      this.querySelector('[data-act="fast"]')!.setAttribute('aria-pressed', String(this.fast));
+      const done = this.next >= this.pattern.words.length;
+      this.querySelector('[data-act="play"]')!.textContent = this.playing ? 'Pause' : done ? 'Play again' : 'Play';
+
+      out('summary').textContent = this.pattern.summary;
+      out('reads').textContent = `${sum.reads}${sum.reads === this.next ? ` of ${this.pattern.words.length}` : ''}`;
+      out('cycles').textContent = sum.cycles.toLocaleString('en');
+      out('average').textContent = sum.reads ? `${(sum.cycles / sum.reads).toFixed(0)} cycles` : 'none yet';
+      sum.byLevel.forEach((n, i) => (out(`level-${i}`).textContent = String(n)));
+      out('strip').replaceChildren(
+        ...log.map((r) => {
+          const mark = document.createElement('i');
+          mark.className = `lvl-${r.servedBy}`;
+          return mark;
+        }),
+      );
+
+      const verdict = out('verdict');
+      if (last) {
+        verdict.textContent = describe(last);
+        verdict.dataset.tone = tones[last.servedBy];
+      } else {
+        verdict.textContent = 'Press Play to run the pattern, or Step through one read at a time.';
+        verdict.dataset.tone = 'neutral';
+      }
+      if (done && !this.playing && sum.reads && last && sum.reads === this.next) {
+        const ram = sum.byLevel[RAM];
+        verdict.textContent += ` Pattern finished: ${sum.byLevel[0]} of ${sum.reads} reads came from L1 and ${ram} from RAM, averaging ${(sum.cycles / sum.reads).toFixed(0)} cycles. Every read going to RAM would average ${levels[RAM].cycles}.`;
+      }
+    }
+  }
+
+  customElements.define('cache-hierarchy', CacheHierarchyFigure);
+</script>

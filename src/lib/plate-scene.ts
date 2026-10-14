@@ -126,8 +126,12 @@ export abstract class PlateScene {
     // Pull back on narrow, tall stages so the whole figure stays in view.
     this.camera.fov = w / h < 1 ? this.options.fov[1] : this.options.fov[0];
     this.camera.updateProjectionMatrix();
+    this.resized(w / h);
     this.kick();
   }
+
+  /** Called after the stage changes shape, for scenes that frame themselves. */
+  protected resized(_aspect: number) {}
 
   private start() {
     if (this.running) return;

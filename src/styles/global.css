@@ -38,6 +38,11 @@
   --plate-bit-3: #ffd54a;
   --plate-good: #7ef0b8;
   --plate-bad: #ff6b6b;
+  /* Memory levels, from fastest to slowest. */
+  --plate-lvl-0: #7ef0b8;
+  --plate-lvl-1: #c9ec7a;
+  --plate-lvl-2: #ffc46b;
+  --plate-lvl-3: #ff6b6b;
 
   /* Diagram ink. */
   --viz-fill: light-dark(#fbfcfa, #161d2c);
@@ -3969,6 +3974,91 @@ main {
   min-height: 4.6rem;
 }
 
+/* The memory hierarchy figure. */
+
+.cache-hierarchy .plate-stage {
+  aspect-ratio: 2 / 1;
+  min-height: 18rem;
+}
+
+.cache-level,
+.cache-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.cache-level {
+  display: grid;
+  justify-items: center;
+  line-height: 1.2;
+}
+
+.cache-level b {
+  font-size: 0.95rem;
+}
+
+.cache-level small {
+  color: var(--plate-ink-2);
+  font-size: 0.75rem;
+}
+
+.cache-status {
+  position: absolute;
+  left: 1.25rem;
+  bottom: 0.9rem;
+  color: var(--plate-ink);
+  font-size: 0.875rem;
+}
+
+.cache-hover {
+  margin-top: -1.4rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.4rem;
+  background: var(--plate-ink);
+  color: var(--plate);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.plate button.primary {
+  min-width: 5.5rem;
+  justify-content: center;
+  border-color: var(--plate-ink);
+}
+
+.plate-facts.served dt::before {
+  content: '';
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-right: 0.4rem;
+  border-radius: 2px;
+  background: var(--lvl);
+}
+
+.lvl-0 { --lvl: var(--plate-lvl-0); }
+.lvl-1 { --lvl: var(--plate-lvl-1); }
+.lvl-2 { --lvl: var(--plate-lvl-2); }
+.lvl-3 { --lvl: var(--plate-lvl-3); }
+
+.cache-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-height: 0.7rem;
+  margin-top: 0.35rem;
+}
+
+.cache-strip i {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  background: var(--lvl);
+}
+
 @media (max-width: 64rem) {
   .prose .plate {
     margin-inline: 0;
@@ -3984,6 +4074,10 @@ main {
   .plate-stage {
     aspect-ratio: 1;
     min-height: 0;
+  }
+
+  .cache-hierarchy .plate-stage {
+    aspect-ratio: 4 / 3;
   }
 
   .plate-panel {
